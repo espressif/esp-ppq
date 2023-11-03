@@ -137,7 +137,7 @@ class RuntimeCalibrationPass(QuantizationOptimizationPass):
             'more calibration steps is required, we strongly recommend you to prepare more calibration data '
             'and more calibration steps is preferred here. (at least 8)')
 
-        assert calib_steps <= 512, ('Calibration steps is too large, ppq can quantize your network within 8-512 '
+        assert calib_steps <= 5000, ('Calibration steps is too large, ppq can quantize your network within 8-5000 '
             'calibration steps. More calibration steps will greatly delay ppq\'s calibration procedure. '
             'Reset your calib_steps parameter please.')
 

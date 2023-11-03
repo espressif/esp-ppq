@@ -83,6 +83,8 @@ class TargetPlatform(Enum):
     NXP_INT8  = 501
     FPGA_INT8 = 502
 
+    ESPRESSIF_INT8 = 551
+
     RKNN_INT8 = 601
 
     METAX_INT8_C = 701 # channel wise

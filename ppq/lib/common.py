@@ -17,7 +17,8 @@ from ppq.quantization.quantizer import (AscendQuantizer, ExtQuantizer,
                                         PPL_DSP_TI_Quantizer, PPLCUDAQuantizer,
                                         RKNN_PerTensorQuantizer,
                                         TengineQuantizer, TensorRTQuantizer,
-                                        TensorRTQuantizer_FP8, MNNQuantizer)
+                                        TensorRTQuantizer_FP8, MNNQuantizer,
+                                        ESPRESSIFQuantizer)
 
 __QUANTIZER_COLLECTION__ = {
     TargetPlatform.PPL_DSP_INT8: PPL_DSP_Quantizer,
@@ -40,6 +41,7 @@ __QUANTIZER_COLLECTION__ = {
     TargetPlatform.GRAPHCORE_FP8: GraphCoreQuantizer,
     TargetPlatform.TRT_FP8:       TensorRTQuantizer_FP8,
     TargetPlatform.ONNXRUNTIME:   OnnxruntimeQuantizer,
+    TargetPlatform.ESPRESSIF_INT8:  ESPRESSIFQuantizer,
 }
 
 
@@ -72,6 +74,7 @@ __EXPORTERS__ = {
     TargetPlatform.NCNN_INT8:     NCNNExporter,
     TargetPlatform.TENGINE_INT8:  TengineExporter,
     TargetPlatform.MNN_INT8:      MNNExporter,
+    TargetPlatform.ESPRESSIF_INT8:  ONNXRUNTIMExporter,
 }
 
 

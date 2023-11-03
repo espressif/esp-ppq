@@ -24,6 +24,7 @@ class TensorwiseLinearQuantImpl(Function):
                 rounding: RoundingPolicy) -> torch.Tensor:
         scales, offsets = scales.to(tensor.device), offsets.to(tensor.device)
 
+        ctx.save_for_backward(tensor, scales, offsets, torch.tensor(quant_min).type_as(tensor), torch.tensor(quant_max).type_as(tensor), torch.tensor(rounding.value).type(torch.uint8))
         if not PPQ_CONFIG.USING_CUDA_KERNEL or not tensor.is_cuda:
             # quantization function, pytorch implmentation
             tensor = ppq_tensor_round((tensor / scales), rounding) + offsets
@@ -47,7 +48,39 @@ class TensorwiseLinearQuantImpl(Function):
 
     @ staticmethod
     def backward(ctx, dy: torch.Tensor):
-        return dy, None, None, None, None, None, None, None, None
+        x, scales, offsets, qmin, qmax, rounding = ctx.saved_tensors
+        rounding = RoundingPolicy(rounding.item())
+        tensor = x.clone()
+        tensor = tensor / scales
+        if rounding == RoundingPolicy.ROUND_HALF_EVEN:
+            # default rounding policy of torch is ROUND_TO_NEAR_EVEN
+            # try this: print(torch.Tensor([1.5, 2.5, 3.5, 4.5]).round())
+            # However it may generate unexpected results due to version difference.
+            tensor = tensor.round()
+        elif rounding == RoundingPolicy.ROUND_UP:
+            tensor = tensor.ceil()
+        elif rounding == RoundingPolicy.ROUND_HALF_TOWARDS_ZERO:
+            tensor = torch.sign(tensor) * torch.ceil(tensor.abs() - 0.5)
+        elif rounding == RoundingPolicy.ROUND_HALF_FAR_FORM_ZERO:
+            tensor = torch.sign(tensor) * torch.floor(tensor.abs() + 0.5)
+        elif rounding == RoundingPolicy.ROUND_HALF_DOWN:
+            tensor = torch.ceil(tensor - 0.5)
+        elif rounding == RoundingPolicy.ROUND_HALF_UP:
+            tensor = torch.floor(tensor + 0.5)
+        elif rounding == RoundingPolicy.ROUND_TO_NEAR_INT:
+            raise NotImplementedError(f'Torch Tensor can not use this rounding policy({rounding}) try ROUND_HALF_EVEN instead.')
+        else:
+            raise ValueError('Unexpected rounding policy found.')
+
+        tensor = tensor + offsets
+        is_lt_min = tensor < qmin
+        is_gt_max = tensor > qmax
+        is_ge_min_and_le_max = ~is_lt_min & ~is_gt_max
+
+        grad_tensor = dy.clone()
+        grad_tensor = torch.where(is_ge_min_and_le_max, grad_tensor, 0 * grad_tensor)
+
+        return grad_tensor.to(dy.device), None, None, None, None, None, None, None, None
 
 
 class ChannelwiseLinearQuantImpl(Function):

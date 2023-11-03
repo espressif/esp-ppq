@@ -15,3 +15,4 @@ from .TensorRTQuantizer import TensorRTQuantizer, TensorRTQuantizer_InputOnly
 from .AscendQuantizer import AscendQuantizer
 from .ORTQuantizer import OnnxruntimeQuantizer
 from .MNNQuantizer import MNNQuantizer
+from .ESPRESSIFQuantizer import ESPRESSIFQuantizer
