@@ -1,10 +1,12 @@
 from typing import Union
 
+import re
 import torch
 from ppq.api.setting import QuantizationSetting
 from ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
                       QuantizationPolicy, QuantizationProperty,
-                      QuantizationStates, RoundingPolicy, TargetPlatform)
+                      QuantizationStates, RoundingPolicy, TargetPlatform,
+                      ppq_warning, OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE)
 from ppq.IR import BaseGraph, Operation
 from ppq.quantization.optim import QuantizationOptimizationPipeline
 
@@ -20,6 +22,7 @@ class ESPRESSIFQuantizer(BaseQuantizer):
         self._num_of_bits = 8
         self._quant_min = - 128
         self._quant_max = + 127
+        self._custom_tqc = None
 
     def build_quant_pipeline(self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
         pipeline = super().build_quant_pipeline(setting)
@@ -61,6 +64,33 @@ class ESPRESSIFQuantizer(BaseQuantizer):
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.
             base_quant_config.is_active_quant_op = False
+
+        # Use custom TQC to override configured TQC.
+        if self._custom_tqc and self._custom_tqc.get(operation.name):
+            configs = self._custom_tqc.get(operation.name)
+            for tqc_name in configs.keys():
+                if not configs[tqc_name].get('bit_width'):
+                    continue
+
+                tqc_index = int(re.findall(r"\d+", tqc_name)[0])
+                if 'input' in tqc_name:
+                    if tqc_index >= operation.num_of_input:
+                        ppq_warning(f'Your input tqc index has exceeds num_of_input({operation.num_of_input})!')
+                        continue
+
+                    base_quant_config.input_quantization_config[tqc_index].num_of_bits = configs[tqc_name]['bit_width']
+                    base_quant_config.input_quantization_config[tqc_index].quant_max = + int(pow(2, configs[tqc_name]['bit_width'] - 1)) - 1
+                    base_quant_config.input_quantization_config[tqc_index].quant_min = - int(pow(2, configs[tqc_name]['bit_width'] - 1))
+                    base_quant_config.input_quantization_config[tqc_index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, configs[tqc_name]['bit_width'] - 1))
+                elif 'output' in tqc_name:
+                    if tqc_index >= operation.num_of_output:
+                        ppq_warning(f'Your output tqc index has exceeds num_of_output({operation.num_of_output})!')
+                        continue
+
+                    base_quant_config.output_quantization_config[tqc_index].num_of_bits = configs[tqc_name]['bit_width']
+                    base_quant_config.output_quantization_config[tqc_index].quant_max = + int(pow(2, configs[tqc_name]['bit_width'] - 1)) - 1
+                    base_quant_config.output_quantization_config[tqc_index].quant_min = - int(pow(2, configs[tqc_name]['bit_width'] - 1))
+                    base_quant_config.output_quantization_config[tqc_index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, configs[tqc_name]['bit_width'] - 1))
 
         return base_quant_config
 
@@ -105,3 +135,25 @@ class ESPRESSIFQuantizer(BaseQuantizer):
             set: _description_
         """
         return {'Relu', 'Clip'}
+
+    @ property
+    def custom_tqc(self) -> dict:
+        return self._custom_tqc
+
+    # The custom_op_tqc format is as follows:
+    # {
+    #     'op_name': {
+    #         'input_0': {
+    #             'bit_width': 8
+    #             ......
+    #         }
+    #         ......
+    #         'output_0': {
+    #             'bit_width': 8
+    #             ......
+    #         }
+    #     }
+    # }
+    @ custom_tqc.setter
+    def custom_tqc(self, custom_op_tqc: dict):
+        self._custom_tqc = custom_op_tqc
