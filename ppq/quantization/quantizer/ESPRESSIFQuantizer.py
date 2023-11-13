@@ -60,6 +60,10 @@ class ESPRESSIFQuantizer(BaseQuantizer):
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
                 bias_config.observer_algorithm = 'minmax'
+        elif operation.type in {'LSTM'}:
+            for index in range(len(operation.inputs)):
+                if operation.inputs[index].name is None or len(operation.inputs[index].name) == 0:
+                    base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.
@@ -109,7 +113,7 @@ class ESPRESSIFQuantizer(BaseQuantizer):
             'Clip', 'Pad', 'Resize', 'MaxPool', 'AveragePool',
             'GlobalMaxPool', 'GlobalAveragePool',
             'Mul', 'Add', 'Max', 'Sub', 'Div',
-            'LeakyRelu', 'Concat', 'Sigmoid', 'Slice'
+            'LeakyRelu', 'Concat', 'Sigmoid', 'Slice', 'LSTM'
         }
 
     @ property
