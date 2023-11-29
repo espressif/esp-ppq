@@ -6,7 +6,7 @@ from ppq.parser import (AscendExporter, CaffeExporter, CaffeParser,
                         PPLDSPCaffeExporter, PPLDSPTICaffeExporter,
                         QNNDSPExporter, SNPECaffeExporter, TengineExporter,
                         TensorRTExporter_JSON, TensorRTExporter_QDQ,
-                        OpenvinoExporter, MNNExporter)
+                        OpenvinoExporter, MNNExporter, EspressifExporter)
 from ppq.quantization.quantizer import (AscendQuantizer, ExtQuantizer,
                                         FPGAQuantizer, GraphCoreQuantizer,
                                         MetaxChannelwiseQuantizer,
@@ -74,7 +74,7 @@ __EXPORTERS__ = {
     TargetPlatform.NCNN_INT8:     NCNNExporter,
     TargetPlatform.TENGINE_INT8:  TengineExporter,
     TargetPlatform.MNN_INT8:      MNNExporter,
-    TargetPlatform.ESPRESSIF_INT8:  ONNXRUNTIMExporter,
+    TargetPlatform.ESPRESSIF_INT8:  EspressifExporter,
 }
 
 
