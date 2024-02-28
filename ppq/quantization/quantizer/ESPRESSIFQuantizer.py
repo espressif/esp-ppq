@@ -40,26 +40,19 @@ class ESPRESSIFQuantizer(BaseQuantizer):
             # set all parameters within Conv, ConvTranspose, Gemm to per-channel quant-config.
             assert operation.num_of_input > 0, 'Seems you got a Conv layer with no parameters.'
 
-            # # if operation has bias
-            # if operation.num_of_input > 2:
-            #     bias_config = base_quant_config.input_quantization_config[-1]
-            #     bias_config.policy = QuantizationPolicy(
-            #         QuantizationProperty.SYMMETRICAL +
-            #         QuantizationProperty.LINEAR +
-            #         QuantizationProperty.PER_TENSOR +
-            #         QuantizationProperty.POWER_OF_2)
-
-            #     # Xilinx FPGA bias 并不是 32 位的！
-            #     bias_config.num_of_bits = 30
-            #     bias_config.quant_max = + int(pow(2, 29))
-            #     bias_config.quant_min = - int(pow(2, 29))
-            #     bias_config.state = QuantizationStates.PASSIVE_INIT
-            #     base_quant_config.input_quantization_config[-1].observer_algorithm = 'Minmax'
-
             # if operation has bias
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
+                bias_config.num_of_bits = 32
+                bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
+                bias_config.quant_min = - int(pow(2, bias_config.num_of_bits - 1))
+                bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = 'minmax'
+
+            # # if operation has bias
+            # if operation.num_of_input > 2:
+            #     bias_config = base_quant_config.input_quantization_config[-1]
+            #     bias_config.observer_algorithm = 'minmax'
         elif operation.type in {'LSTM'}:
             for index in range(len(operation.inputs)):
                 if operation.inputs[index].name is None or len(operation.inputs[index].name) == 0:
