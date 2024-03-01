@@ -132,6 +132,7 @@ Take a look at https://en.wikipedia.org/wiki/Rounding
     ROUND_HALF_FAR_FORM_ZERO   = 4
     ROUND_TO_NEAR_INT          = 5
     ROUND_UP                   = 6
+    ROUND_DOWN                 = 7
 
 ## QParams
 Scale, offset, quant_min, quant_max are all called as qparams, they are parameters used in quant function:

@@ -59,6 +59,8 @@ class TensorwiseLinearQuantImpl(Function):
             tensor = tensor.round()
         elif rounding == RoundingPolicy.ROUND_UP:
             tensor = tensor.ceil()
+        elif rounding == RoundingPolicy.ROUND_DOWN:
+            tensor = tensor.floor()
         elif rounding == RoundingPolicy.ROUND_HALF_TOWARDS_ZERO:
             tensor = torch.sign(tensor) * torch.ceil(tensor.abs() - 0.5)
         elif rounding == RoundingPolicy.ROUND_HALF_FAR_FORM_ZERO:

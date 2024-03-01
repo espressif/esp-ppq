@@ -142,6 +142,7 @@ class RoundingPolicy(Enum):
     ROUND_HALF_FAR_FORM_ZERO   = 4
     ROUND_TO_NEAR_INT          = 5
     ROUND_UP                   = 6
+    ROUND_DOWN                 = 7
 
 
 class QuantizationProperty(Enum):

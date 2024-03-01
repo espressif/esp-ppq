@@ -31,6 +31,8 @@ class PPQTensorRoundImpl(Function):
             return value.round()
         elif policy == RoundingPolicy.ROUND_UP:
             return value.ceil()
+        elif policy == RoundingPolicy.ROUND_DOWN:
+            return value.floor()
         elif policy == RoundingPolicy.ROUND_HALF_TOWARDS_ZERO:
             return torch.sign(value) * torch.ceil(value.abs() - 0.5)
         elif policy == RoundingPolicy.ROUND_HALF_FAR_FORM_ZERO:
@@ -91,6 +93,8 @@ def ppq_numerical_round(value: float,
         else: return ceil(value - 0.5)
     elif policy == RoundingPolicy.ROUND_UP:
         return ceil(value)
+    elif policy == RoundingPolicy.ROUND_DOWN:
+        return floor(value)
     else:
         raise ValueError('Unexpected rounding policy found.')
 
