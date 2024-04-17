@@ -3,12 +3,26 @@ from .onnxruntime_exporter import ONNXRUNTIMExporter
 import onnx
 import torch
 from onnx import helper
-from ppq.core import (GRAPH_OPSET_ATTRIB, PPQ_CONFIG)
+from ppq.core import (GRAPH_OPSET_ATTRIB, PPQ_CONFIG,
+                      QuantizationProperty, TensorQuantizationConfig)
 from ppq.IR import (BaseGraph)
 from .onnx_exporter import OP_CONVERTERS, OperationExporter
 
 
 class EspressifExporter(ONNXRUNTIMExporter):
+    def infer_qtype(self, config: TensorQuantizationConfig):
+        offset_dtype, value_dtype = torch.int8, torch.int8
+        if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+            offset_dtype = torch.uint8
+            value_dtype  = torch.uint8
+        if config.num_of_bits == 16:
+            offset_dtype = torch.int16
+            value_dtype  = torch.int16
+        elif config.num_of_bits > 16:
+            offset_dtype = torch.int32
+            value_dtype  = torch.int32
+        return offset_dtype, value_dtype
+
     """去除原生 ONNXRUNTIMExporter 对非 8bit 量化算子会产生的 warning"""
     def export(self, file_path: str, graph: BaseGraph, 
             config_path: str = None, 

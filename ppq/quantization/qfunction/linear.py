@@ -268,6 +268,11 @@ def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig)
             return tensor.type(dtype=torch.int8)
         if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
             return tensor.type(dtype=torch.uint8)
-    elif config.num_of_bits > 8:
+    elif config.num_of_bits == 16:
+        if config.policy.has_property(QuantizationProperty.SYMMETRICAL):
+            return tensor.type(dtype=torch.int16)
+        if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+            return tensor.type(dtype=torch.uint16)
+    elif config.num_of_bits > 16:
         return tensor.type(dtype=torch.int32)
     else: raise Exception('Do not konw how to convert value into int. num of bits is unexpected.')
