@@ -120,7 +120,7 @@ class ESPRESSIFQuantizer(BaseQuantizer):
 
     @ property
     def rounding_policy(self):
-        return RoundingPolicy.ROUND_HALF_UP
+        return RoundingPolicy.ROUND_HALF_EVEN
 
     @ property
     def activation_fusion_types(self) -> set:
