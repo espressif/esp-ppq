@@ -84,7 +84,8 @@ class TargetPlatform(Enum):
     FPGA_INT8 = 502
 
     ESPRESSIF_INT8 = 551
-    ESPRESSIF_S3_INT16 = 552
+    ESPRESSIF_INT16 = 552
+    ESPRESSIF_S3_INT16 = 553
 
     RKNN_INT8 = 601
 

@@ -36,6 +36,13 @@ class ESPRESSIFQuantizer(BaseQuantizer):
             quant_max=self._quant_max, quant_min=self._quant_min,
             observer_algorithm='percentile')
 
+        for index in range(operation.num_of_input):
+            if not operation.inputs[index].is_parameter:
+                base_quant_config.input_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, self._num_of_bits - 1))
+
+        for index in range(operation.num_of_output):
+            base_quant_config.output_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, self._num_of_bits - 1))
+
         if operation.type in {'Conv', 'ConvTranspose', 'Gemm'}:
             # set all parameters within Conv, ConvTranspose, Gemm to per-channel quant-config.
             assert operation.num_of_input > 0, 'Seems you got a Conv layer with no parameters.'
@@ -154,6 +161,22 @@ class ESPRESSIFQuantizer(BaseQuantizer):
     @ custom_tqc.setter
     def custom_tqc(self, custom_op_tqc: dict):
         self._custom_tqc = custom_op_tqc
+
+
+class ESPRESSIF_INT16_Quantizer(ESPRESSIFQuantizer):
+    def __init__(
+        self,
+        graph: BaseGraph,
+    ) -> Union[torch.Tensor, list, dict]:
+        super().__init__(graph=graph)
+        self._num_of_bits = 16
+        self._quant_min = - 32768
+        self._quant_max = + 32767
+        self._custom_tqc = None
+
+    @ property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPRESSIF_INT16
 
 
 class ESPRESSIF_S3_Quantizer(ESPRESSIFQuantizer):
