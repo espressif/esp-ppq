@@ -1,0 +1,4 @@
+flatbuffers
+numpy
+onnx >= 1.14.0
+protobuf == 3.20.2
