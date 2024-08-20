@@ -111,9 +111,13 @@ class ESPRESSIFQuantizer(BaseQuantizer):
         return {
             'Conv', 'ConvTranspose', 'Gemm', 'Relu', 'PRelu',
             'Clip', 'Pad', 'Resize', 'MaxPool', 'AveragePool',
-            'GlobalMaxPool', 'GlobalAveragePool',
-            'Mul', 'Add', 'Max', 'Sub', 'Div',
-            'LeakyRelu', 'Concat', 'Sigmoid', 'Slice', 'LSTM'
+            'GlobalMaxPool', 'GlobalAveragePool', 'Softmax',
+            'Mul', 'Add', 'Max', 'Sub', 'Div', 'Reshape',
+            'LeakyRelu', 'Concat', 'Sigmoid', 'Interp',
+            'ReduceMean', 'Transpose', 'Slice', 'Flatten',
+            'HardSwish', 'HardSigmoid', 'MatMul',
+            'Attention', 'LayerNormalization', 'Gelu',
+            'PPQBiasFusedMatMul'
         }
 
     @ property

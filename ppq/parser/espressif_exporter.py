@@ -153,6 +153,10 @@ GRAPH_PATTERN = {
     # "Resize": ResizeCheckPattern,
 }
 
+# EXCLUDE OP refers to operators that do not participate 
+# in the operations of quantize, dequantize, or requantize.
+EXCLUDE_OP = {'Shape'}
+
 def as_c_array(byte_arr):
     hex_str = ''
     for idx, byte in enumerate(byte_arr):
@@ -621,17 +625,17 @@ class EspressifExporter(GraphExporter):
                     continue
 
                 if var in op.inputs:
-                    if var.source_op is not None and not isinstance(var.source_op, QuantableOperation):
+                    if (var.source_op is not None and 
+                        not isinstance(var.source_op, QuantableOperation) and 
+                        var.source_op.type not in EXCLUDE_OP):
                         self.insert_quantize_node(
                             graph = graph, var = inserting_var, config = config, op=inserting)
 
                     elif var.source_op is not None and isinstance(var.source_op, QuantableOperation):
-                        print(f"xiewei debug, upstream op is QuantableOperation, op name: {op.name}, var name: {var.name}")
                         source_op_output_var_index = var.source_op.outputs.index(var)
                         source_op_output_config = var.source_op.output_quant_config[source_op_output_var_index]
                         scale_diff     = torch.max(torch.abs(source_op_output_config.scale - config.scale)).item()
                         zeropoint_diff = torch.max(torch.abs(source_op_output_config.offset - config.offset)).item()
-                        print(f"xiewei debug, scale_diff: {scale_diff}, zeropoint_diff: {zeropoint_diff}")
 
                         if (source_op_output_config.num_of_bits != config.num_of_bits or 
                             scale_diff >= 1e-4 or zeropoint_diff >= 1e-1):
@@ -644,7 +648,9 @@ class EspressifExporter(GraphExporter):
 
                 elif var in op.outputs:
                     for dest_op in var.dest_ops:
-                        if dest_op is not None and not isinstance(dest_op, QuantableOperation):
+                        if (dest_op is not None and 
+                            not isinstance(dest_op, QuantableOperation) and 
+                            dest_op.type not in EXCLUDE_OP):
                             inserting = dest_op
                             self.insert_dequantize_node(
                                 graph = graph, var = inserting_var, 
