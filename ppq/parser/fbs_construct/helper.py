@@ -135,9 +135,9 @@ def make_graph_test_value(
     """
     input_test_values = []
     output_test_values = []
-    # Get the input test value
     if valuesForTest is not None:
-        for input_name, input_value in valuesForTest['inputs'].items():
+        # Get the input test value
+        for input_name, input_value in valuesForTest.get('inputs', {}).items():
             var_exponents = exponents.get(input_name, [0])
             tensor_type = np_dtype_to_tensor_dtype(input_value.dtype)
             input_shape = input_value.shape
@@ -147,7 +147,7 @@ def make_graph_test_value(
             input_test_values.append(input_value_fbs)
 
         # Get the output test value
-        for output_name, output_value in valuesForTest['outputs'].items():
+        for output_name, output_value in valuesForTest.get('outputs', {}).items():
             var_exponents = exponents.get(output_name, [0])
             tensor_type = np_dtype_to_tensor_dtype(output_value.dtype)
             output_shape = output_value.shape

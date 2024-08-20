@@ -546,7 +546,8 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     if not isinstance(up_op, QuantableOperation): continue
 
                     if len(graph.get_downstream_operations(up_op)) != 1 and not self.force_overlap: continue
-                    for cfg, var in up_op.config_with_variable:
+                    # for cfg, var in up_op.config_with_variable:
+                    for cfg, var in zip(up_op.config.output_quantization_config, up_op.outputs):
                         if operation in var.dest_ops:
                             cfg.master_by = master_config
 
