@@ -1,22 +1,51 @@
 import os
 import sys
+from typing import List, Union
 
+import numpy as np
 import torch
 
 from ppq.core import (
+    DataType,
     OperationQuantizationConfig,
     QuantizationProperty,
+    QuantizationStates,
+    SingletonMeta,
+    TargetPlatform,
     TensorQuantizationConfig,
+    convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
+from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 from ppq.utils.round import ppq_tensor_round
 
 from .onnxruntime_exporter import QDQHelper
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+from datetime import datetime
 
+from loguru import logger as _logger
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+
+var_exponents = []
+esp_layout = []
+
+
+def define_log_level(print_level="DEBUG", logfile_level="DEBUG", name: str = None):
+    """Adjust the log level to above level"""
+    current_date = datetime.now()
+    formatted_date = current_date.strftime("%Y%m%d")
+    log_name = f"{name}_{formatted_date}" if name else formatted_date  # name a log with prefix name
+
+    _logger.remove()
+    _logger.add(sys.stderr, level=print_level)
+    _logger.add(f"logs/{log_name}.txt", level=logfile_level)
+    return _logger
+
+logger = define_log_level()
 
 class EspQuantType:
     F32 = "F32"
@@ -31,11 +60,46 @@ class LayoutAnnotation:
     N16HWC16_UNALIGNED = "N16HWC16_UNALIGNED"
     N8HWC8_UNALIGNED = "N8HWC8_UNALIGNED"
 
-
 QUANT_OP_SET = {'RequantizeLinear', 'QuantizeLinear', 'DequantizeLinear', 'QuantizeFloating', 'DequantizeFloating'}
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate 
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {'Shape'}
+
+class ExporterPatternInfo(metaclass=SingletonMeta):
+    var_exponents = {}
+    var_layout = {}
+    var_permute = {}
+
+    def reset(self):
+        self.var_exponents = {}
+        self.var_layout = {}
+        self.var_permute = {}
+    
+    def get_var_exponents(self, var_name: str) -> Union[int, List[int]]:
+        return self.var_exponents.get(var_name, None)
+    
+    def get_var_layout(self, var_name: str) -> LayoutAnnotation:
+        return self.var_layout.get(var_name, None)
+    
+    def get_var_permute(self, var_name: str) -> List[int]:
+        return self.var_permute.get(var_name, None)
+    
+    def add_var_exponents(self, var_name:str, exponent:Union[int, List[int]]):
+        self.var_exponents[var_name] = exponent
+    
+    def add_var_layout(self, var_name:str, layout:LayoutAnnotation):
+        self.var_layout[var_name] = layout
+
+    def add_var_transpose(self, var_name:str, perm:List[int]):
+        self.var_permute[var_name] = perm
+    
+    def print(self):
+        print(self.var_exponents)
+        print(self.var_layout)
+        print(self.var_permute)
+    
+
+
 
 def fuse_downstream_operation(graph: BaseGraph,
                    fusing_downstream_op: Operation,
@@ -118,126 +182,66 @@ def infer_qtype(config: TensorQuantizationConfig):
         value_dtype  = torch.int32
     return offset_dtype, value_dtype
 
-def insert_quantize_node(
-    graph: BaseGraph, 
-    var: Variable, config: TensorQuantizationConfig, 
-    op: Operation) -> Operation:
-    """
-    Insert a Quantize Node on given variable, according to given TensorQuantizationConfig.
-    """
-    if config.policy.has_property(QuantizationProperty.LINEAR):
-        # Following code will export Linear Quantization Config
-        # That is for FP32 -> INT
-        offset_dtype, value_type = infer_qtype(config)
-        scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
-        offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
-
-        created = graph.create_operation(op_type='QuantizeLinear', attributes={})
-        if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-            created.attributes['axis'] = config.channel_axis
-        else: created.attributes['axis'] = None
-
-        if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
-        elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
-        else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
-
-        graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
-        graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
-
-        created.outputs[0].dtype = value_type
-        created.outputs[0].shape = var.shape
-        created.inputs[0].shape = var.shape
-        return created
-
-    else:
-        raise TypeError(
-            f'PPQ Can not export quantization information with variable {var.name}, '
-            'Unexpected Quantization property.')
-
-
-def insert_dequantize_node(
-    graph: BaseGraph, 
-    var: Variable, config: TensorQuantizationConfig, 
-    op: Operation) -> Operation:
-    """
-    Insert a DeQuantize Node on given variable, according to given TensorQuantizationConfig.
-    """
-    if config.policy.has_property(QuantizationProperty.LINEAR):
-        offset_dtype, value_type = infer_qtype(config)
-        scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
-        offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
-
-        created = graph.create_operation(op_type='DequantizeLinear', attributes={})
-        if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-            created.attributes['axis'] = config.channel_axis
-        else: created.attributes['axis'] = None
-
-        if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
-        elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
-        else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
-
-        graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
-        graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
-
-        created.inputs[0].dtype = value_type
-        created.inputs[0].shape = var.shape
-        created.outputs[0].shape = var.shape
-        created.outputs[0].dtype = torch.float32
-        return created
-
-    else:
-        raise TypeError(
-            f'PPQ Can not export quantization information with variable {var.name}, '
-            'Unexpected Quantization property.')
-
-def insert_requantize_node(
-    graph: BaseGraph, 
-    var: Variable, 
-    upstream_config: TensorQuantizationConfig,
-    config: TensorQuantizationConfig, 
-    op: Operation) -> Operation:
-    """
-    Insert a ReQuantize Node on given variable, according to given TensorQuantizationConfig.
-    """
-    if config.policy.has_property(QuantizationProperty.LINEAR):
-        upstream_offset_dtype, upstream_value_type = infer_qtype(upstream_config)
-        upstream_scale  = convert_any_to_torch_tensor(upstream_config.scale.clone(), dtype=torch.float32)
-        upstream_offset = ppq_tensor_round(upstream_config.offset.clone()).type(torch.float)
-        offset_dtype, value_type = infer_qtype(config)
-        scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
-        offset = ppq_tensor_round(config.offset.clone()).type(torch.float)
-
-        created = graph.create_operation(op_type='RequantizeLinear', attributes={})
-        if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-            created.attributes['axis'] = config.channel_axis
-        else: created.attributes['axis'] = None
-
-        if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
-        elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
-        else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
-
-        rescale = scale / upstream_scale
-        reoffset = ppq_tensor_round(offset - ppq_tensor_round(upstream_offset / rescale, config.rounding)).type(offset_dtype)
-
-        graph.create_variable(name=None, value=rescale, is_parameter=True, dest_ops=[created])
-        graph.create_variable(name=None, value=reoffset, is_parameter=True, dest_ops=[created])
-
-        created.inputs[0].dtype = upstream_value_type
-        created.inputs[0].shape = var.shape
-        created.outputs[0].shape = var.shape
-        created.outputs[0].dtype = value_type
-        return created
-
-    else:
-        raise TypeError(
-            f'PPQ Can not export quantization information with variable {var.name}, '
-            'Unexpected Quantization property.')
-
-class InsertQuantNodePattern(OperationExporter):
+class InsertQuantTypePattern(OperationExporter):
     def export(self, 
-               op: QuantableOperation, 
+               op: Operation, 
                graph: BaseGraph, 
                **kwargs) -> Operation:
+        
+        if op.platform == TargetPlatform.ESPRESSIF_INT8:
+            op.attributes["quant_type"] = EspQuantType.S8
+        elif op.platform == TargetPlatform.ESPRESSIF_INT16:
+            op.attributes["quant_type"] = EspQuantType.S16
+        else:
+            op.attributes["quant_type"] = EspQuantType.F32
+        
+        return op
+class InsertQuantNodePattern(OperationExporter):
+
+    @staticmethod
+    def insert_quantize_node(
+        graph: BaseGraph, 
+        var: Variable, config: TensorQuantizationConfig, 
+        op: Operation) -> Operation:
+        """
+        Insert a Quantize Node on given variable, according to given TensorQuantizationConfig.
+        """
+        if config.policy.has_property(QuantizationProperty.LINEAR):
+            # Following code will export Linear Quantization Config
+            # That is for FP32 -> INT
+            offset_dtype, value_type = infer_qtype(config)
+            scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
+            offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
+
+            created = graph.create_operation(op_type='QuantizeLinear', attributes={})
+            if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
+                created.attributes['axis'] = config.channel_axis
+            else: created.attributes['axis'] = None
+
+            if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
+            elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
+            else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
+
+            graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
+            graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
+
+            created.outputs[0].dtype = value_type
+            created.outputs[0].shape = var.shape
+            created.inputs[0].shape = var.shape
+            return created
+
+        else:
+            raise TypeError(
+                f'PPQ Can not export quantization information with variable {var.name}, '
+                'Unexpected Quantization property.')
+
+    
+    def export(self, 
+               op: Operation, 
+               graph: BaseGraph, 
+               **kwargs) -> Operation:
+        if op.type in QUANT_OP_SET or not isinstance(op, QuantableOperation):
+            return op
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
@@ -251,14 +255,61 @@ class InsertQuantNodePattern(OperationExporter):
                         continue
                     elif var in op.inputs:
                         if not isinstance(var.source_op, QuantableOperation) and var.source_op.type not in QUANT_EXCLUDE_OP_SET:
-                            insert_quantize_node(graph=graph, var=inserting_var, config=config, op=inserting_op)
+                            InsertQuantNodePattern.insert_quantize_node(graph=graph, var=inserting_var, config=config, op=inserting_op)
         return op
 
 class InsertRequantNodePattern(OperationExporter):
+
+    @staticmethod
+    def insert_requantize_node(
+        graph: BaseGraph, 
+        var: Variable, 
+        upstream_config: TensorQuantizationConfig,
+        config: TensorQuantizationConfig, 
+        op: Operation) -> Operation:
+        """
+        Insert a ReQuantize Node on given variable, according to given TensorQuantizationConfig.
+        """
+        if config.policy.has_property(QuantizationProperty.LINEAR):
+            upstream_offset_dtype, upstream_value_type = infer_qtype(upstream_config)
+            upstream_scale  = convert_any_to_torch_tensor(upstream_config.scale.clone(), dtype=torch.float32)
+            upstream_offset = ppq_tensor_round(upstream_config.offset.clone()).type(torch.float)
+            offset_dtype, value_type = infer_qtype(config)
+            scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
+            offset = ppq_tensor_round(config.offset.clone()).type(torch.float)
+
+            created = graph.create_operation(op_type='RequantizeLinear', attributes={})
+            if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
+                created.attributes['axis'] = config.channel_axis
+            else: created.attributes['axis'] = None
+
+            if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
+            elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
+            else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
+
+            rescale = scale / upstream_scale
+            reoffset = ppq_tensor_round(offset - ppq_tensor_round(upstream_offset / rescale, config.rounding)).type(offset_dtype)
+
+            graph.create_variable(name=None, value=rescale, is_parameter=True, dest_ops=[created])
+            graph.create_variable(name=None, value=reoffset, is_parameter=True, dest_ops=[created])
+
+            created.inputs[0].dtype = upstream_value_type
+            created.inputs[0].shape = var.shape
+            created.outputs[0].shape = var.shape
+            created.outputs[0].dtype = value_type
+            return created
+
+        else:
+            raise TypeError(
+                f'PPQ Can not export quantization information with variable {var.name}, '
+                'Unexpected Quantization property.')
+    
     def export(self, 
                op: QuantableOperation, 
                graph: BaseGraph, 
                **kwargs) -> Operation:
+        if op.type in QUANT_OP_SET or not isinstance(op, QuantableOperation):
+            return op
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
@@ -279,7 +330,7 @@ class InsertRequantNodePattern(OperationExporter):
             
                         if source_op_output_config.num_of_bits != config.num_of_bits or scale_diff >= 1e-4 or zeropoint_diff >= 1e-1:
                             # if config 
-                            insert_requantize_node(
+                            InsertRequantNodePattern.insert_requantize_node(
                                 graph = graph, 
                                 var = inserting_var, 
                                 upstream_config = source_op_output_config,
@@ -289,10 +340,49 @@ class InsertRequantNodePattern(OperationExporter):
         return op
 
 class InsertDequantNodePattern(OperationExporter):
+        
+    @staticmethod
+    def insert_dequantize_node(
+        graph: BaseGraph, 
+        var: Variable, config: TensorQuantizationConfig, 
+        op: Operation) -> Operation:
+        """
+        Insert a DeQuantize Node on given variable, according to given TensorQuantizationConfig.
+        """
+        if config.policy.has_property(QuantizationProperty.LINEAR):
+            offset_dtype, value_type = infer_qtype(config)
+            scale  = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
+            offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
+
+            created = graph.create_operation(op_type='DequantizeLinear', attributes={})
+            if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
+                created.attributes['axis'] = config.channel_axis
+            else: created.attributes['axis'] = None
+
+            if var in op.inputs:  graph.insert_op_before(A=created, B=op, input_idx=op.inputs.index(var))
+            elif var in op.outputs: graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
+            else: raise ValueError(f'Unexpected Error in Exporting Op {op.name}({op.type}).')
+
+            graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
+            graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
+
+            created.inputs[0].dtype = value_type
+            created.inputs[0].shape = var.shape
+            created.outputs[0].shape = var.shape
+            created.outputs[0].dtype = torch.float32
+            return created
+
+        else:
+            raise TypeError(
+                f'PPQ Can not export quantization information with variable {var.name}, '
+                'Unexpected Quantization property.')
+        
     def export(self, 
                op: QuantableOperation, 
                graph: BaseGraph, 
                **kwargs) -> Operation:
+        if op.type in QUANT_OP_SET or not isinstance(op, QuantableOperation):
+            return op
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
@@ -307,7 +397,7 @@ class InsertDequantNodePattern(OperationExporter):
                 if var in op.outputs:
                     for dest_op in var.dest_ops:
                         if dest_op and not isinstance(dest_op, QuantableOperation) and dest_op.type not in QUANT_EXCLUDE_OP_SET:
-                            insert_dequantize_node(
+                            InsertDequantNodePattern.insert_dequantize_node(
                                 graph = graph, var = inserting_var, 
                                 config = config, op = dest_op)
         return op
@@ -318,28 +408,201 @@ class FuseReluLikePattern(OperationExporter):
                op: QuantableOperation, 
                graph: BaseGraph, 
                **kwargs) -> Operation:
-        op.attributes["activation"] = "Linear"
-        downstream_op = graph.get_downstream_operations(op)
-        if len(downstream_op) == 1:  # the downstream op have only one op and this op is relu
-            if downstream_op[0].type == "Relu":
-                conv_quant_config = op.config
-                relu_quant_config = downstream_op[0].config
-                new_config = OperationQuantizationConfig(
-                    conv_quant_config.input_quantization_config,
-                    relu_quant_config.output_quantization_config
-                )
+        
+        if not isinstance(op, QuantableOperation):
+            return op
+        
+        # The FUSE_OP_PATTERNS may remove some ops.
+        if op.name not in graph.operations:
+            return op
+        
+        if op.type in ["Conv", "Gemm"]:
+            op.attributes["activation"] = "Linear"
+            downstream_op = graph.get_downstream_operations(op)
+            if len(downstream_op) == 1:  # the downstream op have only one op and this op is relu
+                if downstream_op[0].type == "Relu":
+                    logger.debug(f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}")
+                    conv_quant_config = op.config
+                    relu_quant_config = downstream_op[0].config
+                    new_config = OperationQuantizationConfig(
+                        conv_quant_config.input_quantization_config,
+                        relu_quant_config.output_quantization_config
+                    )
 
-                # graph.remove_operation(downstream_op[0], keep_coherence=True)
-                graph = fuse_downstream_operation(graph, downstream_op[0], keep_coherence = True)
-                op.config = new_config
-                op.attributes["activation"] = "Relu"
+                    # graph.remove_operation(downstream_op[0], keep_coherence=True)
+                    graph = fuse_downstream_operation(graph, downstream_op[0], keep_coherence = True)
+                    op.config = new_config
+                    op.attributes["activation"] = "Relu"
+
 
         return op
 
 
-FUSE_PATTERNS = {
-    "Conv": FuseReluLikePattern,
-    "Gemm": FuseReluLikePattern,
-}
+class QuantParamToIntPattern(OperationExporter):
 
+    @staticmethod
+    def calculate_exponent(config: TensorQuantizationConfig):
+        if not config.policy.has_property(QuantizationProperty.LINEAR):
+            raise ValueError('Critical Quantization Error! Non-linear config detected.')
+        if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+            raise ValueError('Critical Quantization Error! Asymmetrical config detected.')
+        
+        if not config.scale:
+            return None
+        
+        exponent = None
+        if config.policy.has_property(QuantizationProperty.PER_TENSOR) and config.policy.has_property(QuantizationProperty.POWER_OF_2):
+            scale = convert_any_to_numpy(config.scale)
+            exponent = [int(np.log2(scale))]
+        elif config.policy.has_property(QuantizationProperty.PER_CHANNEL) and config.policy.has_property(QuantizationProperty.POWER_OF_2):
+            scale = convert_any_to_numpy(config.scale)
+            exponent = np.log2(scale).astype(int)
+        return exponent
+
+    def export(self, 
+               op: QuantableOperation, 
+               graph: BaseGraph, 
+               **kwargs) -> Operation:
+        
+        if not isinstance(op, QuantableOperation):
+            return op
+        
+        # collect quantable vars, where we need to quantize parameters
+        info = ExporterPatternInfo()
+
+        for config, var in [_ for _ in op.config_with_variable]:
+            if not var or not config:
+                continue
+
+            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var):
+                # print("Warning: skip %s because it's not exportable" % (var.name))
+                continue
+
+            if not info.get_var_exponents(var.name):
+                exponent = QuantParamToIntPattern.calculate_exponent(config)
+                if exponent:
+                    info.add_var_exponents(var.name, exponent)
+                else:
+                    logger.info("Skip %s from (op name:%s, type:%s) because it's not quantized" % (var.name, op.name, op.type))
+            else:
+                continue
+
+            if var.is_parameter:
+                assert len(var.dest_ops) == 1, (
+                f'Can not export variable {var.name}, cause it has more than 1 destination operations. '
+                'PPQ require all parameters to have only 1 destination operation.')
+
+                # override quantization state, so that we can export parameter correctly.
+                if config.state == QuantizationStates.BAKED:
+                    config.state = QuantizationStates.ACTIVATED
+                if config.state == QuantizationStates.PASSIVE_BAKED:
+                    config.state = QuantizationStates.PASSIVE
+
+                if config.policy.has_property(QuantizationProperty.LINEAR):
+                    var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
+            elif (not var.is_parameter):
+                if config.policy.has_property(QuantizationProperty.LINEAR):
+                    quant_type = op.attributes.get("quant_type", None)
+                    if quant_type == EspQuantType.S8:
+                        var.dtype = DataType.INT8
+                    elif quant_type == EspQuantType.S16:
+                        var.dtype = DataType.INT16
+                    else:
+                        var.dtype = DataType.FP32
+
+        return op
+
+class ResetParamLayoutPattern(OperationExporter):
+
+    def reset_conv_filter_layout(self, tensor, quant_type, group=None):
+        if len(tensor.shape) != 4:
+            logger.error(f"Conv filter should be 4D tensor, but got {len(tensor.shape)}D tensor.")
+            return tensor, LayoutAnnotation.NCHW
+        
+        n,c,h,w = tensor.shape # n denotes output channels, c denotes input channels,
+        tensor = tensor.permute(0, 2, 3, 1)   # NCHW -> NHWC
+
+        align = 16 if quant_type == EspQuantType.S8 else 8
+        aligned_len = n // align * align
+        aligned_tensor = tensor[0:aligned_len, ...]
+        aligned_tensor = aligned_tensor.reshape(n // align,  align, h, w, c) # NHWC -> (N/align,align)HWC
+        aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)          #(N/align,align)HWC -> (N/align)HWC(align)
+        aligned_tensor = aligned_tensor.reshape(aligned_len, h, w, c)   #(N/align)HWC(align) -> (aligned_len)HWC
+
+        if n % align != 0:
+            unaligned_tensor = tensor[aligned_len:n, ...] # NHWC
+            if group == 1 or group == None:
+                aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+            else:
+                n_remain = n - aligned_len
+                unaligned_tensor = unaligned_tensor.permute(3, 1, 2, 0) # depthwise unaligned: NHWC -> CHWN
+                unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
+                aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+
+            if align == 16:
+                layout = LayoutAnnotation.N16HWC16_UNALIGNED
+            else:
+                layout = LayoutAnnotation.N8HWC8_UNALIGNED
+        else:
+            if align == 16:
+                layout = LayoutAnnotation.N16HWC16
+            else:
+                layout = LayoutAnnotation.N8HWC8
+
+        #TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
+        if group == 1 or group == None:
+            aligned_tensor = aligned_tensor.reshape(h,w,c,n) # reshape to HWCN
+        else:
+            aligned_tensor = aligned_tensor.reshape(h,w,n,c) # reshape to HWNC
+        return aligned_tensor, layout
+    
+    def export(self, 
+               op: Operation, 
+               graph: BaseGraph, 
+               **kwargs) -> Operation:
+        
+        quant_type = op.attributes.get("quant_type", None)
+        if quant_type== None or quant_type == EspQuantType.F32 or not isinstance(op, QuantableOperation):
+            return op
+        
+        info = ExporterPatternInfo()
+
+        if op.type == "Conv":
+            for var in op.inputs:
+                if not var.is_parameter: 
+                    continue
+                    
+                tensor = var.value
+                if len(tensor.shape) == 4: # Conv2d Filter
+                    group = op.attributes.get("group", None)                   
+                    aligned_tensor, layout = self.reset_conv_filter_layout(tensor, quant_type, group)
+                    info.add_var_layout(var.name, layout)
+                    var.value = aligned_tensor
+                    logger.debug(f"reset {op.type}:{op.name}, shape:{tensor.shape}, layout to {layout}")
+
+        elif op.type == "Gemm":
+            for var in op.inputs:
+                if not var.is_parameter: 
+                    continue
+                
+                # fix the transB attribute is 0
+                tensor = var.value
+                alpha = op.attributes.get("alpha", 1.0)
+                beta = op.attributes.get("beta", 1.0)
+                assert alpha == 1.0 and beta == 1.0, "alpha and beta must be 1.0 and 0.0"
+
+                if len(tensor.shape) == 2: # Gemm Filter
+                    trans_filter = op.attributes.get("transB", 0)
+                    if trans_filter:
+                        op.attributes["transB"] = 0      # update 'transB'
+                        tensor = tensor.transpose(0, 1)  # [N, C] -> [C, N]
+                    tensor = tensor.unsqueeze(-1).unsqueeze(-1) # CN -> CNHW
+                    tensor = tensor.permute(1, 0, 2, 3)   # CNHW -> NCHW, same with conv2d filter
+
+                    aligned_tensor, layout = self.reset_conv_filter_layout(tensor, quant_type, None)
+                    info.add_var_layout(var.name, layout)
+                    var.value = aligned_tensor
+                    logger.debug(f"reset {op.type}:{op.name}, shape:{tensor.shape}, layout to {layout}")
+
+        return op
 
