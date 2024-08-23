@@ -10,6 +10,7 @@ from ppq.core import (
     OperationQuantizationConfig,
     QuantizationProperty,
     QuantizationStates,
+    QuantizationVisibility,
     SingletonMeta,
     TargetPlatform,
     TensorQuantizationConfig,
@@ -21,31 +22,9 @@ from ppq.IR.quantize import QuantableOperation
 from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 from ppq.utils.round import ppq_tensor_round
 
-from .onnxruntime_exporter import QDQHelper
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-from datetime import datetime
+from logger import logger
 
-from loguru import logger as _logger
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-
-var_exponents = []
-esp_layout = []
-
-
-def define_log_level(print_level="DEBUG", logfile_level="DEBUG", name: str = None):
-    """Adjust the log level to above level"""
-    current_date = datetime.now()
-    formatted_date = current_date.strftime("%Y%m%d")
-    log_name = f"{name}_{formatted_date}" if name else formatted_date  # name a log with prefix name
-
-    _logger.remove()
-    _logger.add(sys.stderr, level=print_level)
-    _logger.add(f"logs/{log_name}.txt", level=logfile_level)
-    return _logger
-
-logger = define_log_level()
 
 class EspQuantType:
     F32 = "F32"
@@ -64,11 +43,34 @@ QUANT_OP_SET = {'RequantizeLinear', 'QuantizeLinear', 'DequantizeLinear', 'Quant
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate 
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {'Shape'}
+ACTIVATION_OP_SET =  {'Relu', 'PRelu', 'Sigmoid', 'Tanh', 'HardSwish', 'Elu', 'Gelu'}
+
+class EspdlQuantHelper():
+    """Helper class for processing onnx qdq format"""
+    @ staticmethod
+    def TQC_Exportable_Check(
+        TQC: TensorQuantizationConfig, bounded_var: Variable) -> bool:
+        if not TQC.can_export(): return False
+
+        if TQC.visibility == QuantizationVisibility.INTERNAL: return False
+        if TQC.num_of_bits == 8 and TQC.policy.has_property(QuantizationProperty.LINEAR):
+            if TQC.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+                range_check = (TQC.quant_max <= 255 and TQC.quant_min >= 0)
+            else: range_check = (TQC.quant_max <= 127 and TQC.quant_min >= -128)
+        else: range_check = True
+
+        if not range_check:
+            logger.warning(f'Is it not safe to export TQC({bounded_var.name}) to Onnx, '
+                        f'INT8 value range must be [-128, 127] or [0, 255], '
+                        f'however [{TQC.quant_min, TQC.quant_max}] was given.')
+            return False
+        return True
 
 class ExporterPatternInfo(metaclass=SingletonMeta):
     var_exponents = {}
     var_layout = {}
     var_permute = {}
+    insert_transpose = {}
 
     def reset(self):
         self.var_exponents = {}
@@ -90,8 +92,11 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
     def add_var_layout(self, var_name:str, layout:LayoutAnnotation):
         self.var_layout[var_name] = layout
 
-    def add_var_transpose(self, var_name:str, perm:List[int]):
+    def add_var_permute(self, var_name:str, perm:List[int]):
         self.var_permute[var_name] = perm
+    
+    def insert_transpose_op(self, op:Operation, var: Variable, perm: List[int]):
+        self.insert_transpose[op] = (var, perm)
     
     def print(self):
         print(self.var_exponents)
@@ -188,9 +193,9 @@ class InsertQuantTypePattern(OperationExporter):
                graph: BaseGraph, 
                **kwargs) -> Operation:
         
-        if op.platform == TargetPlatform.ESPRESSIF_INT8:
+        if op.platform == TargetPlatform.ESPDL_INT8:
             op.attributes["quant_type"] = EspQuantType.S8
-        elif op.platform == TargetPlatform.ESPRESSIF_INT16:
+        elif op.platform == TargetPlatform.ESPDL_INT16:
             op.attributes["quant_type"] = EspQuantType.S16
         else:
             op.attributes["quant_type"] = EspQuantType.F32
@@ -245,7 +250,7 @@ class InsertQuantNodePattern(OperationExporter):
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
-            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
+            if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
 
             if not var.is_parameter:
                 if var.source_op:
@@ -255,6 +260,7 @@ class InsertQuantNodePattern(OperationExporter):
                         continue
                     elif var in op.inputs:
                         if not isinstance(var.source_op, QuantableOperation) and var.source_op.type not in QUANT_EXCLUDE_OP_SET:
+                            logger.debug(f'Insert Quantize Node for {op.name}:{var.name}')
                             InsertQuantNodePattern.insert_quantize_node(graph=graph, var=inserting_var, config=config, op=inserting_op)
         return op
 
@@ -313,7 +319,7 @@ class InsertRequantNodePattern(OperationExporter):
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
-            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
+            if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
 
             if not var.is_parameter:
 
@@ -330,6 +336,7 @@ class InsertRequantNodePattern(OperationExporter):
             
                         if source_op_output_config.num_of_bits != config.num_of_bits or scale_diff >= 1e-4 or zeropoint_diff >= 1e-1:
                             # if config 
+                            logger.debug(f'Insert Requantize Node for {op.name}:{var.name}')
                             InsertRequantNodePattern.insert_requantize_node(
                                 graph = graph, 
                                 var = inserting_var, 
@@ -386,7 +393,7 @@ class InsertDequantNodePattern(OperationExporter):
         
         for config, var in [_ for _ in op.config_with_variable]:
             inserting_op, inserting_var = op, var
-            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
+            if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var): continue
 
             if not var.is_parameter:
                 if len(var.dest_ops) == 1 and var.dest_ops[0].type in QUANT_OP_SET:
@@ -397,6 +404,7 @@ class InsertDequantNodePattern(OperationExporter):
                 if var in op.outputs:
                     for dest_op in var.dest_ops:
                         if dest_op and not isinstance(dest_op, QuantableOperation) and dest_op.type not in QUANT_EXCLUDE_OP_SET:
+                            logger.debug(f'Insert Dequantize Node for {op.name}:{var.name}')
                             InsertDequantNodePattern.insert_dequantize_node(
                                 graph = graph, var = inserting_var, 
                                 config = config, op = dest_op)
@@ -438,7 +446,7 @@ class FuseReluLikePattern(OperationExporter):
         return op
 
 
-class QuantParamToIntPattern(OperationExporter):
+class QuantVariableToIntPattern(OperationExporter):
 
     @staticmethod
     def calculate_exponent(config: TensorQuantizationConfig):
@@ -474,12 +482,12 @@ class QuantParamToIntPattern(OperationExporter):
             if not var or not config:
                 continue
 
-            if not QDQHelper.TQC_Exportable_Check(TQC=config, bounded_var=var):
+            if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var):
                 # print("Warning: skip %s because it's not exportable" % (var.name))
                 continue
 
             if not info.get_var_exponents(var.name):
-                exponent = QuantParamToIntPattern.calculate_exponent(config)
+                exponent = QuantVariableToIntPattern.calculate_exponent(config)
                 if exponent:
                     info.add_var_exponents(var.name, exponent)
                 else:

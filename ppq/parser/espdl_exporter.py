@@ -22,24 +22,26 @@ from ppq.core import (
 from ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 
-from .fbs_construct import helper
+from .espdl import helper
 from .onnx_exporter import OP_CONVERTERS
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-from .espressif_export_patterns import (
+from .espdl.export_patterns import (
     ExporterPatternInfo,
     FuseReluLikePattern,
     InsertDequantNodePattern,
     InsertQuantNodePattern,
     InsertQuantTypePattern,
     InsertRequantNodePattern,
-    QuantParamToIntPattern,
+    QuantVariableToIntPattern,
     ResetParamLayoutPattern,
 )
-from .fbs_construct.FlatBuffers.Dl.Model import ModelT
-from .fbs_construct.FlatBuffers.Dl.Node import NodeT
-from .fbs_construct.FlatBuffers.Dl.Tensor import TensorT
-from .fbs_construct.FlatBuffers.Dl.ValueInfo import ValueInfoT
+from .espdl.FlatBuffers.Dl.Model import ModelT
+from .espdl.FlatBuffers.Dl.Node import NodeT
+from .espdl.FlatBuffers.Dl.Tensor import TensorT
+from .espdl.FlatBuffers.Dl.ValueInfo import ValueInfoT
+from .espdl.layout_patterns import reset_graph_layout
+from .espdl.logger import logger
 
 
 def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
@@ -51,9 +53,9 @@ def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
             return value  # SOI config has Nona as its scale and
         return value.tolist()
     
-class EspressifExporter(GraphExporter):
+class EspdlExporter(GraphExporter):
     """
-    The EspressifExporter is used to export computational graphs into the esp-dl standard format. 
+    The EspdlExporter is used to export computational graphs into the esp-dl standard format. 
     The export logic of any exporter is performed in-place, meaning it will modify the incoming computational graph object in-place. 
     Therefore, you need to manually clone the computational graph before exporting.
     """
@@ -102,12 +104,12 @@ class EspressifExporter(GraphExporter):
 
         # In prepare stage, run all graph pattern, e.g. fuse Conv and Relu
         exporter_patterns = [
-            FuseReluLikePattern,
             InsertQuantTypePattern, 
+            FuseReluLikePattern,
             InsertQuantNodePattern, 
             InsertRequantNodePattern, 
             InsertDequantNodePattern,
-            QuantParamToIntPattern, 
+            QuantVariableToIntPattern, 
             ResetParamLayoutPattern
         ]
         
@@ -133,7 +135,7 @@ class EspressifExporter(GraphExporter):
             encrypt_data   # if True, encrypt data for security
         )
         if key:
-            print(f"AES 128-bit secret key: {key}")
+            logger.info(f"AES 128-bit secret key: {key}")
         
         ExporterPatternInfo().reset()
 
@@ -167,41 +169,13 @@ class EspressifExporter(GraphExporter):
                 ), f"Expected an OpExporter here, however {type(exporter)} was given."
                 op = exporter.export(op=op, graph=graph)
 
+        graph = reset_graph_layout(graph)
+
         for pattern in exporter_patterns:
             exporter = pattern()
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
-
-        # # Insert Quant, Dequant or Requant operation within your graph.
-        # print("Espressif Exporter: Insert Quant, Requant, Dequant Operation ...")
-        # for op in graph.topological_sort():
-        #     op = InsertQuantTypePattern().export(op=op, graph=graph)
-        #     # Insert Quant op
-        #     op = InsertQuantNodePattern().export(op=op, graph=graph)
-        #     # Insert Requant op
-        #     op = InsertRequantNodePattern().export(op=op, graph=graph)
-        #     # Insert Dequant op
-        #     op = InsertDequantNodePattern().export(op=op, graph=graph)
-
-        # # Fuse ops
-        # print("Espressif Exporter: Execute fusion pattern ...")
-        # for op in graph.topological_sort():
-        #     op = FuseReluLikePattern().export(op=op, graph=graph)
-        
-        # # quantize parameters and reset layout
-        # print("Espressif Exporter: Quantize parameter and Reset layout ...")
-        # for op in graph.topological_sort():
-        #     if isinstance(op, QuantableOperation):
-        #         op = ResetParamLayoutPattern().export(op=op, graph=graph)
-        #         op = QuantParamToIntPattern().export(op=op, graph=graph)
-        
-        # 
-        # print("Espressif Exporter: Quantize parameters ...")
-        # for op in graph.topological_sort():
-        #     if not isinstance(op, QuantableOperation): continue
-        #     if op.type in QUANT_OP_SET: continue
-        #     op = InsertQuantNodePattern().export(op=op, graph=graph)
-
+                
         return graph
 
     def export_graph(
@@ -403,93 +377,3 @@ class EspressifExporter(GraphExporter):
                 if 'split' not in op.attributes: continue # split is already v13
                 split = convert_any_to_torch_tensor(op.attributes.pop('split'), dtype=torch.int64)
                 graph.create_variable(name=None, value=split, is_parameter=True, dest_ops=[op])
-
-
-
-    # def modify_shape_info(
-    #         self,
-    #         graph: BaseGraph,
-    #         fbsModel: ModelT
-    #     ):
-
-    #     # modify graph input shape info
-    #     for var in graph.inputs.values():
-    #         for op in var.dest_ops:
-    #             if "Conv" == op.type:
-    #                 var_shape = var.shape
-    #                 if len(var_shape) == 4:     # conv2d, NCHW -> NHWC
-    #                     c = var_shape[1]
-    #                     var_shape[1:3] = var_shape[2:]
-    #                     var_shape[3] = c
-    #                 else:                       # conv1d, NCW -> NWC
-    #                     c = var_shape[1]
-    #                     var_shape[1] = var_shape[2]
-    #                     var_shape[2] = c
-
-    #                 if var_shape[0] == 1:
-    #                     var_shape.pop(0)
-
-    #                 var_fbs: ValueInfoT = None
-    #                 input_fbs: ValueInfoT = None
-    #                 for i, var_fbs in enumerate(fbsModel.graph.valueInfo):
-    #                     # modify graph valueInfo
-    #                     if var_fbs.name == var.name:
-    #                         fbsModel.graph.valueInfo[i] = helper.make_tensor_value_info(name = var_fbs.name, 
-    #                                                                                 elem_type = var.dtype.value, 
-    #                                                                                 shape = var_shape, 
-    #                                                                                 exponents = var_fbs.exponents
-    #                                                                                 )
-    #                         for j, input_fbs in enumerate(fbsModel.graph.input):
-    #                             # modify graph input
-    #                             if input_fbs.name == var.name:
-    #                                 fbsModel.graph.input[j] = fbsModel.graph.valueInfo[i]
-    #                                 break
-
-    #                         break
-
-    #                 break
-
-    #     # modify filter shape info
-    #     op_fbs: NodeT = None
-    #     for i, op_fbs in enumerate(fbsModel.graph.node):
-    #         if "Conv" == op_fbs.opType:
-    #             op_group: int = 1
-    #             attr_fbs: AttributeT = None
-    #             for attr_fbs in op_fbs.attribute:
-    #                 if attr_fbs.name == "group":
-    #                     op_group = attr_fbs.i.i
-    #                     break
-
-    #             filter_name_fbs: str = op_fbs.input[1]
-    #             tensor_fbs: TensorT = None
-    #             for tensor_fbs in fbsModel.graph.initializer:
-    #                 if tensor_fbs.name == filter_name_fbs:
-    #                     if len(tensor_fbs.dims) == 4:   # conv2d
-    #                         if op_group == 1:           # shape info: NCHW -> HWCN
-    #                             n, c = tensor_fbs.dims[0 : 2]
-    #                             tensor_fbs.dims[0:2] = tensor_fbs.dims[2:]
-    #                             tensor_fbs.dims[2] = c
-    #                             tensor_fbs.dims[3] = n
-    #                         else:                       # only support depthwise conv2d: NCHW -> HWNC
-    #                             n, c = tensor_fbs.dims[0 : 2]
-    #                             tensor_fbs.dims[0:2] = tensor_fbs.dims[2:]
-    #                             tensor_fbs.dims[2] = n
-    #                             tensor_fbs.dims[3] = c
-
-    #                     break
-
-    #         elif "Gemm" == op_fbs.opType:
-    #             filter_name_fbs: str = op_fbs.input[1]
-    #             tensor_fbs: TensorT = None
-    #             for tensor_fbs in fbsModel.graph.initializer:
-    #                 if tensor_fbs.name == filter_name_fbs:
-    #                     if len(tensor_fbs.dims) == 4:
-    #                         # shape info: NCHW -> HWCN
-    #                         n, c = tensor_fbs.dims[0 : 2]
-    #                         tensor_fbs.dims[0:2] = tensor_fbs.dims[2:]
-    #                         tensor_fbs.dims[2] = c
-    #                         tensor_fbs.dims[3] = n
-
-    #                     break
-
-    #     return

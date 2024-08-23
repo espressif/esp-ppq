@@ -13,9 +13,9 @@ from .common import EXPORT_OVERLAPPED_CONFIG
 from .defs import ppq_warning
 from .storage import Serializable
 
-
 MAX_RECURSION_DEPTH = 10000
 import sys
+
 sys.setrecursionlimit(MAX_RECURSION_DEPTH)
 
 
@@ -83,9 +83,9 @@ class TargetPlatform(Enum):
     NXP_INT8  = 501
     FPGA_INT8 = 502
 
-    ESPRESSIF_INT8 = 551
-    ESPRESSIF_INT16 = 552
-    ESPRESSIF_S3_INT16 = 553
+    ESPDL_INT8 = 551
+    ESPDL_INT16 = 552
+    ESPDL_S3_INT16 = 553
 
     RKNN_INT8 = 601
 
