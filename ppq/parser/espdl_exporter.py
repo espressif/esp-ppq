@@ -370,6 +370,8 @@ class EspdlExporter(GraphExporter):
         else:
             var_shape = variable.shape
             onnx_dtype = variable.dtype.value
+            if len(var_shape) != len(perm):
+                logger.error(f"{variable.name} permute do not match shape")
             var_shape = transpose_shape(var_shape, perm)
 
         # if variable not in exponents, set exponent to 0

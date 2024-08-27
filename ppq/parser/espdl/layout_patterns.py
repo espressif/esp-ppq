@@ -56,10 +56,10 @@ def transpose_shape(input_shape, perm: List[int]) -> List[int]:
 
 def get_inverse_transpose(perm: List[int]) -> List[int]:
     """
-    tensor == inverse_transpose(transpose(tensor))
+    tensor == transpose(transpose(tensor))
+    perm = [perm.index(i) for i in range(len(perm))]
     """
-    return [perm.index(i) for i in range(len(perm))]
-
+    return perm
 
 def get_default_perm(var: Variable) -> List[int]:
     """
@@ -113,8 +113,8 @@ def insert_transpose_node(
 
 
 def restore_origin_shape(op: Operation, graph: BaseGraph):
+    info = ExporterPatternInfo()
     for var in op.inputs:
-        info = ExporterPatternInfo()
         if var.is_parameter:
             continue
 
@@ -127,8 +127,8 @@ def restore_origin_shape(op: Operation, graph: BaseGraph):
         else:
             info.add_var_permute(var.name, get_default_perm(var))
 
-        for var in op.outputs:
-            info.add_var_permute(var.name, get_default_perm(var))
+    for var in op.outputs:
+        info.add_var_permute(var.name, get_default_perm(var))
     return op
 
 
@@ -234,7 +234,7 @@ class BypassAddLikePattern(OperationExporter):
                         info.add_var_permute(input1.name, get_default_perm(input1))
                         info.add_var_permute(input2.name, get_default_perm(input2))
                         output_perm = get_default_perm(output)
-                    info.add_var_exponents(output.name, output_perm)
+                    info.add_var_permute(output.name, output_perm)
                 else:
                     # insert transpose node and restore origin shape
                     return restore_origin_shape(op, graph)
@@ -346,7 +346,7 @@ class FuseTransposePattern(OperationExporter):
             perm = op.attributes["perm"]
             while True:
                 downstream_op = graph.get_downstream_operations(op)
-                # the downstream op have only one op and this op is relu
+                # the downstream op have only one op and this op is Transpose
                 if len(downstream_op) == 1 and downstream_op[0].type == "Transpose":
                     downstream_transpose_op = downstream_transpose_op[0]
                     perm = transpose_shape(perm, downstream_op[0].attributes["perm"])
