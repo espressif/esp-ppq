@@ -501,7 +501,12 @@ def aes_encryptor(data: bytes):
     cipher = Cipher(algorithms.AES(key), modes.CTR(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     ct_data = encryptor.update(data) + encryptor.finalize()
-    return ct_data, key
+    
+    hex_key = ''
+    for _, byte in enumerate(key):
+        hex_key += "0x{:02x}, ".format(byte)
+
+    return ct_data, hex_key
 
 
 def aes_decryptor(data: bytes, key: bytearray):

@@ -1,19 +1,27 @@
+import re
 from typing import Union
 
-import re
 import torch
+
 from ppq.api.setting import QuantizationSetting
-from ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
-                      QuantizationPolicy, QuantizationProperty,
-                      QuantizationStates, RoundingPolicy, TargetPlatform,
-                      ppq_warning, OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE)
+from ppq.core import (
+    OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE,
+    PASSIVE_OPERATIONS,
+    OperationQuantizationConfig,
+    QuantizationPolicy,
+    QuantizationProperty,
+    QuantizationStates,
+    RoundingPolicy,
+    TargetPlatform,
+    ppq_warning,
+)
 from ppq.IR import BaseGraph, Operation
 from ppq.quantization.optim import QuantizationOptimizationPipeline
 
 from .base import BaseQuantizer
 
 
-class ESPRESSIFQuantizer(BaseQuantizer):
+class EspdlQuantizer(BaseQuantizer):
     def __init__(
         self,
         graph: BaseGraph,
@@ -100,7 +108,7 @@ class ESPRESSIFQuantizer(BaseQuantizer):
 
     @ property
     def target_platform(self) -> TargetPlatform:
-        return TargetPlatform.ESPRESSIF_INT8
+        return TargetPlatform.ESPDL_INT8
 
     @ property
     def default_platform(self) -> TargetPlatform:
@@ -167,7 +175,7 @@ class ESPRESSIFQuantizer(BaseQuantizer):
         self._custom_tqc = custom_op_tqc
 
 
-class ESPRESSIF_INT16_Quantizer(ESPRESSIFQuantizer):
+class ESPDL_INT16_Quantizer(EspdlQuantizer):
     def __init__(
         self,
         graph: BaseGraph,
@@ -180,10 +188,10 @@ class ESPRESSIF_INT16_Quantizer(ESPRESSIFQuantizer):
 
     @ property
     def target_platform(self) -> TargetPlatform:
-        return TargetPlatform.ESPRESSIF_INT16
+        return TargetPlatform.ESPDL_INT16
 
 
-class ESPRESSIF_S3_Quantizer(ESPRESSIFQuantizer):
+class ESPDL_S3_Quantizer(EspdlQuantizer):
     def __init__(
         self,
         graph: BaseGraph,
@@ -267,7 +275,7 @@ class ESPRESSIF_S3_Quantizer(ESPRESSIFQuantizer):
 
     @ property
     def target_platform(self) -> TargetPlatform:
-        return TargetPlatform.ESPRESSIF_S3_INT16
+        return TargetPlatform.ESPDL_S3_INT16
 
     @ property
     def rounding_policy(self):
