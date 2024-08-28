@@ -49,7 +49,7 @@ class EspdlQuantHelper:
     def TQC_Exportable_Check(
         TQC: TensorQuantizationConfig, bounded_var: Variable
     ) -> bool:
-        if not TQC.can_export():
+        if not TQC.can_export(True):
             logger.warning(
                 f"Warning: skip {bounded_var.name} because it's not exportable"
             )
@@ -691,9 +691,10 @@ class ResetParamLayoutPattern(OperationExporter):
 
                 if len(tensor.shape) == 2:  # Gemm Filter
                     trans_filter = op.attributes.get("transB", 0)
-                    if trans_filter:
+                    if trans_filter != 0:
+                        logger.debug("transB is not 0, transpose the filter and reset transB")
                         op.attributes["transB"] = 0  # update 'transB'
-                        tensor = tensor.transpose(0, 1)  # [N, C] -> [C, N]
+                        tensor = tensor.transpose(1, 0)  # [N, C] -> [C, N]
                     tensor = tensor.unsqueeze(-1).unsqueeze(-1)  # CN -> CNHW
                     # CNHW -> NCHW, same with conv2d filter
                     tensor = tensor.permute(1, 0, 2, 3)
@@ -704,7 +705,7 @@ class ResetParamLayoutPattern(OperationExporter):
                     info.add_var_layout(var.name, layout)
                     var.value = aligned_tensor
                     logger.debug(
-                        f"reset {op.type}:{op.name}, shape:{tensor.shape}, layout to {layout}"
+                        f"reset {op.type}:{op.name}, shape:{var.value.shape}, layout to {layout}"
                     )
 
         return op

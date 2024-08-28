@@ -1,6 +1,5 @@
 from typing import List
 
-import torch
 from logger import logger
 
 from ppq.core import (
@@ -148,7 +147,7 @@ class ResetConvLayoutPattern(OperationExporter):
                 var_shape = var.shape
                 if len(var_shape) == 4:  # conv2d, NCHW -> NHWC
                     perm = [0, 2, 3, 1]
-                else:  # conv1d, NCW -> NWC
+                elif len(var_shape) == 3:  # conv1d, NCW -> NWC
                     perm = [0, 2, 1]
 
                 var_perm = info.get_var_permute(var.name)
@@ -263,12 +262,15 @@ class ResetConcatPattern(OperationExporter):
             output_var = op.outputs[0]
 
             if len(perm_dict) == 1:  # all input have same perm, output bypass
-                var_perm = perm_dict.values[0]
-                axis = op.attributes["axis"]
-                new_axis = var_perm.index(int(axis))
-                op.attributes["axis"] = new_axis
-                info.add_var_permute(output_var.name, var_perm)
-                logger.debug(f"{op.name} update axes from {axis} to {new_axis}")
+                var_perm = list(perm_dict.values())[0]
+                if not var_perm:
+                    restore_origin_shape(op, graph)
+                else:
+                    axis = op.attributes["axis"]
+                    new_axis = var_perm.index(int(axis))
+                    op.attributes["axis"] = new_axis
+                    info.add_var_permute(output_var.name, var_perm)
+                    logger.debug(f"{op.name} update axes from {axis} to {new_axis}")
             else:
                 restore_origin_shape(op, graph)
         return op
@@ -283,51 +285,74 @@ class ResetResizePattern(OperationExporter):
         if op.type in ["Resize"]:
             info = ExporterPatternInfo()
             input_var = op.inputs[0]
-            roi = op.inputs[1]
-            scales = op.inputs[2]
-            sizes = op.inputs[3]
-            input_perm = info.get_var_permute(input_var)
+            if len(op.inputs) > 1:
+                roi = op.inputs[1]
+            else:
+                roi = None
+            
+            if len(op.inputs) > 2:
+                scales = op.inputs[2]
+            else:
+                scales = None
+            
+            if len(op.inputs) > 3:
+                sizes = op.inputs[3]
+            else:
+                sizes = None
+            
+            for var in op.inputs[1:]:
+                perm = info.get_var_permute(var.name, get_default_perm(var))
+
+            input_perm = info.get_var_permute(input_var.name)
             output_var = op.outputs[0]
 
             if input_perm:
                 info.add_var_permute(output_var.name, input_perm)
-                axes = op.attributes["axis"]
-                if axes:
-                    new_axes = [input_perm.index(i) for i in axes]
-                    op.attributes["axis"] = new_axes
-                    logger.debug(f"resize axes from {axes} to {new_axes} ")
-                else:
-                    if scales:
-                        values = scales.tolist()
-                        new_values = [
-                            values[input_perm[int(i)]] for i in range(len(values))
-                        ]
-                        scales.value = torch.Tensor(new_values, dtype=torch.int32)
-                        logger.debug(
-                            f"{op.name} reset scales from {values} to {new_values} "
-                        )
-                    if sizes:
-                        values = sizes.tolist()
-                        new_values = [
-                            values[input_perm[int(i)]] for i in range(len(values))
-                        ]
-                        sizes.value = torch.Tensor(new_values, dtype=torch.int32)
-                        logger.debug(
-                            f"{op.name} reset sizes from {values} to {new_values} "
-                        )
-                    if roi:
-                        values = sizes.tolist()
-                        new_values = []
-                        for i in range(len(values) / 2):
-                            new_values.append(values[input_perm[int(i)] * 2])
-                            new_values.append(values[input_perm[int(i)] * 2 + 1])
-                        roi.value = torch.Tensor(new_values, dtype=torch.int32)
-                        logger.debug(
-                            f"{op.name} reset sizes from {values} to {new_values} "
-                        )
+                # axes = op.attributes["axis"]
+                # if axes:
+                #     new_axes = [input_perm.index(i) for i in axes]
+                #     op.attributes["axis"] = new_axes
+                #     logger.debug(f"resize axes from {axes} to {new_axes} ")
+                # else:
+                #     if scales:
+                #         values = scales.tolist()
+                #         new_values = [
+                #             values[input_perm[int(i)]] for i in range(len(values))
+                #         ]
+                #         scales.value = torch.Tensor(new_values, dtype=torch.int32)
+                #         logger.debug(
+                #             f"{op.name} reset scales from {values} to {new_values} "
+                #         )
+                #     if sizes:
+                #         values = sizes.tolist()
+                #         new_values = [
+                #             values[input_perm[int(i)]] for i in range(len(values))
+                #         ]
+                #         sizes.value = torch.Tensor(new_values, dtype=torch.int32)
+                #         logger.debug(
+                #             f"{op.name} reset sizes from {values} to {new_values} "
+                #         )
+                #     if roi:
+                #         values = sizes.tolist()
+                #         new_values = []
+                #         for i in range(len(values) / 2):
+                #             new_values.append(values[input_perm[int(i)] * 2])
+                #             new_values.append(values[input_perm[int(i)] * 2 + 1])
+                #         roi.value = torch.Tensor(new_values, dtype=torch.int32)
+                #         logger.debug(
+                #             f"{op.name} reset sizes from {values} to {new_values} "
+                #         )
             else:
-                info.add_var_permute(input_var.name, get_default_perm(input_var))
-                info.add_var_permute(output_var.name, get_default_perm(output_var))
+                if len(input_var.shape) == 4:  # conv2d, NCHW -> NHWC
+                    perm = [0, 2, 3, 1]
+                elif len(input_var.shape) == 3:  # conv1d, NCW -> NWC
+                    perm = [0, 2, 1]
+                else:
+                    logger.error(f"Reize: do not support shape for {input_var.shape}")
+                
+                info.add_var_permute(input_var.name, perm)
+                info.add_var_permute(output_var.name, perm)
+
         return op
 
 
