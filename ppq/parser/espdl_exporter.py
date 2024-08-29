@@ -43,11 +43,12 @@ from .espdl.layout_patterns import (
     RestoreOriginLayoutPattern,
     transpose_shape,
 )
-from .espdl.logger import logger
+from ppq.log import NaiveLogger
 from .onnx_exporter import OP_CONVERTERS
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
+logger = NaiveLogger.get_logger('ESPDL')
 
 def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
     if type(value) in {int, float}:
@@ -398,6 +399,7 @@ class EspdlExporter(GraphExporter):
                     value = [
                         value.item(),
                     ]  # it is fine for onnx, shape for this value will be []
+                    var_shape = torch.tensor(value).shape
             else:
                 value = value  # value is python primary type.
             tensor_proto = helper.make_tensor(
