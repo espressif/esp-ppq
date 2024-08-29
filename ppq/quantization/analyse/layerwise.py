@@ -79,14 +79,19 @@ def layerwise_error_analyse(
     executor = TorchExecutor(graph=graph, device=running_device)
 
     # find all quantable operations.
-    quantable_operations = []
+    quantable_operations = [operation for operation in graph.operations.values()
+                     if (isinstance(operation, QuantableOperation) and operation.is_computing_op)]
+    if len(quantable_operations) == 0:
+        print('Oops. you got nothing to analyse.')
+        return
+
     for operation in graph.operations.values():
         if isinstance(operation, QuantableOperation):
             operation.dequantize()
 
-            # we only need reports from computing op.
-            if operation.is_computing_op:
-                quantable_operations.append(operation)
+            # # we only need reports from computing op.
+            # if operation.is_computing_op:
+            #     quantable_operations.append(operation)
 
     # dequantize all operations, create recorder for each operation
     recorders = {}

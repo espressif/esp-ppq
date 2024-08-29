@@ -1,6 +1,6 @@
 from typing import List
 
-from logger import logger
+from ppq.log import NaiveLogger
 
 from ppq.core import (
     OperationQuantizationConfig,
@@ -11,6 +11,8 @@ from ppq.parser.espdl.espdl_typedef import (
     ExporterPatternInfo,
 )
 from ppq.parser.espdl.export_patterns import fuse_downstream_operation
+
+logger = NaiveLogger.get_logger('ESPDL')
 
 ACTIVATION_OP_SET = {
     "Relu",

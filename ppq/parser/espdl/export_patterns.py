@@ -3,7 +3,7 @@ import sys
 
 import numpy as np
 import torch
-from logger import logger
+from ppq.log import NaiveLogger
 
 from ppq.core import (
     DataType,
@@ -28,6 +28,7 @@ from ppq.utils.round import ppq_tensor_round
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
+logger = NaiveLogger.get_logger('ESPDL')
 
 QUANT_OP_SET = {
     "RequantizeLinear",
