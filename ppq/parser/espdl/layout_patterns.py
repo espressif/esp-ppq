@@ -1,18 +1,18 @@
 from typing import List
 
-from ppq.log import NaiveLogger
-
 from ppq.core import (
     OperationQuantizationConfig,
 )
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
+from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
     ExporterPatternInfo,
 )
 from ppq.parser.espdl.export_patterns import fuse_downstream_operation
 
 logger = NaiveLogger.get_logger('ESPDL')
+logger.set_level("DEBUG")
 
 ACTIVATION_OP_SET = {
     "Relu",
@@ -235,6 +235,7 @@ class BypassAddLikePattern(OperationExporter):
                         info.add_var_permute(input1.name, get_default_perm(input1))
                         info.add_var_permute(input2.name, get_default_perm(input2))
                         output_perm = get_default_perm(output)
+                    # logger.debug(f"{info.get_var_permute(input1.name)}, {info.get_var_permute(input2.name)}, {output_perm}")
                     info.add_var_permute(output.name, output_perm)
                 else:
                     # insert transpose node and restore origin shape
@@ -274,6 +275,7 @@ class ResetConcatPattern(OperationExporter):
                     info.add_var_permute(output_var.name, var_perm)
                     logger.debug(f"{op.name} update axes from {axis} to {new_axis}")
             else:
+                logger.debug(f"transpose perm {perm_dict}")
                 restore_origin_shape(op, graph)
         return op
 
@@ -375,7 +377,7 @@ class FuseTransposePattern(OperationExporter):
                 downstream_op = graph.get_downstream_operations(op)
                 # the downstream op have only one op and this op is Transpose
                 if len(downstream_op) == 1 and downstream_op[0].type == "Transpose":
-                    downstream_transpose_op = downstream_transpose_op[0]
+                    downstream_transpose_op = downstream_op[0]
                     perm = transpose_shape(perm, downstream_op[0].attributes["perm"])
 
                     if isinstance(op, QuantableOperation):
@@ -406,19 +408,29 @@ def reset_graph_layout(graph: BaseGraph) -> ExporterPatternInfo:
     """
 
     layout_patterns = [
-        ResetConvLayoutPattern,
-        BypassActivationLayoutPattern,
-        BypassAddLikePattern,
-        ResetConcatPattern,
-        ResetResizePattern,
-        RestoreOriginLayoutPattern,
-        FuseTransposePattern,
+        [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern], 
+        [ACTIVATION_OP_SET, BypassActivationLayoutPattern],
+        [ADD_LIKE_OP_SET, BypassAddLikePattern],
+        [["Concat"], ResetConcatPattern],
+        [["Resize"], ResetResizePattern],
+        [OTHER_OP_SET, RestoreOriginLayoutPattern]
     ]
+        
+    for op in graph.topological_sort():
+        flag = 1
+        for pattern in layout_patterns:
+            if op.type in pattern[0]:
+                pattern[1]().export(op, graph)
+                flag = 0
+                break
+        if flag:
+            logger.error("Can not reset {op.type}:{op.name} layout")
+    
+    # fuse transpose op
+    pattern = FuseTransposePattern()
+    for op in graph.topological_sort():
+        pattern.export(op, graph)
 
-    for pattern in layout_patterns:
-        exporter = pattern()
-        for op in graph.topological_sort():
-            exporter.export(op=op, graph=graph)
 
     info = ExporterPatternInfo()
     for variable in graph.variables.values():

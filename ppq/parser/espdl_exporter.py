@@ -16,6 +16,7 @@ from ppq.core import (
 )
 from ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
+from ppq.log import NaiveLogger
 from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 from .espdl import helper
@@ -34,16 +35,9 @@ from .espdl.FlatBuffers.Dl.Node import NodeT
 from .espdl.FlatBuffers.Dl.Tensor import TensorT
 from .espdl.FlatBuffers.Dl.ValueInfo import ValueInfoT
 from .espdl.layout_patterns import (
-    BypassActivationLayoutPattern,
-    BypassAddLikePattern,
-    FuseTransposePattern,
-    ResetConcatPattern,
-    ResetConvLayoutPattern,
-    ResetResizePattern,
-    RestoreOriginLayoutPattern,
+    reset_graph_layout,
     transpose_shape,
 )
-from ppq.log import NaiveLogger
 from .onnx_exporter import OP_CONVERTERS
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
@@ -111,15 +105,7 @@ class EspdlExporter(GraphExporter):
 
         # In prepare stage, run all graph pattern
         # 1. reset Conv layout from NCHW to NHWC and insert transpose node if necessary
-        layout_patterns = [
-            ResetConvLayoutPattern,
-            BypassActivationLayoutPattern,
-            BypassAddLikePattern,
-            ResetConcatPattern,
-            ResetResizePattern,
-            RestoreOriginLayoutPattern,
-            FuseTransposePattern,
-        ]
+        reset_graph_layout(graph)
 
         # 2. fuse Conv and Relu and insert quant node if necessary
         exporter_patterns = [
@@ -132,7 +118,7 @@ class EspdlExporter(GraphExporter):
             ResetParamLayoutPattern,
         ]
 
-        graph = self.prepare_graph(graph, layout_patterns + exporter_patterns)
+        graph = self.prepare_graph(graph, exporter_patterns)
 
         # if a valid config path is given, export quantization config to there.
         if config_path is not None:
@@ -371,9 +357,10 @@ class EspdlExporter(GraphExporter):
         else:
             var_shape = variable.shape
             onnx_dtype = variable.dtype.value
-            if len(var_shape) != len(perm):
-                logger.error(f"{variable.name} permute do not match shape")
-            var_shape = transpose_shape(var_shape, perm)
+            if var_shape:
+                if len(var_shape) != len(perm):
+                    logger.error(f"{variable.name} permute do not match shape")
+                var_shape = transpose_shape(var_shape, perm)
 
         # if variable not in exponents, set exponent to 0
         var_exponents = exponent
