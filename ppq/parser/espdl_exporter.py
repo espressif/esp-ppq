@@ -104,10 +104,7 @@ class EspdlExporter(GraphExporter):
         graph = graph.copy()
 
         # In prepare stage, run all graph pattern
-        # 1. reset Conv layout from NCHW to NHWC and insert transpose node if necessary
-        reset_graph_layout(graph)
-
-        # 2. fuse Conv and Relu and insert quant node if necessary
+        # fuse Conv and Relu and insert quant node if necessary
         exporter_patterns = [
             InsertQuantTypePattern,
             FuseReluLikePattern,
@@ -180,6 +177,9 @@ class EspdlExporter(GraphExporter):
                     exporter, OperationExporter
                 ), f"Expected an OpExporter here, however {type(exporter)} was given."
                 op = exporter.export(op=op, graph=graph)
+        
+        # reset Conv layout from NCHW to NHWC and insert transpose node if necessary
+        reset_graph_layout(graph)
 
         for pattern in exporter_patterns:
             exporter = pattern()
@@ -188,7 +188,7 @@ class EspdlExporter(GraphExporter):
 
         info = ExporterPatternInfo()
         for variable in graph.variables.values():
-            if variable.is_parameter:
+            if variable.is_parameter or len(variable.name) == 0:
                 continue
 
             perm = info.get_var_permute(variable.name)

@@ -12,7 +12,7 @@ from ppq.parser.espdl.espdl_typedef import (
 from ppq.parser.espdl.export_patterns import fuse_downstream_operation
 
 logger = NaiveLogger.get_logger('ESPDL')
-logger.set_level("DEBUG")
+# logger.set_level("DEBUG")
 
 ACTIVATION_OP_SET = {
     "Relu",
@@ -311,6 +311,9 @@ class ResetResizePattern(OperationExporter):
             output_var = op.outputs[0]
 
             if input_perm:
+                for var in op.inputs[1:]:
+                    if var:
+                        info.add_var_permute(var.name, get_default_perm(var))
                 info.add_var_permute(output_var.name, input_perm)
                 # axes = op.attributes["axis"]
                 # if axes:
@@ -401,8 +404,14 @@ class FuseTransposePattern(OperationExporter):
                 graph.remove_operation(op, keep_coherence=True)
         return op
 
-
-def reset_graph_layout(graph: BaseGraph) -> ExporterPatternInfo:
+def print_vars(op: Operation):
+    logger.info(f"Op: {op.name}, {op.type}, {op.attributes}")
+    for var in op.inputs:
+        print("inputs:", var.name, var.shape)
+    for var in op.outputs:
+        print("outputs:", var.name, var.shape)
+    
+def reset_graph_layout(graph: BaseGraph):
     """
     Reset layout from NCHW -> NHWC
     """
@@ -430,18 +439,3 @@ def reset_graph_layout(graph: BaseGraph) -> ExporterPatternInfo:
     pattern = FuseTransposePattern()
     for op in graph.topological_sort():
         pattern.export(op, graph)
-
-
-    info = ExporterPatternInfo()
-    for variable in graph.variables.values():
-        if variable.is_parameter:
-            continue
-
-        perm = info.get_var_permute(variable.name)
-        if perm:
-            # variable.shape = transpose_shape(variable.shape, perm)
-            logger.debug(f"{variable.name} perm: {perm}")
-        else:
-            logger.warning(f"{variable.name} does not bind the perm parameter")
-    info.print()
-    return info
