@@ -175,7 +175,7 @@ class EspdlQuantizer(BaseQuantizer):
         self._custom_tqc = custom_op_tqc
 
 
-class ESPDL_INT16_Quantizer(EspdlQuantizer):
+class EspdlInt16Quantizer(EspdlQuantizer):
     def __init__(
         self,
         graph: BaseGraph,
@@ -191,7 +191,7 @@ class ESPDL_INT16_Quantizer(EspdlQuantizer):
         return TargetPlatform.ESPDL_INT16
 
 
-class ESPDL_S3_Quantizer(EspdlQuantizer):
+class EspdlS3Quantizer(EspdlQuantizer):
     def __init__(
         self,
         graph: BaseGraph,

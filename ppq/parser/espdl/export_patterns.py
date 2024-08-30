@@ -3,7 +3,6 @@ import sys
 
 import numpy as np
 import torch
-from ppq.log import NaiveLogger
 
 from ppq.core import (
     DataType,
@@ -18,6 +17,7 @@ from ppq.core import (
 )
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
+from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
     EspQuantType,
     ExporterPatternInfo,

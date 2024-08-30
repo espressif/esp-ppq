@@ -24,9 +24,9 @@ from ppq.parser import (
 )
 from ppq.quantization.quantizer import (
                         AscendQuantizer,
-                        ESPDL_INT16_Quantizer,
-                        ESPDL_S3_Quantizer,
+                        EspdlInt16Quantizer,
                         EspdlQuantizer,
+                        EspdlS3Quantizer,
                         ExtQuantizer,
                         FPGAQuantizer,
                         GraphCoreQuantizer,
@@ -68,8 +68,8 @@ __QUANTIZER_COLLECTION__ = {
     TargetPlatform.TRT_FP8:       TensorRTQuantizer_FP8,
     TargetPlatform.ONNXRUNTIME:   OnnxruntimeQuantizer,
     TargetPlatform.ESPDL_INT8:      EspdlQuantizer,
-    TargetPlatform.ESPDL_INT16:     ESPDL_INT16_Quantizer,
-    TargetPlatform.ESPDL_S3_INT16:  ESPDL_S3_Quantizer,
+    TargetPlatform.ESPDL_INT16:     EspdlInt16Quantizer,
+    TargetPlatform.ESPDL_S3_INT16:  EspdlS3Quantizer,
 }
 
 
