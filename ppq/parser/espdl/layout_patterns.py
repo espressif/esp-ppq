@@ -7,46 +7,16 @@ from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
+    PASSIVE_LAYOUT_OP_SET, 
+    CONV_LAYOUT_OP_SET, 
+    ADD_LIKE_OP_SET, 
+    OTHER_OP_SET,
     ExporterPatternInfo,
 )
 from ppq.parser.espdl.export_patterns import fuse_downstream_operation
 
 logger = NaiveLogger.get_logger('ESPDL')
 # logger.set_level("DEBUG")
-
-ACTIVATION_OP_SET = {
-    "Relu",
-    "PRelu",
-    "Sigmoid",
-    "Tanh",
-    "HardSwish",
-    "Elu",
-    "Gelu",
-    "Softmax",
-    "Clip",
-    "Cast",
-}
-CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool"}
-ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div"}
-OTHER_OP_SET = {
-    "Matmul",
-    "Gemm",
-    "Flatten",
-    "Reshape",
-    "Squeeze",
-    "Unsqueeze",
-    "Transpose",
-    "Slice",
-    "Pad",
-    "Split",
-    "Concat",
-    "Constant",
-    "Gather",
-    "Shape",
-    "ConstantOfShape",
-    "Expand",
-    "ReduceMean",
-}
 
 
 def transpose_shape(input_shape, perm: List[int]) -> List[int]:
@@ -187,13 +157,13 @@ class RestoreOriginLayoutPattern(OperationExporter):
         return op
 
 
-class BypassActivationLayoutPattern(OperationExporter):
+class BypassPassiveLayoutPattern(OperationExporter):
     """
-    Activation Node inherit transpose from upstream
+    Passive Node inherit transpose from upstream
     """
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.type in ACTIVATION_OP_SET:
+        if op.type in PASSIVE_LAYOUT_OP_SET:
             info = ExporterPatternInfo()
             assert len(op.outputs) == 1
             input1 = op.inputs[0]
@@ -418,7 +388,7 @@ def reset_graph_layout(graph: BaseGraph):
 
     layout_patterns = [
         [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern], 
-        [ACTIVATION_OP_SET, BypassActivationLayoutPattern],
+        [PASSIVE_LAYOUT_OP_SET, BypassPassiveLayoutPattern],
         [ADD_LIKE_OP_SET, BypassAddLikePattern],
         [["Concat"], ResetConcatPattern],
         [["Resize"], ResetResizePattern],

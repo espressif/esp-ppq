@@ -3,6 +3,52 @@ from typing import List, Union
 from ppq.core import OperationQuantizationConfig, SingletonMeta
 
 
+ACTIVATION_OP_SET = {
+    "Relu",
+    "PRelu",
+    "Sigmoid",
+    "Tanh",
+    "HardSwish",
+    "Elu",
+    "Gelu",
+    "Softmax",
+    "Clip",
+    "Cast",
+}
+QUANT_OP_SET = {
+    "RequantizeLinear",
+    "QuantizeLinear",
+    "DequantizeLinear",
+    "QuantizeFloating",
+    "DequantizeFloating",
+}
+PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET
+CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool"}
+ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div"}
+OTHER_OP_SET = {
+    "Matmul",
+    "Gemm",
+    "Flatten",
+    "Reshape",
+    "Squeeze",
+    "Unsqueeze",
+    "Transpose",
+    "Slice",
+    "Pad",
+    "Split",
+    "Concat",
+    "Constant",
+    "Gather",
+    "Shape",
+    "ConstantOfShape",
+    "Expand",
+    "ReduceMean",
+}
+# QUANT_EXCLUDE_OP_SET refers to operators that do not participate
+# in the operations of quantize, dequantize, or requantize.
+QUANT_EXCLUDE_OP_SET = {"Shape"}
+
+
 class EspQuantType:
     F32 = "F32"
     S16 = "S16"
@@ -29,7 +75,7 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
         self.var_exponents = {}
         self.var_layout = {}
         self.var_permute = {}
-        self.config = {}
+        self.var_config = {}
 
     def get_var_exponents(
         self, var_name: str, default: List[int] = None

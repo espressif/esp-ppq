@@ -19,6 +19,8 @@ from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
+    QUANT_OP_SET,
+    QUANT_EXCLUDE_OP_SET,
     EspQuantType,
     ExporterPatternInfo,
     LayoutAnnotation,
@@ -29,18 +31,6 @@ from ppq.utils.round import ppq_tensor_round
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
 logger = NaiveLogger.get_logger('ESPDL')
-
-QUANT_OP_SET = {
-    "RequantizeLinear",
-    "QuantizeLinear",
-    "DequantizeLinear",
-    "QuantizeFloating",
-    "DequantizeFloating",
-}
-# QUANT_EXCLUDE_OP_SET refers to operators that do not participate
-# in the operations of quantize, dequantize, or requantize.
-QUANT_EXCLUDE_OP_SET = {"Shape"}
-ACTIVATION_OP_SET = {"Relu", "PRelu", "Sigmoid", "Tanh", "HardSwish", "Elu", "Gelu"}
 
 
 class EspdlQuantHelper:
@@ -448,17 +438,11 @@ class InsertDequantNodePattern(OperationExporter):
                 continue
 
             if not var.is_parameter:
-                if len(var.dest_ops) == 1 and var.dest_ops[0].type in QUANT_OP_SET:
-                    assert (
-                        var.dest_ops[0].num_of_input == 3
-                    ), "Quantize Node Format Error, need as least 3 inputs."
-                    assert isinstance(var.dest_ops[0], Operation)
-                    continue
-
                 if var in op.outputs:
                     for dest_op in var.dest_ops:
                         if (
                             dest_op
+                            and dest_op.type not in QUANT_OP_SET
                             and not isinstance(dest_op, QuantableOperation)
                             and dest_op.type not in QUANT_EXCLUDE_OP_SET
                         ):
@@ -489,7 +473,8 @@ class FuseReluLikePattern(OperationExporter):
             if (
                 len(downstream_op) == 1
             ):  # the downstream op have only one op and this op is relu
-                if downstream_op[0].type in ["Relu", "Clip"]:
+                # if downstream_op[0].type in ["Relu", "Clip"]:
+                if downstream_op[0].type in ["Relu"]:
                     logger.debug(
                         f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}"
                     )
