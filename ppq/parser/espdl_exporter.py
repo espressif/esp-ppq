@@ -105,15 +105,15 @@ class EspdlExporter(GraphExporter):
 
         # In prepare stage, run all graph pattern
         # fuse Conv and Relu and insert quant node if necessary
-        exporter_patterns = [
-            InsertQuantTypePattern,
-            FuseReluLikePattern,
-            InsertQuantNodePattern,
-            InsertRequantNodePattern,
-            InsertDequantNodePattern,
-            QuantVariableToIntPattern,
-            ResetParamLayoutPattern,
-        ]
+        exporter_patterns = {
+            'pre_patterns': [FuseReluLikePattern,
+                            InsertQuantNodePattern,
+                            InsertRequantNodePattern,
+                            InsertDequantNodePattern,],
+            'post_patterns': [InsertQuantTypePattern,
+                            QuantVariableToIntPattern,
+                            ResetParamLayoutPattern,]
+        }
 
         graph = self.prepare_graph(graph, exporter_patterns)
 
@@ -149,7 +149,7 @@ class EspdlExporter(GraphExporter):
         ExporterPatternInfo().reset()
 
     def prepare_graph(
-        self, graph: BaseGraph, exporter_patterns: List[OperationExporter]
+        self, graph: BaseGraph, exporter_patterns: Dict[str, List[OperationExporter]]
     ) -> BaseGraph:
         """Prepare your graph for exporting.
 
@@ -177,11 +177,16 @@ class EspdlExporter(GraphExporter):
                     exporter, OperationExporter
                 ), f"Expected an OpExporter here, however {type(exporter)} was given."
                 op = exporter.export(op=op, graph=graph)
-        
+
+        for pattern in exporter_patterns.get('pre_patterns', {}):
+            exporter = pattern()
+            for op in graph.topological_sort():
+                exporter.export(op=op, graph=graph)
+
         # reset Conv layout from NCHW to NHWC and insert transpose node if necessary
         reset_graph_layout(graph)
 
-        for pattern in exporter_patterns:
+        for pattern in exporter_patterns.get('post_patterns', {}):
             exporter = pattern()
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
@@ -269,7 +274,7 @@ class EspdlExporter(GraphExporter):
     def build_test_value_proto(
         self, valuesForTest: Dict[str, Dict[str, torch.Tensor]] = None
     ) -> Tuple[Sequence[TensorT], Sequence[TensorT]]:
-        def quantize_and_transpose(tensor, pattern_info):
+        def quantize_and_transpose(var_name, tensor, pattern_info):
             perm = pattern_info.get_var_permute(var_name)
             config = pattern_info.get_var_config(var_name)
             if perm:
@@ -288,15 +293,15 @@ class EspdlExporter(GraphExporter):
                 valuesForTestQ["outputs"] = {}
 
             for var_name in valuesForTest.get("inputs", {}):
-                tensor = quantize_and_transpose(
-                    valuesForTest["inputs"][var_name], pattern_info
-                )
+                tensor = quantize_and_transpose(var_name, 
+                                                valuesForTest["inputs"][var_name], 
+                                                pattern_info)
                 valuesForTestQ["inputs"][var_name] = tensor
 
             for var_name in valuesForTest.get("outputs", {}):
-                tensor = quantize_and_transpose(
-                    valuesForTest["outputs"][var_name], pattern_info
-                )
+                tensor = quantize_and_transpose(var_name, 
+                                                valuesForTest["outputs"][var_name], 
+                                                pattern_info)
                 valuesForTestQ["outputs"][var_name] = tensor
 
         return helper.make_graph_test_value(valuesForTestQ, pattern_info.var_exponents)
