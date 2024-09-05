@@ -403,7 +403,7 @@ def reset_graph_layout(graph: BaseGraph):
                 flag = 0
                 break
         if flag:
-            logger.error("Can not reset {op.type}:{op.name} layout")
+            logger.error(f"Can not reset {op.type}:{op.name} layout")
     
     # fuse transpose op
     pattern = FuseTransposePattern()
