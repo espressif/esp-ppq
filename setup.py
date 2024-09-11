@@ -1,5 +1,6 @@
 from setuptools import find_packages, setup
-from ppq.core import PPQ_CONFIG
+
+ESP_PPQ_VERSION = "v0.1"
 
 def readme():
     with open('README.md', encoding='utf-8') as f:
@@ -26,6 +27,6 @@ setup(author='ppq',
         ],
       license='Apache License 2.0',
       include_package_data=True,
-      version=PPQ_CONFIG.VERSION,
+      version=ESP_PPQ_VERSION,
       zip_safe=False
     )
