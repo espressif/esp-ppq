@@ -27,10 +27,10 @@ def transpose_shape(input_shape, perm: List[int]) -> List[int]:
 
 def get_inverse_transpose(perm: List[int]) -> List[int]:
     """
-    tensor == transpose(transpose(tensor))
-    perm = [perm.index(i) for i in range(len(perm))]
+    tensor == inverse_transpose(transpose(tensor))
     """
-    return perm
+    # return perm
+    return [perm.index(i) for i in range(len(perm))]
 
 def get_default_perm(var: Variable) -> List[int]:
     """
