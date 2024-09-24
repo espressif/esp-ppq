@@ -69,7 +69,7 @@ __QUANTIZER_COLLECTION__ = {
     TargetPlatform.ONNXRUNTIME:   OnnxruntimeQuantizer,
     TargetPlatform.ESPDL_INT8:      EspdlQuantizer,
     TargetPlatform.ESPDL_INT16:     EspdlInt16Quantizer,
-    TargetPlatform.ESPDL_S3_INT16:  EspdlS3Quantizer,
+    TargetPlatform.ESPDL_S3_INT8:  EspdlS3Quantizer,
 }
 
 
@@ -104,7 +104,7 @@ __EXPORTERS__ = {
     TargetPlatform.MNN_INT8:      MNNExporter,
     TargetPlatform.ESPDL_INT8:      EspdlExporter,
     TargetPlatform.ESPDL_INT16:     EspdlExporter,
-    TargetPlatform.ESPDL_S3_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_S3_INT8:  EspdlExporter,
 }
 
 

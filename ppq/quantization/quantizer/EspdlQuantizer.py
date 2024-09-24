@@ -197,9 +197,9 @@ class EspdlS3Quantizer(EspdlQuantizer):
         graph: BaseGraph,
     ) -> Union[torch.Tensor, list, dict]:
         super().__init__(graph=graph)
-        self._num_of_bits = 16
-        self._quant_min = - 32768
-        self._quant_max = + 32767
+        self._num_of_bits = 8
+        self._quant_min = - 128
+        self._quant_max = + 127
         self._custom_tqc = None
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
@@ -225,7 +225,7 @@ class EspdlS3Quantizer(EspdlQuantizer):
             # if operation has bias
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
-                bias_config.num_of_bits = 32
+                bias_config.num_of_bits = 20
                 bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
                 bias_config.quant_min = - int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
@@ -275,7 +275,7 @@ class EspdlS3Quantizer(EspdlQuantizer):
 
     @ property
     def target_platform(self) -> TargetPlatform:
-        return TargetPlatform.ESPDL_S3_INT16
+        return TargetPlatform.ESPDL_S3_INT8
 
     @ property
     def rounding_policy(self):
