@@ -169,7 +169,7 @@ def infer_qtype(config: TensorQuantizationConfig):
 
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.platform == TargetPlatform.ESPDL_INT8:
+        if op.platform == TargetPlatform.ESPDL_INT8 or op.platform == TargetPlatform.ESPDL_S3_INT8:
             op.attributes["quant_type"] = EspQuantType.S8
         elif op.platform == TargetPlatform.ESPDL_INT16:
             op.attributes["quant_type"] = EspQuantType.S16
