@@ -5,3 +5,4 @@ torch >= 1.10.0
 tqdm
 flatbuffers
 cryptography
+wget
