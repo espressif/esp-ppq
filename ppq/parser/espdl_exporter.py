@@ -69,8 +69,9 @@ class EspdlExporter(GraphExporter):
         file_path: str,
         graph: BaseGraph,
         config_path: str = None,
-        modelVersion: int = 0,
-        valuesForTest: Dict[str, Dict[str, torch.Tensor]] = None,
+        model_version: int = 0,
+        values_for_test: Dict[str, Dict[str, torch.Tensor]] = None,
+        export_config: bool = True,
         encrypt_data: bool = False,
         **kwargs: Any,
     ):
@@ -80,8 +81,8 @@ class EspdlExporter(GraphExporter):
             file_path: flatbuffers file
             graph: ppq graph
             config_path: quantization config
-            modelVersion (int): model version
-            valuesForTest (Dict[str, Dict[str, np.ndarray]]): the test values used to compare accuracy.
+            model_version (int): model version
+            values_for_test (Dict[str, Dict[str, np.ndarray]]): the test values used to compare accuracy.
                                                             The input format is as follows:
                 {
                     'inputs': {
@@ -116,27 +117,30 @@ class EspdlExporter(GraphExporter):
         }
 
         graph = self.prepare_graph(graph, exporter_patterns)
+        file_base_name, _ = os.path.splitext(file_path)
 
         # if a valid config path is given, export quantization config to there.
-        if config_path is not None:
+        if export_config:
+            if not config_path:
+                config_path = file_base_name + ".json"
             self.export_quantization_config(config_path, graph)
 
         model: ModelT = self.export_graph(
-            graph=graph, modelVersion=modelVersion, valuesForTest=valuesForTest
+            graph=graph, model_version=model_version, values_for_test=values_for_test
         )
 
         # Export the information of quantized espdl model.
-        file_base_name, _ = os.path.splitext(file_path)
-        file_info_path = file_base_name + ".info"
-        with open(file_info_path, "w") as file_info:
-            file_info.write(
-                helper.printable_graph(
-                    model.graph,
-                    print_initializer_value=True,
-                    print_value_info=True,
-                    print_test_value=True,
+        if export_config:
+            info_file_path = file_base_name + ".info"
+            with open(info_file_path, "w") as file_info:
+                file_info.write(
+                    helper.printable_graph(
+                        model.graph,
+                        print_initializer_value=True,
+                        print_value_info=True,
+                        print_test_value=True,
+                    )
                 )
-            )
 
         key = helper.save(
             model,
@@ -213,8 +217,8 @@ class EspdlExporter(GraphExporter):
     def export_graph(
         self,
         graph: BaseGraph,
-        modelVersion: int = 0,
-        valuesForTest: Dict[str, Dict[str, torch.Tensor]] = None,
+        model_version: int = 0,
+        values_for_test: Dict[str, Dict[str, torch.Tensor]] = None,
     ) -> ModelT:
         """
         Convert a PPQ IR to Onnx IR.
@@ -251,7 +255,7 @@ class EspdlExporter(GraphExporter):
                 _value_info.append(tensor_proto)
 
         test_inputs_value, test_outputs_value = self.build_test_value_proto(
-            valuesForTest
+            values_for_test
         )
 
         graph_def = helper.make_graph(
@@ -266,13 +270,13 @@ class EspdlExporter(GraphExporter):
         )
 
         espdl_model = helper.make_model(
-            graph=graph_def, producerName=PPQ_CONFIG.NAME, modelVersion=modelVersion
+            graph=graph_def, producerName=PPQ_CONFIG.NAME, model_version=model_version
         )
         espdl_model.ir_version = graph._detail.get("ir_version", ONNX_VERSION)
         return espdl_model
 
     def build_test_value_proto(
-        self, valuesForTest: Dict[str, Dict[str, torch.Tensor]] = None
+        self, values_for_test: Dict[str, Dict[str, torch.Tensor]] = None
     ) -> Tuple[Sequence[TensorT], Sequence[TensorT]]:
         def quantize_and_transpose(var_name, tensor, pattern_info):
             perm = pattern_info.get_var_permute(var_name)
@@ -285,26 +289,26 @@ class EspdlExporter(GraphExporter):
             return convert_any_to_numpy(tensor)
 
         pattern_info = ExporterPatternInfo()
-        valuesForTestQ = {}
-        if valuesForTest is not None:
-            if "inputs" not in valuesForTestQ:
-                valuesForTestQ["inputs"] = {}
-            if "outputs" not in valuesForTestQ:
-                valuesForTestQ["outputs"] = {}
+        quant_values_for_test = {}
+        if values_for_test is not None:
+            if "inputs" not in quant_values_for_test:
+                quant_values_for_test["inputs"] = {}
+            if "outputs" not in quant_values_for_test:
+                quant_values_for_test["outputs"] = {}
 
-            for var_name in valuesForTest.get("inputs", {}):
+            for var_name in values_for_test.get("inputs", {}):
                 tensor = quantize_and_transpose(var_name, 
-                                                valuesForTest["inputs"][var_name], 
+                                                values_for_test["inputs"][var_name], 
                                                 pattern_info)
-                valuesForTestQ["inputs"][var_name] = tensor
+                quant_values_for_test["inputs"][var_name] = tensor
 
-            for var_name in valuesForTest.get("outputs", {}):
+            for var_name in values_for_test.get("outputs", {}):
                 tensor = quantize_and_transpose(var_name, 
-                                                valuesForTest["outputs"][var_name], 
+                                                values_for_test["outputs"][var_name], 
                                                 pattern_info)
-                valuesForTestQ["outputs"][var_name] = tensor
+                quant_values_for_test["outputs"][var_name] = tensor
 
-        return helper.make_graph_test_value(valuesForTestQ, pattern_info.var_exponents)
+        return helper.make_graph_test_value(quant_values_for_test, pattern_info.var_exponents)
 
     def build_operator_proto(self, operation: Operation) -> NodeT:
         """
