@@ -2,7 +2,6 @@ from typing import List, Union
 
 from ppq.core import OperationQuantizationConfig, SingletonMeta
 
-
 ACTIVATION_OP_SET = {
     "Relu",
     "PRelu",
@@ -11,7 +10,6 @@ ACTIVATION_OP_SET = {
     "HardSwish",
     "Elu",
     "Gelu",
-    "Softmax",
     "Clip",
     "Cast",
 }
@@ -43,6 +41,8 @@ OTHER_OP_SET = {
     "ConstantOfShape",
     "Expand",
     "ReduceMean",
+    "Softmax",
+    "LogSoftmax"
 }
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate
 # in the operations of quantize, dequantize, or requantize.

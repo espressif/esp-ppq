@@ -97,9 +97,9 @@ def generate_test_value(
     return {"inputs": test_inputs_value, "outputs": test_outputs_value}
 
 def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=torch.float32, device='cpu'):
-    if isinstance(batch, list):
+    if isinstance(batch, list) and isinstance(batch[0], torch.Tensor):
         return [x.type(dtype).to(device) for x in batch]
-    elif  isinstance(batch, torch.Tensor):
+    elif isinstance(batch, torch.Tensor):
         return batch.type(dtype).to(device)
     else:
         logger.error("please provide a valid collate_fn.")
@@ -296,6 +296,32 @@ def espdl_quantize_torch(
     test_output_names: List[str] = None,
     verbose: int = 0,
 ) -> Tuple[BaseGraph, TorchExecutor]:
+    """Quantize torch model and return quantized ppq graph and executor .
+    
+    Args:
+        model (torch.nn.Module): torch model
+        calib_dataloader (DataLoader): calibration data loader
+        calib_steps (int): calibration steps
+        input_shape (List[int]):a list of ints indicating size of input, for multiple inputs, please use
+                                keyword arg inputs for direct parameter passing and this should be set to None
+        inputs (List[str]): a list of strings indicating names of inputs, for multiple inputs, please use
+        target: target chip, support "esp32p4" and "esp32s3"
+        num_of_bits: the number of quantizer bits, 8 or 16
+        collate_fn (Callable): batch collate func for preprocessing
+        dispatching_override: override dispatching result.
+        dispatching_method: Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8
+        device (str, optional):  execution device, defaults to 'cpu'.
+        error_report (bool, optional): whether to print error report, defaults to True.
+        skip_export (bool, optional): whether to export the quantized model, defaults to False.
+        export_config (bool, optional): whether to export the quantization configuration, defaults to True.
+        export_test_values (bool, optional): whether to export the test values, defaults to False.
+        test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
+        verbose (int, optional): whether to print details, defaults to 0.
+
+    Returns:
+        BaseGraph:      The Quantized Graph, containing all information needed for backend execution
+        TorchExecutor:  PPQ Graph Executor 
+    """   
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
     export_path = os.path.dirname(os.path.abspath(espdl_export_file))
