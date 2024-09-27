@@ -53,7 +53,6 @@ def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu')
         torch.rand(size=shape, device=device, dtype=dtype)
         for shape in input_shape
     ]
-    print(type(inputs))
     
     return inputs
 
@@ -131,9 +130,8 @@ def espdl_quantize_onnx(
         onnx_import_file (str): onnx model file path
         calib_dataloader (DataLoader): calibration data loader
         calib_steps (int): calibration steps
-        input_shape (List[int]):a list of ints indicating size of input, for multiple inputs, please use
-                                keyword arg inputs for direct parameter passing and this should be set to None
-        inputs (List[str]): a list of strings indicating names of inputs, for multiple inputs, please use
+        input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
+        inputs (List[str]): a list of Tensor and batch size must be 1
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
@@ -302,9 +300,8 @@ def espdl_quantize_torch(
         model (torch.nn.Module): torch model
         calib_dataloader (DataLoader): calibration data loader
         calib_steps (int): calibration steps
-        input_shape (List[int]):a list of ints indicating size of input, for multiple inputs, please use
-                                keyword arg inputs for direct parameter passing and this should be set to None
-        inputs (List[str]): a list of strings indicating names of inputs, for multiple inputs, please use
+        input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
+        inputs (List[str]): a list of Tensor and batch size must be 1
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
