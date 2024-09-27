@@ -19,8 +19,8 @@ from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
-    QUANT_OP_SET,
     QUANT_EXCLUDE_OP_SET,
+    QUANT_OP_SET,
     EspQuantType,
     ExporterPatternInfo,
     LayoutAnnotation,
@@ -523,7 +523,7 @@ class QuantVariableToIntPattern(OperationExporter):
 
     def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
         if not isinstance(op, QuantableOperation):
-            print("skip not QuantableOperation")
+            logger.info("skip not QuantableOperation")
             return op
 
         # collect quantable vars, where we need to quantize parameters
@@ -531,7 +531,7 @@ class QuantVariableToIntPattern(OperationExporter):
 
         for config, var in [_ for _ in op.config_with_variable]:
             if not var or not config:
-                print("skip not config or var")
+                logger.info("skip not config or var")
                 continue
 
             if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var):
