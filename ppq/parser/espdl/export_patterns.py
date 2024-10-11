@@ -15,10 +15,13 @@ from ppq.core import (
     convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
+from ppq.executor.base import OPERATION_FORWARD_TABLE
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
+    ACTIVATION_OP_SET,
+    MATH_OP_SET,
     QUANT_EXCLUDE_OP_SET,
     QUANT_OP_SET,
     EspQuantType,
@@ -30,7 +33,7 @@ from ppq.utils.round import ppq_tensor_round
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
-logger = NaiveLogger.get_logger('ESPDL')
+logger = NaiveLogger.get_logger("ESPDL")
 
 
 class EspdlQuantHelper:
@@ -169,7 +172,10 @@ def infer_qtype(config: TensorQuantizationConfig):
 
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.platform == TargetPlatform.ESPDL_INT8 or op.platform == TargetPlatform.ESPDL_S3_INT8:
+        if (
+            op.platform == TargetPlatform.ESPDL_INT8
+            or op.platform == TargetPlatform.ESPDL_S3_INT8
+        ):
             op.attributes["quant_type"] = EspQuantType.S8
         elif op.platform == TargetPlatform.ESPDL_INT16:
             op.attributes["quant_type"] = EspQuantType.S16
@@ -678,7 +684,9 @@ class ResetParamLayoutPattern(OperationExporter):
                 if len(tensor.shape) == 2:  # Gemm Filter
                     trans_filter = op.attributes.get("transB", 0)
                     if trans_filter != 0:
-                        logger.debug("transB is not 0, transpose the filter and reset transB")
+                        logger.debug(
+                            "transB is not 0, transpose the filter and reset transB"
+                        )
                         op.attributes["transB"] = 0  # update 'transB'
                         tensor = tensor.transpose(1, 0)  # [N, C] -> [C, N]
                     tensor = tensor.unsqueeze(-1).unsqueeze(-1)  # CN -> CNHW
@@ -693,5 +701,101 @@ class ResetParamLayoutPattern(OperationExporter):
                     logger.debug(
                         f"reset {op.type}:{op.name}, shape:{var.value.shape}, layout to {layout}"
                     )
+
+        return op
+
+
+class AddLUTPattern(OperationExporter):
+    def __init__(self, int16_step=1) -> None:
+        super().__init__()
+        self.int16_step = int(int16_step)  # the step of int16 LUT
+
+    def get_scale(self, var: Variable, info: ExporterPatternInfo) -> torch.Tensor:
+        exponent = info.get_var_exponents(var.name)
+        scale = 1.0
+        if exponent:
+            if isinstance(exponent, list):
+                scale = 2 ** exponent[0]
+            else:
+                scale = 2**exponent
+
+        return scale
+
+    def calculate_lut(
+        self,
+        op: QuantableOperation,
+        info: ExporterPatternInfo,
+        max: int,
+        min: int,
+        step: int = 1,
+    ) -> torch.Tensor:
+        # Get forward function
+        platform_dispatching_table = OPERATION_FORWARD_TABLE[op.platform]
+        if op.type not in platform_dispatching_table:
+            raise NotImplementedError(
+                f"Graph op: {op.name}({op.type}) "
+                f"has no backend implementation on target platform {op.platform}. "
+                "Register this op to ppq.executor.base.py and ppq.executor.op first"
+            )
+        operation_forward_func = platform_dispatching_table[op.type]
+
+        # Calculate output and lut
+        input = torch.arange(min, max + 1, step=step, dtype=torch.float)
+        input = input * self.get_scale(op.inputs[0], info)
+        inputs = [input]
+
+        if len(op.inputs) > 1:
+            for op_input in op.inputs[1:]:
+                inputs.append(op_input.value * self.get_scale(op_input, info))
+        print(inputs)
+        output = operation_forward_func(op, inputs)
+        lut = PPQLinearQuant_toInt(output, op.output_quant_config[0])
+
+        return lut
+
+    def get_lut_name(self, op: Operation, info: ExporterPatternInfo):
+        index = len(info.luts)
+        name = f"{op.type}_lut_{index}"
+        return name
+
+    def check_op(self, op: Operation):
+        """
+        True if this op can be implemented by LUT, otherwise False
+        """
+
+        if op.type == "PRelu":
+            if op.inputs[1].value.numel() == 1:
+                return True
+            else:
+                return False
+        elif len(op.outputs) > 1 or len(op.inputs) > 1:
+            return False
+        elif op.type in ACTIVATION_OP_SET or op.type in MATH_OP_SET:
+            return True
+
+        return False
+
+    def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        quant_type = op.attributes.get("quant_type", None)
+        if (
+            quant_type == None
+            or quant_type == EspQuantType.F32
+            or not isinstance(op, QuantableOperation)
+        ):
+            return op
+
+        info = ExporterPatternInfo()
+
+        if self.check_op(op):
+            lut = None
+            if quant_type == EspQuantType.S8:
+                lut = self.calculate_lut(op, info, 127, -128, 1)
+            elif quant_type == EspQuantType.S16 and self.int16_step > 0:
+                lut = self.calculate_lut(op, info, 2**15 - 1, - 2**15, self.int16_step)
+
+            if lut != None:
+                lut_name = self.get_lut_name(op, info)
+                op.attributes["lut"] = lut_name
+                info.add_lut(lut_name, lut, info.get_var_exponents(op.outputs[0].name))
 
         return op

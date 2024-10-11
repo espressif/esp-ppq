@@ -1,5 +1,7 @@
 from typing import List, Union
 
+import torch
+
 from ppq.core import OperationQuantizationConfig, SingletonMeta
 
 ACTIVATION_OP_SET = {
@@ -8,11 +10,25 @@ ACTIVATION_OP_SET = {
     "Sigmoid",
     "Tanh",
     "HardSwish",
+    "HardSigmoid",
     "Elu",
     "Gelu",
     "Clip",
     "Cast",
+    "LeakyRelu",
 }
+
+MATH_OP_SET = {
+    "Pow",
+    "Exp",
+    "Log",
+    "Sqrt",
+    "Cos",
+    "Sin",
+    "Tan",
+    "Not",
+}
+
 QUANT_OP_SET = {
     "RequantizeLinear",
     "QuantizeLinear",
@@ -20,7 +36,7 @@ QUANT_OP_SET = {
     "QuantizeFloating",
     "DequantizeFloating",
 }
-PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET
+PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET | MATH_OP_SET
 CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool"}
 ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div"}
 OTHER_OP_SET = {
@@ -70,12 +86,14 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
     var_layout = {}
     var_permute = {}
     var_config = {}
+    luts = {}
 
     def reset(self):
         self.var_exponents = {}
         self.var_layout = {}
         self.var_permute = {}
         self.var_config = {}
+        self.luts = {}
 
     def get_var_exponents(
         self, var_name: str, default: List[int] = None
@@ -94,6 +112,9 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
         self, var_name: str, default: OperationQuantizationConfig = None
     ) -> OperationQuantizationConfig:
         return self.var_config.get(var_name, default)
+    
+    def get_lut(self, lut_name: str, default: torch.Tensor = None) -> torch.Tensor:
+        return self.luts.get(lut_name, default)
 
     def add_var_exponents(self, var_name: str, exponent: Union[int, List[int]]):
         self.var_exponents[var_name] = exponent
@@ -106,6 +127,10 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
 
     def add_var_config(self, var_name: str, config: OperationQuantizationConfig):
         self.var_config[var_name] = config
+    
+    def add_lut(self, lut_name: str, lut: torch.Tensor, exponent: Union[int, List[int]]):
+        self.luts[lut_name] = lut
+        self.var_exponents[lut_name] = exponent
 
     def print(self):
         print(self.var_exponents)

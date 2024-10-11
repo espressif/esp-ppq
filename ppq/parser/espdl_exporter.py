@@ -22,6 +22,7 @@ from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 from .espdl import helper
 from .espdl.espdl_typedef import ExporterPatternInfo, LayoutAnnotation
 from .espdl.export_patterns import (
+    AddLUTPattern,
     FuseReluLikePattern,
     InsertDequantNodePattern,
     InsertQuantNodePattern,
@@ -42,7 +43,8 @@ from .onnx_exporter import OP_CONVERTERS
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
-logger = NaiveLogger.get_logger('ESPDL')
+logger = NaiveLogger.get_logger("ESPDL")
+
 
 def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
     if type(value) in {int, float}:
@@ -73,6 +75,7 @@ class EspdlExporter(GraphExporter):
         values_for_test: Dict[str, Dict[str, torch.Tensor]] = None,
         export_config: bool = True,
         encrypt_data: bool = False,
+        int16_lut_step: int = 256,
         **kwargs: Any,
     ):
         """Export model to flatbuffers file
@@ -96,6 +99,7 @@ class EspdlExporter(GraphExporter):
                         'output_n_name': np.ndarray
                     },
                 }
+            int16_lut_step (int): -1: do not add lut for int16, otherwise add lut for int16 with given step
 
         """
 
@@ -107,16 +111,20 @@ class EspdlExporter(GraphExporter):
         # In prepare stage, run all graph pattern
         # fuse Conv and Relu and insert quant node if necessary
         exporter_patterns = {
-            'pre_patterns': [FuseReluLikePattern,
-                            InsertQuantNodePattern,
-                            InsertRequantNodePattern,
-                            InsertDequantNodePattern,],
-            'post_patterns': [InsertQuantTypePattern,
-                            QuantVariableToIntPattern,
-                            ResetParamLayoutPattern,]
+            "pre_patterns": [
+                FuseReluLikePattern,
+                InsertQuantNodePattern,
+                InsertRequantNodePattern,
+                InsertDequantNodePattern,
+            ],
+            "post_patterns": [
+                InsertQuantTypePattern,
+                QuantVariableToIntPattern,
+                ResetParamLayoutPattern,
+            ],
         }
 
-        graph = self.prepare_graph(graph, exporter_patterns)
+        graph = self.prepare_graph(graph, exporter_patterns, int16_lut_step)
         file_base_name, _ = os.path.splitext(file_path)
 
         # if a valid config path is given, export quantization config to there.
@@ -153,7 +161,10 @@ class EspdlExporter(GraphExporter):
         ExporterPatternInfo().reset()
 
     def prepare_graph(
-        self, graph: BaseGraph, exporter_patterns: Dict[str, List[OperationExporter]]
+        self,
+        graph: BaseGraph,
+        exporter_patterns: Dict[str, List[OperationExporter]],
+        int16_lut_step: int,
     ) -> BaseGraph:
         """Prepare your graph for exporting.
 
@@ -182,7 +193,7 @@ class EspdlExporter(GraphExporter):
                 ), f"Expected an OpExporter here, however {type(exporter)} was given."
                 op = exporter.export(op=op, graph=graph)
 
-        for pattern in exporter_patterns.get('pre_patterns', {}):
+        for pattern in exporter_patterns.get("pre_patterns", {}):
             exporter = pattern()
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
@@ -190,10 +201,15 @@ class EspdlExporter(GraphExporter):
         # reset Conv layout from NCHW to NHWC and insert transpose node if necessary
         reset_graph_layout(graph)
 
-        for pattern in exporter_patterns.get('post_patterns', {}):
+        for pattern in exporter_patterns.get("post_patterns", {}):
             exporter = pattern()
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
+
+        # prepare LUT
+        exporter = AddLUTPattern(int16_step=int16_lut_step)
+        for op in graph.topological_sort():
+            exporter.export(op=op, graph=graph)
 
         info = ExporterPatternInfo()
         for variable in graph.variables.values():
@@ -235,6 +251,9 @@ class EspdlExporter(GraphExporter):
         _inputs, _outputs, _initilizers, _nodes, _value_info = [], [], [], [], []
         pattern_info = ExporterPatternInfo()
 
+        # Add LUT to graph
+        _initilizers += self.build_lut_proto(graph, pattern_info)
+
         for op in graph.topological_sort():
             _nodes.append(self.build_operator_proto(op))
 
@@ -275,6 +294,31 @@ class EspdlExporter(GraphExporter):
         espdl_model.ir_version = graph._detail.get("ir_version", ONNX_VERSION)
         return espdl_model
 
+    def build_lut_proto(
+        self, graph: BaseGraph, info: ExporterPatternInfo
+    ) -> List[TensorT]:
+        """
+        Convert torch.Tensor to flatbuffer.Tensor and add them to graph.
+        """
+        _lut = []
+        for op in graph.topological_sort():
+            lut_name = op.attributes.get("lut", None)
+            if lut_name:
+                lut = info.get_lut(lut_name)
+                onnx_dtype = DataType.convert_from_torch(lut.dtype).value
+                lut_value = convert_any_to_numpy(lut).flatten()
+                lut_proto = helper.make_tensor(
+                    name=lut_name,
+                    data_type=onnx_dtype,
+                    dims=lut.shape,
+                    vals=lut_value.tobytes(),
+                    raw=True,
+                    exponents=info.get_var_exponents(lut_name),
+                )
+
+                _lut.append(lut_proto)
+        return _lut
+
     def build_test_value_proto(
         self, values_for_test: Dict[str, Dict[str, torch.Tensor]] = None
     ) -> Tuple[Sequence[TensorT], Sequence[TensorT]]:
@@ -297,18 +341,20 @@ class EspdlExporter(GraphExporter):
                 quant_values_for_test["outputs"] = {}
 
             for var_name in values_for_test.get("inputs", {}):
-                tensor = quantize_and_transpose(var_name, 
-                                                values_for_test["inputs"][var_name], 
-                                                pattern_info)
+                tensor = quantize_and_transpose(
+                    var_name, values_for_test["inputs"][var_name], pattern_info
+                )
                 quant_values_for_test["inputs"][var_name] = tensor
 
             for var_name in values_for_test.get("outputs", {}):
-                tensor = quantize_and_transpose(var_name, 
-                                                values_for_test["outputs"][var_name], 
-                                                pattern_info)
+                tensor = quantize_and_transpose(
+                    var_name, values_for_test["outputs"][var_name], pattern_info
+                )
                 quant_values_for_test["outputs"][var_name] = tensor
 
-        return helper.make_graph_test_value(quant_values_for_test, pattern_info.var_exponents)
+        return helper.make_graph_test_value(
+            quant_values_for_test, pattern_info.var_exponents
+        )
 
     def build_operator_proto(self, operation: Operation) -> NodeT:
         """
