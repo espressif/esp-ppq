@@ -7,10 +7,11 @@ from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
 from ppq.parser.espdl.espdl_typedef import (
-    PASSIVE_LAYOUT_OP_SET, 
-    CONV_LAYOUT_OP_SET, 
-    ADD_LIKE_OP_SET, 
+    ADD_LIKE_OP_SET,
+    CONV_LAYOUT_OP_SET,
     OTHER_OP_SET,
+    PASSIVE_LAYOUT_OP_SET,
+    SOFTMAX_LIKE_OP_SET,
     ExporterPatternInfo,
 )
 from ppq.parser.espdl.export_patterns import fuse_downstream_operation
@@ -215,6 +216,32 @@ class BypassAddLikePattern(OperationExporter):
 
         return op
 
+class BypassSoftmaxLayoutPattern(OperationExporter):
+    """
+    Softmax pattern with one input and one output and axis attribute
+    """
+
+    def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.type in SOFTMAX_LIKE_OP_SET:
+            info = ExporterPatternInfo()
+            input = op.inputs[0]
+            output = op.outputs[0]
+
+            var_perm = info.get_var_permute(input.name)
+            if var_perm and var_perm != get_default_perm(input):
+                # There is already a permute, change axis accordingly
+                axis = int(op.attributes["axis"]) + len(var_perm)
+                new_axis = var_perm.index(axis)
+                op.attributes["axis"] = new_axis
+            else:
+                var_perm = get_default_perm(input)
+                info.add_var_permute(input.name, var_perm)
+            
+            # use input perm
+            info.add_var_permute(output.name, var_perm)
+
+        return op
+
 
 class ResetConcatPattern(OperationExporter):
     """
@@ -333,6 +360,9 @@ class ResetResizePattern(OperationExporter):
         return op
 
 
+
+
+
 class FuseTransposePattern(OperationExporter):
     """
     Fuse Transpose Pattern
@@ -390,6 +420,7 @@ def reset_graph_layout(graph: BaseGraph):
         [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern], 
         [PASSIVE_LAYOUT_OP_SET, BypassPassiveLayoutPattern],
         [ADD_LIKE_OP_SET, BypassAddLikePattern],
+        [SOFTMAX_LIKE_OP_SET, BypassSoftmaxLayoutPattern],
         [["Concat"], ResetConcatPattern],
         [["Resize"], ResetResizePattern],
         [OTHER_OP_SET, RestoreOriginLayoutPattern]

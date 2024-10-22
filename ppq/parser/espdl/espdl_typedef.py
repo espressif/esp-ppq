@@ -12,13 +12,17 @@ ACTIVATION_OP_SET = {
     "HardSwish",
     "HardSigmoid",
     "Elu",
+    "Erf",
     "Gelu",
     "Clip",
     "Cast",
     "LeakyRelu",
+    "Softplus",
+    "Identity"
 }
 
 MATH_OP_SET = {
+    "Abs",
     "Pow",
     "Exp",
     "Log",
@@ -27,6 +31,10 @@ MATH_OP_SET = {
     "Sin",
     "Tan",
     "Not",
+    "Floor",
+    "Round",
+    "Ceil",
+    "Neg",
 }
 
 QUANT_OP_SET = {
@@ -37,8 +45,8 @@ QUANT_OP_SET = {
     "DequantizeFloating",
 }
 PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET | MATH_OP_SET
-CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool"}
-ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div"}
+CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool", "ConvTranspose", "GlobalMaxPool"}
+ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div", "And", "Equal", "Greater", "Less"}
 OTHER_OP_SET = {
     "Matmul",
     "Gemm",
@@ -53,13 +61,30 @@ OTHER_OP_SET = {
     "Concat",
     "Constant",
     "Gather",
+    "GatherElements",
+    "GatherND",
     "Shape",
     "ConstantOfShape",
     "Expand",
     "ReduceMean",
-    "Softmax",
-    "LogSoftmax"
+    "ReduceL2",
+    "ReduceMax",
+    "ReduceSum",
+    "LayerNorm",
+    "LayerNormalization",
+    "Max",
+    "Min",
+    "ScatterElements",
+    "ScatterND",
+    "Slice",
+    "TopK",
+    "Where",
+    "GRU",
+    "LSTM",
+    "Sum",
 }
+
+SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax"}
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {"Shape"}
