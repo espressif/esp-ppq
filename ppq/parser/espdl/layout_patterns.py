@@ -230,7 +230,7 @@ class BypassSoftmaxLayoutPattern(OperationExporter):
             var_perm = info.get_var_permute(input.name)
             if var_perm and var_perm != get_default_perm(input):
                 # There is already a permute, change axis accordingly
-                axis = int(op.attributes["axis"]) + len(var_perm)
+                axis = (int(op.attributes["axis"]) + len(var_perm)) % len(var_perm)
                 new_axis = var_perm.index(axis)
                 op.attributes["axis"] = new_axis
             else:
