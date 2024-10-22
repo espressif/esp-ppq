@@ -38,7 +38,7 @@ class EspdlQuantizer(BaseQuantizer):
         pipeline = super().build_quant_pipeline(setting)
         return pipeline
 
-    def init_espdl_quantize_config(
+    def create_espdl_quant_config(
         self,
         operation: Operation,
         num_of_bits: int,
@@ -68,7 +68,7 @@ class EspdlQuantizer(BaseQuantizer):
             ] = 32 * int(pow(2, num_of_bits - 1))
 
         if operation.type in {"Conv", "ConvTranspose", "Gemm"}:
-            # set all parameters within Conv, ConvTranspose, Gemm to per-channel quant-config.
+            # reset num_of_bits of bias to 32 bits
             assert (
                 operation.num_of_input > 0
             ), "Seems you got a Conv layer with no parameters."
@@ -81,11 +81,6 @@ class EspdlQuantizer(BaseQuantizer):
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
-
-            # # if operation has bias
-            # if operation.num_of_input > 2:
-            #     bias_config = base_quant_config.input_quantization_config[-1]
-            #     bias_config.observer_algorithm = 'minmax'
         elif operation.type in {"LSTM"}:
             for index in range(len(operation.inputs)):
                 if (
@@ -95,6 +90,9 @@ class EspdlQuantizer(BaseQuantizer):
                     base_quant_config.input_quantization_config[
                         index
                     ].state = QuantizationStates.FP32
+        elif operation.type in {"Softmax"}:
+            # reset output to float32
+            base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.
@@ -163,7 +161,7 @@ class EspdlQuantizer(BaseQuantizer):
                 f"EspdlQuantizer do not support operation platform : {operation.platform}."
             )
 
-        return self.init_espdl_quantize_config(
+        return self.create_espdl_quant_config(
             operation, num_of_bits, quant_min, quant_max
         )
 
@@ -290,7 +288,7 @@ class EspdlInt16Quantizer(EspdlQuantizer):
                 f"EspdlQuantizer do not support operation platform : {operation.platform}."
             )
 
-        return self.init_espdl_quantize_config(
+        return self.create_espdl_quant_config(
             operation, num_of_bits, quant_min, quant_max
         )
 
