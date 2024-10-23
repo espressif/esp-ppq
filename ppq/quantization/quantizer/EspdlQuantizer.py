@@ -76,7 +76,7 @@ class EspdlQuantizer(BaseQuantizer):
             # if operation has bias
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
-                bias_config.num_of_bits = 32
+                bias_config.num_of_bits = self.bias_bits
                 bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
@@ -92,7 +92,9 @@ class EspdlQuantizer(BaseQuantizer):
                     ].state = QuantizationStates.FP32
         elif operation.type in {"Softmax"}:
             # reset output to float32
-            base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
+            base_quant_config.output_quantization_config[
+                0
+            ].state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.
@@ -172,6 +174,10 @@ class EspdlQuantizer(BaseQuantizer):
     @property
     def default_platform(self) -> TargetPlatform:
         return TargetPlatform.FP32
+
+    @property
+    def bias_bits(self):
+        return 32
 
     @property
     def quant_operation_types(self) -> set:
@@ -305,113 +311,22 @@ class EspdlS3Quantizer(EspdlQuantizer):
         self._custom_tqc = None
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
-        base_quant_config = self.create_default_quant_config(
-            policy=self.quantize_policy,
-            rounding=self.rounding_policy,
-            op=operation,
-            num_of_bits=self._num_of_bits,
-            exponent_bits=0,
-            quant_max=self._quant_max,
-            quant_min=self._quant_min,
-            observer_algorithm="percentile",
+        if operation.platform == self.target_platform:
+            num_of_bits = self._num_of_bits
+            quant_min = self._quant_min
+            quant_max = self._quant_max
+        elif operation.platform == TargetPlatform.ESPDL_INT16:
+            num_of_bits = 16
+            quant_min = -32768
+            quant_max = 32767
+        else:
+            raise KeyError(
+                f"EspdlQuantizer do not support operation platform : {operation.platform}."
+            )
+
+        return self.create_espdl_quant_config(
+            operation, num_of_bits, quant_min, quant_max
         )
-
-        for index in range(operation.num_of_input):
-            if operation.inputs[index].is_parameter:
-                base_quant_config.input_quantization_config[
-                    index
-                ].rounding = RoundingPolicy.ROUND_HALF_EVEN
-            else:
-                base_quant_config.input_quantization_config[index].detail[
-                    OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                ] = 32 * int(pow(2, self._num_of_bits - 1))
-
-        for index in range(operation.num_of_output):
-            base_quant_config.output_quantization_config[index].detail[
-                OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-            ] = 32 * int(pow(2, self._num_of_bits - 1))
-
-        if operation.type in {"Conv", "ConvTranspose", "Gemm"}:
-            # set all parameters within Conv, ConvTranspose, Gemm to per-channel quant-config.
-            assert (
-                operation.num_of_input > 0
-            ), "Seems you got a Conv layer with no parameters."
-
-            # if operation has bias
-            if operation.num_of_input > 2:
-                bias_config = base_quant_config.input_quantization_config[-1]
-                bias_config.num_of_bits = 20
-                bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
-                bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
-                bias_config.state = QuantizationStates.PASSIVE_INIT
-                bias_config.observer_algorithm = "minmax"
-
-            # # if operation has bias
-            # if operation.num_of_input > 2:
-            #     bias_config = base_quant_config.input_quantization_config[-1]
-            #     bias_config.observer_algorithm = 'minmax'
-        elif operation.type in {"LSTM"}:
-            for index in range(len(operation.inputs)):
-                if (
-                    operation.inputs[index].name is None
-                    or len(operation.inputs[index].name) == 0
-                ):
-                    base_quant_config.input_quantization_config[
-                        index
-                    ].state = QuantizationStates.FP32
-
-        if operation.type in PASSIVE_OPERATIONS:
-            # Those op are not active op.
-            base_quant_config.is_active_quant_op = False
-
-        # Use custom TQC to override configured TQC.
-        if self._custom_tqc and self._custom_tqc.get(operation.name):
-            configs = self._custom_tqc.get(operation.name)
-            for tqc_name in configs.keys():
-                if not configs[tqc_name].get("bit_width"):
-                    continue
-
-                tqc_index = int(re.findall(r"\d+", tqc_name)[0])
-                if "input" in tqc_name:
-                    if tqc_index >= operation.num_of_input:
-                        ppq_warning(
-                            f"Your input tqc index has exceeds num_of_input({operation.num_of_input})!"
-                        )
-                        continue
-
-                    base_quant_config.input_quantization_config[
-                        tqc_index
-                    ].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.input_quantization_config[tqc_index].quant_max = (
-                        +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    )
-                    base_quant_config.input_quantization_config[
-                        tqc_index
-                    ].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                    base_quant_config.input_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                elif "output" in tqc_name:
-                    if tqc_index >= operation.num_of_output:
-                        ppq_warning(
-                            f"Your output tqc index has exceeds num_of_output({operation.num_of_output})!"
-                        )
-                        continue
-
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].quant_max = +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                    base_quant_config.output_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
-
-        return base_quant_config
 
     @property
     def target_platform(self) -> TargetPlatform:
@@ -420,3 +335,7 @@ class EspdlS3Quantizer(EspdlQuantizer):
     @property
     def rounding_policy(self):
         return RoundingPolicy.ROUND_HALF_UP
+
+    @property
+    def bias_bits(self):
+        return 20
