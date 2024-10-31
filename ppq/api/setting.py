@@ -103,6 +103,10 @@ class ChannelSplitSetting():
         self.including_act        = False
         self.act_multiplier       = 0.5
 
+        # Only layer that listed in interested_layers will be processed by this pass.
+        # If interested_layers is None or empty list, all the layers will be processed.
+        self.interested_layers = []
+
 
 class BiasCorrectionSetting():
     def __init__(self) -> None:
@@ -190,6 +194,10 @@ class EqualizationSetting():
         self.including_act        = False
         self.act_multiplier       = 0.5
 
+        # Only layer that listed in interested_layers will be processed by this pass.
+        # If interested_layers is None or empty list, all the layers will be processed.
+        self.interested_layers = []
+
 
 class ActivationQuantizationSetting():
     def __init__(self) -> None:
@@ -208,6 +216,10 @@ class ParameterQuantizationSetting():
         # 是否处理被动量化参数
         # whether to process passive parameters
         self.quantize_passive_parameter = True
+        # Whether to export quant info of clip min, max
+        self.clip_visiblity: QuantizationVisibility = QuantizationVisibility.INTERNAL
+        # Whether to export quant info of pad value
+        self.pad_visiblity: QuantizationVisibility = QuantizationVisibility.INTERNAL
 
         # 是否执行参数烘焙
         # whether to bake quantization on parameter.
@@ -468,6 +480,16 @@ class QuantizationSettingFactory:
     @staticmethod
     def trt_setting() -> QuantizationSetting:
         default_setting = QuantizationSetting()
+        return default_setting
+
+    @staticmethod
+    def espdl_setting() -> QuantizationSetting:
+        default_setting = QuantizationSetting()
+        default_setting.quantize_parameter_setting.clip_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
+        default_setting.quantize_parameter_setting.baking_parameter = False
+        default_setting.quantize_activation_setting.calib_algorithm = 'kl'
+        default_setting.fusion_setting.align_elementwise_to = 'Align to Output'
+        default_setting.fusion_setting.force_alignment_overlap = False
         return default_setting
 
     @ staticmethod

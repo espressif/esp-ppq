@@ -300,7 +300,10 @@ class BaseQuantizer(metaclass = ABCMeta):
         if setting.quantize_parameter:
             param_setting = setting.quantize_parameter_setting
             if param_setting.quantize_passive_parameter:
-                list_of_passes.append(PassiveParameterQuantizePass())
+                list_of_passes.append(PassiveParameterQuantizePass(
+                    clip_visiblity=param_setting.clip_visiblity,
+                    pad_visiblity=param_setting.pad_visiblity
+                ))
 
         if setting.bias_correct:
             bias_correct_setting = setting.bias_correct_setting
@@ -323,7 +326,11 @@ class BaseQuantizer(metaclass = ABCMeta):
                 block_size         = lsq_setting.block_size
             ))
             # requant passive parameters
-            list_of_passes.append(PassiveParameterQuantizePass())
+            param_setting = setting.quantize_parameter_setting
+            list_of_passes.append(PassiveParameterQuantizePass(
+                clip_visiblity=param_setting.clip_visiblity,
+                pad_visiblity=param_setting.pad_visiblity
+            ))
 
         if setting.blockwise_reconstruction:
             blockwise_reconstruction_setting = setting.blockwise_reconstruction_setting
@@ -337,7 +344,11 @@ class BaseQuantizer(metaclass = ABCMeta):
                 block_size         = blockwise_reconstruction_setting.block_size
             ))
             # requant passive parameters
-            list_of_passes.append(PassiveParameterQuantizePass())
+            param_setting = setting.quantize_parameter_setting
+            list_of_passes.append(PassiveParameterQuantizePass(
+                clip_visiblity=param_setting.clip_visiblity,
+                pad_visiblity=param_setting.pad_visiblity
+            ))
 
         if setting.quantize_parameter:
             if param_setting.baking_parameter:
@@ -374,7 +385,8 @@ class BaseQuantizer(metaclass = ABCMeta):
                 including_bias       = channel_split_setting.including_bias,
                 including_act        = channel_split_setting.including_act,
                 bias_multiplier      = channel_split_setting.bias_multiplier,
-                act_multiplier       = channel_split_setting.act_multiplier
+                act_multiplier       = channel_split_setting.act_multiplier,
+                interested_layers    = channel_split_setting.interested_layers
             ))
 
         if setting.equalization:
@@ -382,11 +394,12 @@ class BaseQuantizer(metaclass = ABCMeta):
             list_of_passes.append(LayerwiseEqualizationPass(
                 optimize_level       = equalization_setting.opt_level,
                 iterations           = equalization_setting.iterations,
-                value_threshold     = equalization_setting.value_threshold,
+                value_threshold      = equalization_setting.value_threshold,
                 including_bias       = equalization_setting.including_bias,
                 including_act        = equalization_setting.including_act,
                 bias_multiplier      = equalization_setting.bias_multiplier,
-                act_multiplier       = equalization_setting.act_multiplier
+                act_multiplier       = equalization_setting.act_multiplier,
+                interested_layers    = equalization_setting.interested_layers
             ))
 
         return QuantizationOptimizationPipeline(passes=list_of_passes)
