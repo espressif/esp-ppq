@@ -17,7 +17,8 @@ from onnxsim import simplify
 from torch.utils.data import DataLoader
 
 import ppq.lib as PFL
-from ppq.api.interface import load_onnx_graph
+from ppq.api.interface import load_onnx_graph, quantize_onnx_model
+from ppq.api.setting import QuantizationSetting, QuantizationSettingFactory
 from ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache
 from ppq.executor import BaseGraphExecutor, TorchExecutor
 from ppq.IR import BaseGraph
@@ -59,13 +60,14 @@ def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu')
 
 def generate_test_value(
     graph: BaseGraph,
-    executor: BaseGraphExecutor,
+    running_device: str,
     inputs: Union[dict, list, torch.Tensor],
     output_names: List[str] = None,
 ) -> Dict[str, Dict[str, np.ndarray]]:
     test_inputs_value = {}
     test_outputs_value = {}
 
+    executor = TorchExecutor(graph=graph, device=running_device)
     outputs = executor.forward(inputs=inputs, output_names=output_names)
     # get test_inputs_value
     if isinstance(inputs, dict):
@@ -114,8 +116,7 @@ def espdl_quantize_onnx(
     target:str = "esp32p4",
     num_of_bits:int = 8,
     collate_fn: Callable = None,
-    dispatching_override: Dict[str, TargetPlatform] = None,
-    dispatching_method: str = "conservative",
+    setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
     skip_export: bool = False,
@@ -123,7 +124,7 @@ def espdl_quantize_onnx(
     export_test_values: bool = False,
     test_output_names: List[str] = None,
     verbose: int = 0,
-) -> Tuple[BaseGraph, TorchExecutor] :
+) -> BaseGraph :
     """Quantize onnx model and return quantized ppq graph and executor .
     
     Args:
@@ -135,8 +136,7 @@ def espdl_quantize_onnx(
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
-        dispatching_override: override dispatching result.
-        dispatching_method: Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8
+        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
         skip_export (bool, optional): whether to export the quantized model, defaults to False.
@@ -147,7 +147,6 @@ def espdl_quantize_onnx(
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
-        TorchExecutor:  PPQ Graph Executor 
     """    
     
     export_path = os.path.dirname(os.path.abspath(espdl_export_file))
@@ -170,71 +169,31 @@ def espdl_quantize_onnx(
     if not collate_fn:
         collate_fn = partial(collate_fn_template, dtype=input_dtype, device=device)
 
-    ppq_graph = load_onnx_graph(onnx_import_file=onnx_import_file)
+    ppq_graph = None
     if inputs:
         dummy_inputs = inputs
     else:
         dummy_inputs = get_random_inputs(input_shape, input_dtype, device)
-    
+
     if target_platform != TargetPlatform.FP32:
-        quantizer = PFL.Quantizer(platform=target_platform, graph=ppq_graph)
-        dispatching_table = PFL.Dispatcher(
-            graph=ppq_graph, method=dispatching_method
-        ).dispatch(quantizer.quant_operation_types)
+        if setting is None:
+            setting = QuantizationSettingFactory.espdl_setting()
 
-        # Override dispatching result
-        if dispatching_override is not None:
-            for opname, platform in dispatching_override.items():
-                if opname not in ppq_graph.operations:
-                    continue
-                assert isinstance(platform, int) or isinstance(platform, TargetPlatform), (
-                    f"Your dispatching_override table contains a invalid setting of operation {opname}, "
-                    "All platform setting given in dispatching_override table is expected given as int or TargetPlatform, "
-                    f"however {type(platform)} was given."
-                )
-                dispatching_table[opname] = TargetPlatform(platform)
+        ppq_graph = quantize_onnx_model(
+                        onnx_import_file=onnx_import_file,
+                        calib_dataloader=calib_dataloader,
+                        calib_steps=calib_steps,
+                        input_shape=None,
+                        platform=target_platform,
+                        input_dtype=input_dtype,
+                        inputs=dummy_inputs,
+                        setting=setting,
+                        collate_fn=collate_fn,
+                        device=device,
+                        verbose=verbose,
+                        do_quantize=True,
+                    )
 
-        for opname, platform in dispatching_table.items():
-            if platform == TargetPlatform.UNSPECIFIED:
-                dispatching_table[opname] = target_platform
-
-        # initial quantizer
-        for op in ppq_graph.operations.values():
-            quantizer.quantize_operation(
-                op_name=op.name, platform=dispatching_table[op.name]
-            )
-        executor = TorchExecutor(graph=ppq_graph, device=device)
-        executor.tracing_operation_meta(inputs=dummy_inputs)
-
-        # Create the optimization pipeline, 
-        pipeline = PFL.Pipeline(
-            [
-                QuantizeSimplifyPass(),
-                QuantizeFusionPass(activation_type=quantizer.activation_fusion_types),
-                ParameterQuantizePass(),
-                RuntimeCalibrationPass(method="kl"),
-                PassiveParameterQuantizePass(
-                    clip_visiblity=QuantizationVisibility.EXPORT_WHEN_ACTIVE
-                ),
-                QuantAlignmentPass(elementwise_alignment="Align to Output"),
-                # LearnedStepSizePass(steps=500, block_size=5)
-            ]
-        )
-        logger.info(
-            f"Calibration dataset samples: {len(calib_dataloader.dataset)}, len(Calibrate iter): {len(calib_dataloader)}"
-        )
-        pipeline.optimize(
-            calib_steps=calib_steps,
-            collate_fn=collate_fn,
-            graph=ppq_graph,
-            dataloader=calib_dataloader,
-            executor=executor,
-        )
-        if verbose:
-            logger.info(quantizer.report())
-        logger.info("Network Quantization Finished.")
-
-        
         # ------------------------------------------------------------
         #
         # 2: Analyze Quantization Errors.
@@ -256,9 +215,12 @@ def espdl_quantize_onnx(
             )
     else:
         # support TargetPlatform.FP32
+        ppq_graph = load_onnx_graph(onnx_import_file=onnx_import_file)
         executor = TorchExecutor(graph=ppq_graph, device=device)
         executor.tracing_operation_meta(inputs=dummy_inputs)
         target_platform = TargetPlatform.ESPDL_INT8
+
+
     
     # ------------------------------------------------------------
     #
@@ -269,7 +231,7 @@ def espdl_quantize_onnx(
 
         values_for_test = None
         if export_test_values:
-            values_for_test = generate_test_value(ppq_graph, executor, dummy_inputs, test_output_names)
+            values_for_test = generate_test_value(ppq_graph, device, dummy_inputs, test_output_names)
 
         PFL.Exporter(platform=target_platform).export(
             file_path=espdl_export_file,
@@ -277,7 +239,7 @@ def espdl_quantize_onnx(
             values_for_test=values_for_test,
             export_config=export_config,
         )
-    return ppq_graph, executor
+    return ppq_graph
 
 
 def espdl_quantize_torch(
@@ -290,8 +252,7 @@ def espdl_quantize_torch(
     target:str = "esp32p4",
     num_of_bits:int = 8,
     collate_fn: Callable = None,
-    dispatching_override: Dict[str, TargetPlatform] = None,
-    dispatching_method: str = "conservative",
+    setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
     skip_export: bool = False,
@@ -299,7 +260,7 @@ def espdl_quantize_torch(
     export_test_values: bool = False,
     test_output_names: List[str] = None,
     verbose: int = 0,
-) -> Tuple[BaseGraph, TorchExecutor]:
+) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
     
     Args:
@@ -311,8 +272,7 @@ def espdl_quantize_torch(
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
-        dispatching_override: override dispatching result.
-        dispatching_method: Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8
+        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
         skip_export (bool, optional): whether to export the quantized model, defaults to False.
@@ -323,7 +283,6 @@ def espdl_quantize_torch(
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
-        TorchExecutor:  PPQ Graph Executor 
     """   
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
@@ -371,8 +330,7 @@ def espdl_quantize_torch(
         target=target,
         num_of_bits=num_of_bits,
         collate_fn=collate_fn,
-        dispatching_override=dispatching_override,
-        dispatching_method=dispatching_method,
+        setting=setting,
         device=device,
         error_report=error_report,
         skip_export=skip_export,
