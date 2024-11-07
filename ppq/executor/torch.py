@@ -515,7 +515,10 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 # if operation is an QuantableOperation, we have to quant its inputs and outputs at first.
                 if isinstance(operation, QuantableOperation):
                     input_configs = [_ for _ in operation.config.input_quantization_config]
-                    inputs = [self.quantize_function(input, config) for input, config in zip(inputs, input_configs)]
+                    if operation.platform == TargetPlatform.ESPDL_INT16:
+                        inputs = [self.quantize_function(input, config).type(dtype=torch.float64) for input, config in zip(inputs, input_configs)]
+                    else:
+                        inputs = [self.quantize_function(input, config).type(dtype=torch.float32) for input, config in zip(inputs, input_configs)]
 
                 # PATCH 20220208
                 for idx, var in enumerate(operation.inputs):
@@ -540,7 +543,10 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 # quantize all result if is necessary
                 if isinstance(operation, QuantableOperation):
                     output_configs = [_ for _ in operation.config.output_quantization_config]
-                    outputs = [self.quantize_function(output, config) for output, config in zip(outputs, output_configs)]
+                    if operation.platform == TargetPlatform.ESPDL_INT16:
+                        outputs = [self.quantize_function(output, config).type(dtype=torch.float64) for output, config in zip(outputs, output_configs)]
+                    else:
+                        outputs = [self.quantize_function(output, config).type(dtype=torch.float32) for output, config in zip(outputs, output_configs)]
 
                 # invoking post-forward hook
                 if operation_runtime_hook is not None:

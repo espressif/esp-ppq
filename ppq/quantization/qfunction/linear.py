@@ -254,6 +254,12 @@ def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig)
     """PPQ 核心量化函数，没啥好说的了吧，这个玩意只做 quant 不做 dequant"""
     if not config.policy.has_property(QuantizationProperty.LINEAR):
         raise ValueError('Critical Quantization Error! Non-linear config detected.')
+
+    if config.num_of_bits < 16:
+        tensor = tensor.type(dtype=torch.float32)
+    elif config.num_of_bits >= 16:
+        tensor = tensor.type(dtype=torch.float64)
+
     if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
         shape = [1 if axis != config.channel_axis else -1 for axis in range(tensor.ndim)]
         scale, offset = config.scale.view(shape), config.offset.view(shape)

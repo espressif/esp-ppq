@@ -219,8 +219,6 @@ def espdl_quantize_onnx(
         executor = TorchExecutor(graph=ppq_graph, device=device)
         executor.tracing_operation_meta(inputs=dummy_inputs)
         target_platform = TargetPlatform.ESPDL_INT8
-
-
     
     # ------------------------------------------------------------
     #
