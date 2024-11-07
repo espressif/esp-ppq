@@ -116,6 +116,8 @@ def espdl_quantize_onnx(
     target:str = "esp32p4",
     num_of_bits:int = 8,
     collate_fn: Callable = None,
+    dispatching_override: Dict[str, TargetPlatform] = None,
+    dispatching_method: str = "conservative",
     setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
@@ -136,6 +138,10 @@ def espdl_quantize_onnx(
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
+        dispatching_override (deprecated): override dispatching result.
+                                           It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
+        dispatching_method (deprecated): Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8.
+                                         It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
         setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
@@ -176,8 +182,18 @@ def espdl_quantize_onnx(
         dummy_inputs = get_random_inputs(input_shape, input_dtype, device)
 
     if target_platform != TargetPlatform.FP32:
+        if dispatching_override is not None or dispatching_method != "conservative":
+            logger.warning(f"It is recommended to use the setting parameter. The dispatching_override and dispatching_method will be deprecated.")
+
         if setting is None:
             setting = QuantizationSettingFactory.espdl_setting()
+
+        if dispatching_method != "conservative":
+            setting.dispatcher = dispatching_method
+
+        if dispatching_override is not None:
+            for opname, platform in dispatching_override.items():
+                setting.dispatching_table.append(opname, platform)
 
         ppq_graph = quantize_onnx_model(
                         onnx_import_file=onnx_import_file,
@@ -250,6 +266,8 @@ def espdl_quantize_torch(
     target:str = "esp32p4",
     num_of_bits:int = 8,
     collate_fn: Callable = None,
+    dispatching_override: Dict[str, TargetPlatform] = None,
+    dispatching_method: str = "conservative",
     setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
@@ -270,6 +288,10 @@ def espdl_quantize_torch(
         target: target chip, support "esp32p4" and "esp32s3"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
+        dispatching_override (deprecated): override dispatching result.
+                                        It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
+        dispatching_method (deprecated): Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8.
+                                        It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
         setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
@@ -328,6 +350,8 @@ def espdl_quantize_torch(
         target=target,
         num_of_bits=num_of_bits,
         collate_fn=collate_fn,
+        dispatching_override=dispatching_override,
+        dispatching_method=dispatching_method,
         setting=setting,
         device=device,
         error_report=error_report,
