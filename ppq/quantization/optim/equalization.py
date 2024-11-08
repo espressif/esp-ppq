@@ -532,7 +532,7 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
     ) -> None:
         interested_operations = []
 
-        if self.interested_layers is None:
+        if self.interested_layers is None or len(self.interested_layers) == 0:
 
             for operation in graph.operations.values():
                 if operation.type in EQUALIZATION_OPERATION_TYPE:
@@ -602,7 +602,7 @@ class ChannelwiseSplitPass(LayerwiseEqualizationPass):
                  **kwargs) -> None:
 
         interested_operations = []
-        if self.interested_layers is None:
+        if self.interested_layers is None or len(self.interested_layers) == 0:
 
             for operation in graph.operations.values():
                 if operation.type in EQUALIZATION_OPERATION_TYPE:
