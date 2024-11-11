@@ -376,5 +376,4 @@ class EspdlS3Int16Quantizer(EspdlQuantizer):
 
     @property
     def rounding_policy(self):
-        # return RoundingPolicy.ROUND_HALF_UP
-        return RoundingPolicy.ROUND_DOWN
+        return RoundingPolicy.ROUND_HALF_UP
