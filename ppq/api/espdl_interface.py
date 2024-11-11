@@ -40,6 +40,8 @@ def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False):
             platform = TargetPlatform.ESPDL_INT16
         elif num_of_bits == 8 and target == "esp32s3":
             platform = TargetPlatform.ESPDL_S3_INT8
+        elif num_of_bits == 16 and target == "esp32s3":
+            platform = TargetPlatform.ESPDL_S3_INT16
         else:
             platform = TargetPlatform.FP32
             logger.warning(f"Do not support num_of_bits:{num_of_bits}, will change to TargetPlatform.FP32")
