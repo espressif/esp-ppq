@@ -315,7 +315,7 @@ class EspdlS3Quantizer(EspdlQuantizer):
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_INT16:
+        elif operation.platform == TargetPlatform.ESPDL_S3_INT16:
             num_of_bits = 16
             quant_min = -32768
             quant_max = 32767
@@ -339,3 +339,42 @@ class EspdlS3Quantizer(EspdlQuantizer):
     @property
     def bias_bits(self):
         return 20
+
+
+class EspdlS3Int16Quantizer(EspdlQuantizer):
+    def __init__(
+        self,
+        graph: BaseGraph,
+    ) -> Union[torch.Tensor, list, dict]:
+        super().__init__(graph=graph)
+        self._num_of_bits = 16
+        self._quant_min = -32768
+        self._quant_max = +32767
+        self._custom_tqc = None
+
+    def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
+        if operation.platform == self.target_platform:
+            num_of_bits = self._num_of_bits
+            quant_min = self._quant_min
+            quant_max = self._quant_max
+        elif operation.platform == TargetPlatform.ESPDL_S3_INT8:
+            num_of_bits = 8
+            quant_min = -128
+            quant_max = 127
+        else:
+            raise KeyError(
+                f"EspdlQuantizer do not support operation platform : {operation.platform}."
+            )
+
+        return self.create_espdl_quant_config(
+            operation, num_of_bits, quant_min, quant_max
+        )
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_S3_INT16
+
+    @property
+    def rounding_policy(self):
+        # return RoundingPolicy.ROUND_HALF_UP
+        return RoundingPolicy.ROUND_DOWN
