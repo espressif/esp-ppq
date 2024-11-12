@@ -486,6 +486,7 @@ class QuantizationSettingFactory:
     def espdl_setting() -> QuantizationSetting:
         default_setting = QuantizationSetting()
         default_setting.quantize_parameter_setting.clip_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
+        default_setting.quantize_parameter_setting.pad_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
         default_setting.quantize_parameter_setting.baking_parameter = False
         default_setting.quantize_activation_setting.calib_algorithm = 'kl'
         default_setting.fusion_setting.align_elementwise_to = 'Align to Output'
