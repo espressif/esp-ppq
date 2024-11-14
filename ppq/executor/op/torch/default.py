@@ -2,16 +2,20 @@ import operator
 from functools import reduce
 from typing import List
 
-from ppq.core import (GRU_FLATTEN_WEIGHT_ATTRIB, LSTM_FLATTEN_WEIGHT_ATTRIB,
-                      DataType, TargetPlatform,
-                      convert_any_to_python_primary_type)
-from ppq.IR import Operation
-from ppq.log import NaiveLogger
-from ppq.utils import process_attribute
-
 import torch
 import torch.nn.functional as F
 from torch import _VF
+
+from ppq.core import (
+    GRU_FLATTEN_WEIGHT_ATTRIB,
+    LSTM_FLATTEN_WEIGHT_ATTRIB,
+    DataType,
+    TargetPlatform,
+    convert_any_to_python_primary_type,
+)
+from ppq.IR import Operation
+from ppq.log import NaiveLogger
+from ppq.utils import process_attribute
 
 from .base import *
 
@@ -2365,11 +2369,17 @@ def Pad_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
         output = F.pad(value, pads, mode, constant_value)
     elif mode == 'reflect':
         output = value
-        while len(pads) > 4:
-            output = F.pad(value, pads[-4:], mode)
-            pads   = pads[: -4]
+        if len(pads) > 2: 
+            pads = pads[:-2]
+        if len(pads) > 6:  
+            pads = pads[:-2]
+        
         output = F.pad(value, pads, mode)
     elif mode == 'edge':
+        if len(pads) > 2: 
+            pads = pads[:-2]
+        if len(pads) > 6:  
+            pads = pads[:-2]     
         output = F.pad(value, pads, 'replicate')
     else:
         raise TypeError(f'Unsupported mode {mode} in Pad op')
