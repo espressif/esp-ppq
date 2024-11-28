@@ -2,6 +2,7 @@ numpy >= 1.24.3
 onnx >= 1.14.0
 protobuf == 3.20.2
 torch >= 1.12.0
+onnxsim
 tqdm
 flatbuffers
 cryptography
