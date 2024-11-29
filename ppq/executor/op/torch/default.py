@@ -47,7 +47,7 @@ def convert_onnx_pads_to_torch(onnx_pads: List[int], mode: str=None) -> List[int
     
     torch_pads = []
     for begin, end in zip(onnx_pad_begin, onnx_pad_end):
-        torch_pads.extend([int(begin), int(end)])
+        torch_pads.extend([begin, end])
 
     if mode is None: return torch_pads
     # check if we can merge torch pads
