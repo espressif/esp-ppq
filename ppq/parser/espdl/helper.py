@@ -143,6 +143,8 @@ def make_graph_test_value(
             input_shape = input_value.shape
             if len(input_shape) > 1:
                 input_value = input_value.flatten()
+            if len(input_shape) == 0:
+                input_shape = [1]
             input_value_fbs = make_tensor(input_name, tensor_type, input_shape, input_value.tobytes(), raw = True, exponents = var_exponents)
             input_test_values.append(input_value_fbs)
 
@@ -153,6 +155,8 @@ def make_graph_test_value(
             output_shape = output_value.shape
             if len(output_shape) > 1:
                 output_value = output_value.flatten()
+            if len(output_shape) == 0:
+                output_shape = [1]
             output_value_fbs = make_tensor(output_name, tensor_type, output_shape, output_value.tobytes(), raw = True, exponents = var_exponents)
             output_test_values.append(output_value_fbs)
 
