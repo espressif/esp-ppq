@@ -28,6 +28,7 @@ from .espdl.export_patterns import (
     InsertQuantNodePattern,
     InsertQuantTypePattern,
     InsertRequantNodePattern,
+    InsertPreNodeOfMatMulPattern,
     QuantVariableToIntPattern,
     ResetParamLayoutPattern,
 )
@@ -116,6 +117,7 @@ class EspdlExporter(GraphExporter):
                 InsertQuantNodePattern,
                 InsertRequantNodePattern,
                 InsertDequantNodePattern,
+                InsertPreNodeOfMatMulPattern,
             ],
             "post_patterns": [
                 InsertQuantTypePattern,
@@ -416,6 +418,8 @@ class EspdlExporter(GraphExporter):
                 if len(var_shape) != len(perm):
                     logger.error(f"{variable.name} permute do not match shape")
                 var_shape = transpose_shape(var_shape, perm)
+            elif len(var_shape) == 0:
+                var_shape = torch.tensor([1]).shape
 
         # if variable not in exponents, set exponent to 0
         var_exponents = exponent

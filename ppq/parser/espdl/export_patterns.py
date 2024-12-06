@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import List
 
 import numpy as np
 import torch
@@ -464,6 +465,150 @@ class InsertDequantNodePattern(OperationExporter):
                                 config=config,
                                 op=dest_op,
                             )
+        return op
+
+
+class InsertPreNodeOfMatMulPattern(OperationExporter):
+    @staticmethod
+    def insert_transpose_node(
+        graph: BaseGraph, var: Variable, op: Operation, perm: List[int]
+    ) -> Operation:
+        """
+        Insert a Transpose Node on given variable, according to given perm.
+        """
+        created = None
+        if op and perm != range(len(perm)):
+            logger.debug(
+                f"insert transpose node: op: {op.name}, var:{var.name}, perm:{perm}"
+            )
+            if var in op.inputs:
+                created = graph.create_operation(op_type="Transpose", attributes={"perm": perm})
+                var_index = op.inputs.index(var)
+                if isinstance(op, QuantableOperation):
+                    # For transpose op,  input_quantization_config == output_quantization_config
+                    new_config = OperationQuantizationConfig(
+                        [op.input_quant_config[var_index]],
+                        [op.input_quant_config[var_index]],
+                    )
+                    created = QuantableOperation(created, new_config, op.platform)
+                    graph.operations[created.name] = created
+
+                graph.insert_op_before(A=created, B=op, input_idx=var_index)
+                new_var = created.outputs[0]
+                new_var.shape = [var.shape[i] for i in perm]
+                new_var.is_parameter = False
+                new_var.dtype = var.dtype
+
+            else:
+                raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
+
+        return created
+
+
+    @staticmethod
+    def insert_reshape_node(
+        graph: BaseGraph, 
+        var: Variable,
+        op: Operation, 
+        shape: List[int], 
+        allowzero: int = 0
+    ) -> Operation:
+        """
+        Insert a Reshape Node on given variable, according to given TensorQuantizationConfig.
+        """
+        created = None
+        if op and var in op.inputs:
+            logger.debug(
+                f"insert reshape node: op: {op.name}, var: {var.name}, shape: {shape}"
+            )
+            created = graph.create_operation(op_type="Reshape", attributes={"allowzero": allowzero})
+
+            var_index = op.inputs.index(var)
+            if isinstance(op, QuantableOperation):
+                # For reshape op,  input_quantization_config[0] == output_quantization_config
+                shape_config = op.input_quant_config[var_index].copy()
+                shape_config.state = QuantizationStates.FP32
+                shape_config.observer_algorithm = "percentile"
+
+                new_config = OperationQuantizationConfig(
+                    [op.input_quant_config[var_index], shape_config],
+                    [op.input_quant_config[var_index]],
+                )
+                created = QuantableOperation(created, new_config, op.platform)
+                graph.operations[created.name] = created
+
+            graph.insert_op_before(A=created, B=op, input_idx=var_index)
+            new_var = created.outputs[0]
+            new_var.shape = shape
+            new_var.is_parameter = var.is_parameter
+            new_var.dtype = var.dtype
+
+            shape_param = graph.create_variable(value=torch.Tensor(shape).to(torch.int64), is_parameter=True, dest_ops=[created])
+            shape_param.dtype = DataType.INT64
+
+        else:
+            raise ValueError(f"Unexpected Error in insert reshape node, var: {var.name}, Op: {op.name}.")
+
+        return created
+
+
+    def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.type != "MatMul" or not isinstance(op, QuantableOperation):
+            return op
+
+        input0 = op.inputs[0]
+        input1 = op.inputs[1]
+        input1_config = op.input_quant_config[1]
+        input1_num_of_bits = input1_config.num_of_bits
+        input1_n_size = input1.shape[-1]
+        if input0.shape is None or input1.shape is None:
+            logger.error("input shape is None")
+            return op
+
+        if input1_num_of_bits != 8 and input1_num_of_bits != 16:
+            logger.warning(f"The num_of_bits of input1 {input1_num_of_bits} is not supported.")
+            return op
+
+        input0_dims = len(input0.shape)
+        input1_dims = len(input1.shape)
+        input1_orig_shape = input1.shape
+        align = 16 if input1_num_of_bits == 8 else 8
+
+        if input0_dims == 1 and input1_dims == 1:
+            # Don't need to insert anything.
+            return op
+
+        if input1_n_size % align == 0:
+            if input1_dims == 2:
+                # CN -> (N/align)C(align) = (N/align)HWC(align)
+                c, n = input1.shape
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                shape = [c, n // align, align])
+                InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                perm = [1, 0, 2])
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                shape = input1_orig_shape)
+            elif input1_dims > 2:
+                c, n = input1.shape[-2:]
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                shape = [*input1.shape[: -2], c, n // align, align])
+                InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                perm = list(range(len(input1.shape) - 2)) + [-2, -3, -1])
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
+                                                                var = op.inputs[1],
+                                                                op = op, 
+                                                                shape = input1_orig_shape)
+
         return op
 
 

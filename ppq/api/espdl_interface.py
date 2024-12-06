@@ -53,7 +53,7 @@ def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu')
         input_shape = [input_shape]
 
     inputs = [
-        torch.rand(size=shape, device=device, dtype=dtype)
+        torch.randn(size=shape, device=device, dtype=dtype)
         for shape in input_shape
     ]
     
@@ -324,7 +324,7 @@ def espdl_quantize_torch(
         args=tuple(
             [
                 torch.zeros(
-                    size=[1] + shape[1:],  # reset batch_size=1
+                    size=shape,
                     device=device,
                     dtype=torch.float32 if num_of_bits == 8 else torch.float64,
                 )

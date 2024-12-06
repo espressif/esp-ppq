@@ -516,9 +516,15 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 if isinstance(operation, QuantableOperation):
                     input_configs = [_ for _ in operation.config.input_quantization_config]
                     if (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_S3_INT16):
-                        inputs = [self.quantize_function(input, config).type(dtype=torch.float64) if input.dtype == torch.float32 else self.quantize_function(input, config) for input, config in zip(inputs, input_configs)]
+                        inputs = ([self.quantize_function(input, config).type(dtype=torch.float64) 
+                                        if input is not None and input.dtype == torch.float32
+                                        else self.quantize_function(input, config) 
+                                        for input, config in zip(inputs, input_configs)])
                     else:
-                        inputs = [self.quantize_function(input, config).type(dtype=torch.float32) if input.dtype == torch.float64 else self.quantize_function(input, config) for input, config in zip(inputs, input_configs)]
+                        inputs = ([self.quantize_function(input, config).type(dtype=torch.float32) 
+                                        if input is not None and input.dtype == torch.float64 
+                                        else self.quantize_function(input, config) 
+                                        for input, config in zip(inputs, input_configs)])
 
                 # PATCH 20220208
                 for idx, var in enumerate(operation.inputs):
@@ -544,9 +550,15 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 if isinstance(operation, QuantableOperation):
                     output_configs = [_ for _ in operation.config.output_quantization_config]
                     if (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_S3_INT16):
-                        outputs = [self.quantize_function(output, config).type(dtype=torch.float64) if output.dtype == torch.float32 else self.quantize_function(output, config) for output, config in zip(outputs, output_configs)]
+                        outputs = ([self.quantize_function(output, config).type(dtype=torch.float64) 
+                                        if output is not None and output.dtype == torch.float32 
+                                        else self.quantize_function(output, config) 
+                                        for output, config in zip(outputs, output_configs)])
                     else:
-                        outputs = [self.quantize_function(output, config).type(dtype=torch.float32) if output.dtype == torch.float64 else self.quantize_function(output, config) for output, config in zip(outputs, output_configs)]
+                        outputs = [self.quantize_function(output, config).type(dtype=torch.float32) 
+                                        if output is not None and output.dtype == torch.float64 
+                                        else self.quantize_function(output, config) 
+                                        for output, config in zip(outputs, output_configs)]
 
                 # invoking post-forward hook
                 if operation_runtime_hook is not None:
