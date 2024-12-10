@@ -470,6 +470,144 @@ class InsertDequantNodePattern(OperationExporter):
 
 class InsertPreNodeOfMatMulPattern(OperationExporter):
     @staticmethod
+    def insert_concat_node(
+        graph: BaseGraph, 
+        insert_op_var: Variable, 
+        insert_op: Operation, 
+        link_vars: List[Variable], 
+        link_vars_src_op: List[Operation],
+        axis: int = 0
+    ) -> Operation:
+        """
+        Insert a Concat Node on given insert_op_var, according to given axis. And using link_vars as the other input, 
+        these function will use the TQC of the first input as the TQC for all the inputs and output.
+
+        """
+        created = None
+        if insert_op and insert_op_var in insert_op.inputs:
+            logger.debug(
+                f"insert concat node: insert_op: {insert_op.name}, insert_op_var:{insert_op_var.name}, link_vars number:{len(link_vars)}"
+            )
+            if axis < 0:
+                axis = axis + len(insert_op_var.shape)
+            created = graph.create_operation(op_type="Concat", attributes={"axis": axis})
+            var_index = insert_op.inputs.index(insert_op_var)
+            if isinstance(insert_op, QuantableOperation):
+                # For concat insert_op,  input_quantization_config == output_quantization_config
+                input_config = insert_op.input_quant_config[var_index].copy()
+                input_config.state = QuantizationStates.PASSIVE
+                new_config = OperationQuantizationConfig(
+                    [input_config] * (len(link_vars) + 1),
+                    [insert_op.input_quant_config[var_index]],
+                )
+                created = QuantableOperation(created, new_config, insert_op.platform)
+                graph.operations[created.name] = created
+
+            output_shape = insert_op_var.shape.copy()
+            for var in link_vars:
+                assert len(var.shape) == len(insert_op_var.shape), (
+                    f"The inputs of concat have inconsistent numbers of dimensions {len(insert_op_var.shape)}, {len(var.shape)}."
+                )
+                output_shape[axis] = output_shape[axis] + var.shape[axis]
+
+            graph.insert_op_before(A=created, B=insert_op, input_idx=var_index)
+            new_var = created.outputs[0]
+            new_var.shape = output_shape
+            new_var.is_parameter = False
+            new_var.dtype = insert_op_var.dtype
+
+            for var, src_op in zip(link_vars, link_vars_src_op):
+                graph.create_link_with_op(A=src_op, B=created, variable=var)
+
+        else:
+            raise ValueError(f"Unexpected Error in Exporting Op {insert_op.name}({insert_op.type}).")
+
+        return created
+
+
+    @staticmethod
+    def insert_slice_node(
+        graph: BaseGraph, 
+        var: Variable,
+        op: Operation, 
+        starts: List[int],
+        ends: List[int],
+        axes: List[int],
+        steps: List[int],
+    ) -> Operation:
+        """
+        Insert a Slice Node on given variable, according to given starts, ends, axes, steps.
+        """
+        created = None
+        if op and var in op.inputs:
+            logger.debug(
+                f"insert slice node: op: {op.name}, var: {var.name}, starts: {starts}, ends: {ends}, axes: {axes}, steps: {steps}"
+            )
+            created = graph.create_operation(op_type="Slice")
+
+            var_index = op.inputs.index(var)
+            if isinstance(op, QuantableOperation):
+                # For slice op,  input_quantization_config[0] == output_quantization_config
+                input0_config = op.input_quant_config[var_index].copy()
+                input0_config.state = QuantizationStates.OVERLAPPED
+
+                starts_config = op.input_quant_config[var_index].copy()
+                starts_config.state = QuantizationStates.FP32
+                starts_config.observer_algorithm = "percentile"
+                ends_config = starts_config.copy()
+                axes_config = starts_config.copy()
+                steps_config = starts_config.copy()
+
+                output0_config = op.input_quant_config[var_index].copy()
+                output0_config.state = QuantizationStates.OVERLAPPED
+                output0_config.dominated_by = input0_config
+
+                new_config = OperationQuantizationConfig(
+                    [input0_config, starts_config, ends_config, axes_config, steps_config],
+                    [output0_config],
+                )
+                created = QuantableOperation(created, new_config, op.platform)
+                graph.operations[created.name] = created
+
+            dim = len(var.shape)
+            output_shape = [0] * dim
+            for i in range(len(starts)):
+                axis = i
+                if axes:
+                    axis = (axes[i] + dim) % dim
+
+                start_i = starts[i] + var.shape[axis] if starts[i] < 0 else starts[i] % (var.shape[axis] + 1)
+                end_i = ends[i] + var.shape[axis] if ends[i] < 0 else ends[i] % (var.shape[axis] + 1)
+                if start_i >= end_i:
+                    raise ValueError(f"Unexpected value, start_i: {start_i}, end_i: {end_i}.")
+                else:
+                    if steps:
+                        output_shape[axis] = 1 + (end_i - start_i - 1) // steps[i]
+                    else:
+                        output_shape[axis] = end_i - start_i
+
+            graph.insert_op_before(A=created, B=op, input_idx=var_index)
+            new_var = created.outputs[0]
+            new_var.shape = output_shape
+            new_var.is_parameter = var.is_parameter
+            new_var.dtype = var.dtype
+
+            starts_param = graph.create_variable(value=torch.Tensor(starts).to(torch.int64), is_parameter=True, dest_ops=[created])
+            starts_param.dtype = DataType.INT64
+            ends_param = graph.create_variable(value=torch.Tensor(ends).to(torch.int64), is_parameter=True, dest_ops=[created])
+            ends_param.dtype = DataType.INT64
+            axes_param = graph.create_variable(value=torch.Tensor(axes).to(torch.int64), is_parameter=True, dest_ops=[created])
+            axes_param.dtype = DataType.INT64
+            steps_param = graph.create_variable(value=torch.Tensor(steps).to(torch.int64), is_parameter=True, dest_ops=[created])
+            steps_param.dtype = DataType.INT64
+
+        else:
+            raise ValueError(f"Unexpected Error in insert slice node, var: {var.name}, Op: {op.name}.")
+
+        return created
+
+
+    @staticmethod
     def insert_transpose_node(
         graph: BaseGraph, var: Variable, op: Operation, perm: List[int]
     ) -> Operation:
@@ -514,7 +652,7 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
         allowzero: int = 0
     ) -> Operation:
         """
-        Insert a Reshape Node on given variable, according to given TensorQuantizationConfig.
+        Insert a Reshape Node on given variable, according to given shape.
         """
         created = None
         if op and var in op.inputs:
@@ -553,7 +691,7 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
 
 
     def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.type != "MatMul" or not isinstance(op, QuantableOperation):
+        if op.type != "MatMul" or op.inputs[1].is_parameter or not isinstance(op, QuantableOperation):
             return op
 
         input0 = op.inputs[0]
@@ -574,32 +712,15 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
         input1_orig_shape = input1.shape
         align = 16 if input1_num_of_bits == 8 else 8
 
-        if input0_dims == 1 and input1_dims == 1:
-            # Don't need to insert anything.
-            return op
-
+        # align
         if input1_n_size % align == 0:
-            if input1_dims == 2:
-                # CN -> (N/align)C(align) = (N/align)HWC(align)
-                c, n = input1.shape
-                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
-                                                                var = op.inputs[1],
-                                                                op = op, 
-                                                                shape = [c, n // align, align])
-                InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph, 
-                                                                var = op.inputs[1],
-                                                                op = op, 
-                                                                perm = [1, 0, 2])
-                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
-                                                                var = op.inputs[1],
-                                                                op = op, 
-                                                                shape = input1_orig_shape)
-            elif input1_dims > 2:
+            if input1_dims >= 2:
+                # *CN -> *(N/align)C(align) = *(N/align)HWC(align)
                 c, n = input1.shape[-2:]
                 InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
                                                                 var = op.inputs[1],
                                                                 op = op, 
-                                                                shape = [*input1.shape[: -2], c, n // align, align])
+                                                                shape = input1.shape[: -2] + [c, n // align, align])
                 InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph, 
                                                                 var = op.inputs[1],
                                                                 op = op, 
@@ -607,6 +728,59 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
                 InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph, 
                                                                 var = op.inputs[1],
                                                                 op = op, 
+                                                                shape = input1_orig_shape)
+        # unalign
+        else:
+            aligned_len = input1_n_size // align * align
+
+            if input1_dims >= 2:
+                c, n = input1.shape[-2:]
+                trans_op = InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph,
+                                                                            var = op.inputs[1],
+                                                                            op = op,
+                                                                            perm = list(range(len(input1.shape) - 2)) + [-1, -2])
+                InsertPreNodeOfMatMulPattern.insert_slice_node(graph = graph, 
+                                                            var = op.inputs[1],
+                                                            op = op, 
+                                                            starts = [0] * len(input1.shape),
+                                                            ends = input1.shape[:-2] + [aligned_len, c],
+                                                            axes = list(range(len(input1.shape))),
+                                                            steps = [1] * len(input1.shape))
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph,
+                                                                var = op.inputs[1],
+                                                                op = op,
+                                                                shape = input1.shape[:-2] + [n // align, align, c])
+                InsertPreNodeOfMatMulPattern.insert_transpose_node(graph = graph,
+                                                                var = op.inputs[1],
+                                                                op = op,
+                                                                perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph,
+                                                                var = op.inputs[1],
+                                                                op = op,
+                                                                shape = input1.shape[:-2] + [aligned_len, c])
+                # concat align and unalign
+                concat_op = InsertPreNodeOfMatMulPattern.insert_concat_node(graph = graph,
+                                                                            insert_op_var = op.inputs[1],
+                                                                            insert_op = op,
+                                                                            link_vars = [trans_op.outputs[0]], 
+                                                                            link_vars_src_op = [trans_op],
+                                                                            axis = -2)
+                # insert unalign
+                InsertPreNodeOfMatMulPattern.insert_slice_node(graph = graph,
+                                                                var = concat_op.inputs[1],
+                                                                op = concat_op,
+                                                                starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
+                                                                ends = input1.shape[:-2] + [input1_n_size, c],
+                                                                axes = list(range(len(input1.shape))),
+                                                                steps = [1] * len(input1.shape))
+                concat_axis = concat_op.attributes["axis"]
+                concat_op.outputs[0].shape[concat_axis] = 0
+                for input in concat_op.inputs:
+                    concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+
+                InsertPreNodeOfMatMulPattern.insert_reshape_node(graph = graph,
+                                                                var = op.inputs[1],
+                                                                op = op,
                                                                 shape = input1_orig_shape)
 
         return op
@@ -621,7 +795,7 @@ class FuseReluLikePattern(OperationExporter):
         if op.name not in graph.operations:
             return op
 
-        if op.type in ["Conv", "Gemm"]:
+        if op.type in ["Conv", "Gemm", "MatMul"]:
             op.attributes["activation"] = "Linear"
             downstream_op = graph.get_downstream_operations(op)
             if (
@@ -849,6 +1023,29 @@ class ResetParamLayoutPattern(OperationExporter):
                     logger.debug(
                         f"reset {op.type}:{op.name}, shape:{var.value.shape}, layout to {layout}"
                     )
+
+        elif op.type == "MatMul" and op.inputs[1].is_parameter and len(op.inputs[1].shape) >= 2:
+            tensor = op.inputs[1].value
+            tensor_orig_shape = tensor.shape
+            c, n = tensor_orig_shape[-2:]
+            tensor = tensor.reshape(-1, c, n)
+            tensor_reset = []
+            layout = None
+
+            for tensor_tmp in tensor:
+                tensor_tmp = tensor_tmp.unsqueeze(-1).unsqueeze(-1)  # CN -> CNHW
+                # CNHW -> NCHW, same with conv2d filter
+                tensor_tmp = tensor_tmp.permute(1, 0, 2, 3)
+
+                tensor_tmp, layout = self.reset_conv_filter_layout(
+                    tensor_tmp, quant_type, None
+                )
+                # HWCN -> CN
+                tensor_tmp.squeeze(0).squeeze(0)
+                tensor_reset.append(tensor_tmp)
+
+            info.add_var_layout(op.inputs[1].name, layout)
+            op.inputs[1].value = torch.stack(tensor_reset).reshape(tensor_orig_shape)
 
         return op
 
