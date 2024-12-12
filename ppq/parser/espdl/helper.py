@@ -43,18 +43,33 @@ import FlatBuffers.Dl.TensorTypeAndShape as TensorTypeAndShape
 import FlatBuffers.Dl.TypeInfo as TypeInfo
 import FlatBuffers.Dl.TypeInfoValue as TypeInfoValue
 import FlatBuffers.Dl.ValueInfo as ValueInfo
+import FlatBuffers.Dl.AlignedBytes as AlignedBytes
 import mapping as mapping
+
+global_fbs_builder = None
+
+
+def get_global_fbs_builder():
+    global global_fbs_builder
+    if global_fbs_builder is None:
+        global_fbs_builder = flatbuffers.Builder(0)
+    return global_fbs_builder
+
+
+def reset_global_fbs_builder():
+    global global_fbs_builder
+    global_fbs_builder = None
 
 
 def make_node(
-    op_type: str,
-    inputs: Sequence[str],
-    outputs: Sequence[str],
-    name: Optional[str] = None,
-    doc_string: Optional[str] = None,
-    domain: Optional[str] = None,
-    **kwargs: Any,
-) -> Node.NodeT:
+        op_type: str,
+        inputs: Sequence[str],
+        outputs: Sequence[str],
+        name: Optional[str] = None,
+        doc_string: Optional[str] = None,
+        domain: Optional[str] = None,
+        **kwargs: Any,
+) -> int:
     """Construct a Node.
 
     Args:
@@ -69,49 +84,59 @@ def make_node(
             are documented in :func:`make_attribute`.
 
     Returns:
-        Node
+        Node fbs offset
     """
-    node = Node.NodeT()
-    node.opType = op_type
-    node.input = [*inputs]
-    node.output = [*outputs]
+    builder = get_global_fbs_builder()
+    op_type = builder.CreateString(op_type)
+
+    inputs = [builder.CreateString(i) for i in inputs]
+    Node.StartInputVector(builder, len(inputs))
+    for i in reversed(inputs):
+        builder.PrependUOffsetTRelative(i)
+    inputs = builder.EndVector()
+
+    outputs = [builder.CreateString(o) for o in outputs]
+    Node.StartOutputVector(builder, len(outputs))
+    for o in reversed(outputs):
+        builder.PrependUOffsetTRelative(o)
+    outputs = builder.EndVector()
+
     if name:
-        node.name = name
+        name = builder.CreateString(name)
     if doc_string:
-        node.docString = doc_string
-    if domain is not None:
-        node.domain = domain
+        doc_string = builder.CreateString(doc_string)
+    if domain:
+        domain = builder.CreateString(domain)
+
+    attrs = None
     if kwargs:
-        node.attribute = [
-            make_attribute(key, value)
-            for key, value in sorted(kwargs.items())
-            if value is not None
-        ]
-    return node
+        attrs = [make_attribute(key, value)
+                 for key, value in sorted(kwargs.items())
+                 if value is not None]
+        Node.StartAttributeVector(builder, len(attrs))
+        for attr in reversed(attrs):
+            builder.PrependUOffsetTRelative(attr)
+        attrs = builder.EndVector()
 
-
-def make_operatorsetid(
-    domain: str,
-    version: int,
-) -> OperatorSetId.OperatorSetIdT:
-    """Construct an OperatorSetId.
-
-    Args:
-        domain (string): The domain of the operator set id
-        version (integer): Version of operator set id
-    Returns:
-        OperatorSetId.OperatorSetIdT
-    """
-    operatorsetid = OperatorSetId.OperatorSetIdT()
-    operatorsetid.domain = domain
-    operatorsetid.version = version
-    return operatorsetid
+    Node.Start(builder)
+    Node.AddOpType(builder, op_type)
+    Node.AddInput(builder, inputs)
+    Node.AddOutput(builder, outputs)
+    if name:
+        Node.AddName(builder, name)
+    if doc_string:
+        Node.AddDocString(builder, doc_string)
+    if domain:
+        Node.AddDomain(builder, domain)
+    if attrs is not None:
+        Node.AddAttribute(builder, attrs)
+    return Node.End(builder)
 
 
 def make_graph_test_value(
-    valuesForTest: Dict[str, Dict[str, np.ndarray]] = None, 
-    exponents: Dict[str, List[int]] = None
-) -> Tuple[Sequence[Tensor.TensorT], Sequence[Tensor.TensorT]]:
+        valuesForTest: Dict[str, Dict[str, np.ndarray]] = None,
+        exponents: Dict[str, List[int]] = None
+) -> Tuple[Sequence[int], Sequence[int]]:
     """Construct the test_inputs_value, test_outputs_value of Graph
 
     Args:
@@ -131,7 +156,7 @@ def make_graph_test_value(
             }
 
     Returns:
-        Tuple[Sequence[Tensor.TensorT], Sequence[Tensor.TensorT]]
+        Tuple[Sequence[Tensor fbs offset], Sequence[Tensor fbs offset]]
     """
     input_test_values = []
     output_test_values = []
@@ -145,7 +170,8 @@ def make_graph_test_value(
                 input_value = input_value.flatten()
             if len(input_shape) == 0:
                 input_shape = [1]
-            input_value_fbs = make_tensor(input_name, tensor_type, input_shape, input_value.tobytes(), raw = True, exponents = var_exponents)
+            input_value_fbs = make_tensor(input_name, tensor_type, input_shape, input_value.tobytes(), raw=True,
+                                          exponents=var_exponents)
             input_test_values.append(input_value_fbs)
 
         # Get the output test value
@@ -157,92 +183,173 @@ def make_graph_test_value(
                 output_value = output_value.flatten()
             if len(output_shape) == 0:
                 output_shape = [1]
-            output_value_fbs = make_tensor(output_name, tensor_type, output_shape, output_value.tobytes(), raw = True, exponents = var_exponents)
+            output_value_fbs = make_tensor(output_name, tensor_type, output_shape, output_value.tobytes(), raw=True,
+                                           exponents=var_exponents)
             output_test_values.append(output_value_fbs)
 
     return input_test_values, output_test_values
 
 
 def make_graph(
-    nodes: Sequence[Node.NodeT],
-    name: str,
-    inputs: Sequence[ValueInfo.ValueInfoT],
-    outputs: Sequence[ValueInfo.ValueInfoT],
-    initializer: Optional[Sequence[Tensor.TensorT]] = None,
-    doc_string: Optional[str] = None,
-    value_info: Optional[Sequence[ValueInfo.ValueInfoT]] = None,
-    test_inputs_value: Optional[Sequence[Tensor.TensorT]] = None,
-    test_outputs_value: Optional[Sequence[Tensor.TensorT]] = None,
-) -> Graph.GraphT:
+        nodes: Sequence[int],
+        name: str,
+        inputs: Sequence[int],
+        outputs: Sequence[int],
+        initializer: Optional[Sequence[int]] = None,
+        doc_string: Optional[str] = None,
+        value_info: Optional[Sequence[int]] = None,
+        test_inputs_value: Optional[Sequence[int]] = None,
+        test_outputs_value: Optional[Sequence[int]] = None,
+) -> int:
     """Construct a Graph
 
     Args:
-        nodes: list of Node.NodeT
+        nodes: list of Node fbs offset
         name (string): graph name
-        inputs: list of ValueInfo.ValueInfoT
-        outputs: list of ValueInfo.ValueInfoT
-        initializer: list of Tensor.TensorT
+        inputs: list of ValueInfo fbs offset
+        outputs: list of ValueInfo fbs offset
+        initializer: list of Tensor fbs offset
         doc_string (string): graph documentation
-        value_info: list of ValueInfo.ValueInfoT
+        value_info: list of ValueInfo fbs offset
     Returns:
-        Graph.GraphT
+        Graph fbs offset
     """
-    if initializer is None:
-        initializer = []
-    if value_info is None:
-        value_info = []
-    if test_inputs_value is None:
-        test_inputs_value = []
-    if test_outputs_value is None:
-        test_outputs_value = []
-    graph = Graph.GraphT()
-    graph.node = [*nodes]
-    graph.name = name
-    graph.input = [*inputs]
-    graph.output = [*outputs]
-    graph.initializer = [*initializer]
-    graph.valueInfo = [*value_info]
+    builder = get_global_fbs_builder()
+
+    name = builder.CreateString(name)
+    if initializer is not None:
+        Graph.StartInitializerVector(builder, len(initializer))
+        for i in reversed(initializer):
+            builder.PrependUOffsetTRelative(i)
+        initializer = builder.EndVector()
+    if value_info is not None:
+        Graph.StartValueInfoVector(builder, len(value_info))
+        for i in reversed(value_info):
+            builder.PrependUOffsetTRelative(i)
+        value_info = builder.EndVector()
+    if test_inputs_value is not None:
+        Graph.StartTestInputsValueVector(builder, len(test_inputs_value))
+        for i in reversed(test_inputs_value):
+            builder.PrependUOffsetTRelative(i)
+        test_inputs_value = builder.EndVector()
+    if test_outputs_value is not None:
+        Graph.StartTestOutputsValueVector(builder, len(test_outputs_value))
+        for i in reversed(test_outputs_value):
+            builder.PrependUOffsetTRelative(i)
+        test_outputs_value = builder.EndVector()
+
+    Graph.StartNodeVector(builder, len(nodes))
+    for i in reversed(nodes):
+        builder.PrependUOffsetTRelative(i)
+    nodes = builder.EndVector()
+
+    Graph.StartInputVector(builder, len(inputs))
+    for i in reversed(inputs):
+        builder.PrependUOffsetTRelative(i)
+    inputs = builder.EndVector()
+
+    Graph.StartOutputVector(builder, len(outputs))
+    for i in reversed(outputs):
+        builder.PrependUOffsetTRelative(i)
+    outputs = builder.EndVector()
+
+    Graph.Start(builder)
+    if initializer is not None:
+        Graph.AddInitializer(builder, initializer)
+    if value_info is not None:
+        Graph.AddValueInfo(builder, value_info)
+    if test_inputs_value is not None:
+        Graph.AddTestInputsValue(builder, test_inputs_value)
+    if test_outputs_value is not None:
+        Graph.AddTestOutputsValue(builder, test_outputs_value)
+    Graph.AddNode(builder, nodes)
+    Graph.AddName(builder, name)
+    Graph.AddInput(builder, inputs)
+    Graph.AddOutput(builder, outputs)
     if doc_string:
-        graph.docString = doc_string
-    graph.testInputsValue = [*test_inputs_value]
-    graph.testOutputsValue = [*test_outputs_value]
-    return graph
+        Graph.AddDocString(builder, builder.CreateString(doc_string))
+    return Graph.End(builder)
 
 
-def make_model(graph: Graph.GraphT, **kwargs: Any) -> Model.ModelT:
+def make_model(graph: int, **kwargs: Any) -> bytes:
     """Construct a Model
 
     Args:
-        graph (Graph.GraphT): *make_graph* returns
+        graph (int): graph fbs offset
         **kwargs: any attribute to add to the returned instance
     Returns:
-        Model.ModelT
+        model fbs data in bytes
     """
-    model = Model.ModelT()
-    model.graph = graph
+    builder = get_global_fbs_builder()
 
-    opset_imports: Optional[Sequence[OperatorSetId.OperatorSetIdT]] = None
     opset_imports = kwargs.pop("opset_imports", None)  # type: ignore
     if opset_imports is not None:
-        model.opsetImport = [*opset_imports]
+        Model.StartOpsetImportVector(builder, len(opset_imports))
+        for i in reversed(opset_imports):
+            builder.PrependUOffsetTRelative(i)
+        opset_imports = builder.EndVector()
     else:
-        # Default import
-        model.opsetImport = [OperatorSetId.OperatorSetIdT()]
+        Model.StartOpsetImportVector(builder, 0)
+        opset_imports = builder.EndVector()
 
-    functions: Optional[Sequence[Function.FunctionT]] = None
     functions = kwargs.pop("functions", None)  # type: ignore
     if functions is not None:
-        model.functions = [*functions]
+        Model.StartFunctionsVector(builder, len(functions))
+        for i in reversed(functions):
+            builder.PrependUOffsetTRelative(i)
+        functions = builder.EndVector()
 
-    for k, v in kwargs.items():
-        # TODO: Does this work with repeated fields?
-        setattr(model, k, v)
-    return model
+    producer_name = kwargs.pop("producer_name", None)  # type: ignore
+    if producer_name is not None:
+        producer_name = builder.CreateString(producer_name)
+
+    producer_version = kwargs.pop("producer_version", None)  # type: ignore
+    if producer_version is not None:
+        producer_version = builder.CreateString(producer_version)
+
+    domain = kwargs.pop("domain", None)  # type: ignore
+    if domain is not None:
+        domain = builder.CreateString(domain)
+
+    doc_string = kwargs.pop("doc_string", None)  # type: ignore
+    if doc_string:
+        doc_string = builder.CreateString(doc_string)
+
+    Model.Start(builder)
+    Model.AddGraph(builder, graph)
+    Model.AddOpsetImport(builder, opset_imports)
+    if functions is not None:
+        Model.AddFunctions(builder, functions)
+    ir_version = kwargs.pop("ir_version", None)  # type: ignore
+    if ir_version is not None:
+        Model.AddIrVersion(builder, ir_version)
+    if producer_name:
+        Model.AddProducerName(builder, producer_name)
+    if producer_version:
+        Model.AddProducerVersion(builder, producer_version)
+    if domain:
+        Model.AddDomain(builder, domain)
+    model_version = kwargs.pop("model_version", None)  # type: ignore
+    if model_version is not None:
+        Model.AddModelVersion(builder, model_version)
+    if doc_string:
+        Model.AddDocString(builder, doc_string)
+    model = Model.End(builder)
+    builder.Finish(model)
+    model_data = builder.Output()
+    reset_global_fbs_builder()
+    return model_data
 
 
 def make_tensor(
-    name: str, data_type: int, dims: Sequence[int], vals: Any, raw: bool = False, exponents: Sequence[int] = [0]
-) -> Tensor.TensorT:
+        name: str,
+        data_type: int,
+        dims: Sequence[int],
+        vals: Any,
+        raw: bool = False,
+        exponents: Sequence[int] = [0],
+        doc_string: str = ""
+) -> int:
     """Make a Tensor with specified arguments.  If raw is False, this
     function will choose the corresponding proto field to store the
     values based on data_type. If raw is True, use "raw_data" proto
@@ -258,34 +365,40 @@ def make_tensor(
             otherwise, vals should be a list of values of the type defined by *data_type*
 
     Returns:
-        Tensor.TensorT
+        Tensor offset
     """
-    tensor = Tensor.TensorT()
-    tensor.dataType = data_type
-    tensor.name = name
+    builder = get_global_fbs_builder()
+    name = builder.CreateString(name)
+    # Check number of vals specified equals tensor size
+    expected_size = 1
+    if type(vals) is np.ndarray and len(vals.shape) > 1:
+        vals = vals.flatten()
+    for d in dims:
+        expected_size *= d
+    if len(vals) != expected_size:
+        raise ValueError(
+            f"Number of values does not match tensor's size. Expected {expected_size}, but it is {len(vals)}. "
+        )
+    dims = builder.CreateNumpyVector(np.array(dims))
+    exponents = builder.CreateNumpyVector(np.array(exponents))
+    if doc_string:
+        doc_string = builder.CreateString(doc_string)
 
     if data_type == TensorDataType.TensorDataType().STRING and raw:
         raise TypeError("Can not use raw_data to store string type.")
 
     np_dtype = tensor_dtype_to_np_dtype(data_type)
 
-    # Check number of vals specified equals tensor size
-    expected_size = 1
     if raw:
-        expected_size = np_dtype.itemsize
-
-    if type(vals) is np.ndarray and len(vals.shape) > 1:
-        vals = vals.flatten()
-    for d in dims:
-        expected_size *= d
-
-    if len(vals) != expected_size:
-        raise ValueError(
-            f"Number of values does not match tensor's size. Expected {expected_size}, but it is {len(vals)}. "
-        )
-
-    if raw:
-        tensor.rawData = vals
+        n = 16 // np_dtype.itemsize
+        if len(vals) % n != 0:
+            padding = n - len(vals) % n
+            vals = np.pad(vals, (0, padding), mode='constant', constant_values=0)
+        vals = np.reshape(vals, [-1, n])
+        Tensor.StartRawDataVector(builder, len(vals))
+        for val in reversed(vals):
+            AlignedBytes.CreateAlignedBytes(builder, val.tobytes())
+        vals = builder.EndVector()
     else:
         if data_type == TensorDataType.TensorDataType().FLOAT16:
             raise TypeError("Don't support FLOAT16.")
@@ -293,12 +406,23 @@ def make_tensor(
             vals = np.array(vals).astype(int)
         elif data_type == TensorDataType.TensorDataType().STRING:
             vals = np.array(vals).astype(bytes)
-        field = tensor_dtype_to_field(data_type)
-        # getattr(tensor, field).extend(vals)
-        setattr(tensor, field, vals)
-    tensor.dims = [*dims]
-    tensor.exponents = [*exponents]
-    return tensor
+        else:
+            vals = np.array(vals)
+        vals = builder.CreateNumpyVector(vals)
+
+    Tensor.Start(builder)
+    Tensor.AddDataType(builder, data_type)
+    Tensor.AddName(builder, name)
+    if doc_string:
+        Tensor.AddDocString(builder, doc_string)
+    if raw:
+        Tensor.AddRawData(builder, vals)
+    else:
+        add_field = tensor_dtype_to_field(data_type)
+        add_field(builder, vals)
+    Tensor.AddDims(builder, dims)
+    Tensor.AddExponents(builder, exponents)
+    return Tensor.End(builder)
 
 
 def _to_bytes(value: Union[str, bytes]) -> bytes:
@@ -312,39 +436,33 @@ def _to_str(value: Union[str, bytes]) -> str:
 
 
 def make_attribute(
-    key: str,
-    value: Any,
-    doc_string: Optional[str] = None,
-    attr_type: Optional[int] = None,
-) -> Attribute.AttributeT:
+        key: str,
+        value: Any,
+        doc_string: Optional[str] = None,
+        attr_type: Optional[int] = None,
+) -> int:
     """Makes an Attribute based on the value type."""
-    attr = Attribute.AttributeT()
-    attr.name = key
-    if doc_string:
-        attr.docString = doc_string
+    builder = get_global_fbs_builder()
 
+    key = builder.CreateString(key)
+    if doc_string:
+        doc_string = builder.CreateString(doc_string)
+
+    attr_i = None
+    attr_f = None
+    attr_s = None
+    attr_ints = None
+    attr_floats = None
+    attr_strings = None
     # Singular cases
     if isinstance(value, numbers.Integral):
-        attr.i = AttributeI.AttributeIT()
-        attr.i.i = int(value)
-        attr.attrType = AttributeType.AttributeType().INT
+        attr_i = int(value)
     elif isinstance(value, numbers.Real):
-        attr.f = AttributeF.AttributeFT()
-        attr.f.f = float(value)
-        attr.attrType = AttributeType.AttributeType().FLOAT
+        attr_f = float(value)
     elif isinstance(value, (str, bytes)):
         # Encode strings into utf-8
-        attr.s = _to_bytes(value)
-        attr.attrType = AttributeType.AttributeType().STRING
-    elif isinstance(value, Tensor.TensorT):
-        attr.t = value
-        attr.attrType = AttributeType.AttributeType().TENSOR
-    elif isinstance(value, Graph.GraphT):
-        attr.g = value
-        attr.attrType = AttributeType.AttributeType().GRAPH
-    elif isinstance(value, TypeInfo.TypeInfoT):
-        attr.tp = value
-        attr.attrType = AttributeType.AttributeType().TYPE_FBS
+        value = _to_bytes(value)
+        attr_s = builder.CreateByteVector(value)
     # Iterable cases
     elif isinstance(value, collections.abc.Iterable):
         value = list(value)
@@ -355,12 +473,9 @@ def make_attribute(
         if attr_type is None:
             types = {type(v) for v in value}
             for exp_t, exp_enum in (
-                (numbers.Integral, AttributeType.AttributeType().INTS),
-                (numbers.Real, AttributeType.AttributeType().FLOATS),
-                ((str, bytes), AttributeType.AttributeType().STRINGS),
-                (Tensor.TensorT, AttributeType.AttributeType().TENSORS),
-                (Graph.GraphT, AttributeType.AttributeType().GRAPHS),
-                (TypeInfo.TypeInfoT, AttributeType.AttributeType().TYPE_FBSS),
+                    (numbers.Integral, AttributeType.AttributeType().INTS),
+                    (numbers.Real, AttributeType.AttributeType().FLOATS),
+                    ((str, bytes), AttributeType.AttributeType().STRINGS),
             ):
                 if all(issubclass(t, exp_t) for t in types):  # type: ignore[arg-type]
                     attr_type = exp_enum
@@ -371,133 +486,131 @@ def make_attribute(
                 )
 
         if attr_type == AttributeType.AttributeType().INTS:
-            attr.ints = [*value]
-            attr.attrType = AttributeType.AttributeType().INTS
+            value = np.array(value).astype(int)
+            attr_ints = builder.CreateNumpyVector(value)
         elif attr_type == AttributeType.AttributeType().FLOATS:
-            attr.floats = [*value]
-            attr.attrType = AttributeType.AttributeType().FLOATS
+            value = np.array(value).astype(float)
+            attr_floats = builder.CreateNumpyVector(value)
         elif attr_type == AttributeType.AttributeType().STRINGS:
-            attr.strings = [_to_bytes(v) for v in value]
-            attr.attrType = AttributeType.AttributeType().STRINGS
-        elif attr_type == AttributeType.AttributeType().TENSORS:
-            attr.tensors = [*value]
-            attr.attrType = AttributeType.AttributeType().TENSORS
-        elif attr_type == AttributeType.AttributeType().GRAPHS:
-            attr.graphs = [*value]
-            attr.attrType = AttributeType.AttributeType().GRAPHS
-        elif attr_type == AttributeType.AttributeType().TYPE_FBSS:
-            attr.typeProtos = [*value]
-            attr.attrType = AttributeType.AttributeType().TYPE_FBSS
+            attr_strings = [builder.CreateString(s) for s in value]
+            Attribute.StartStringsVector(builder, len(attr_strings))
+            for s in reversed(attr_strings):
+                builder.PrependUOffsetTRelative(s)
+            attr_strings = builder.EndVector()
         else:
             raise AssertionError()  # Should not reach since `ValueError` must be raised in attr_type checking
     else:
         raise TypeError(f"'{value}' is not an accepted attribute value.")
 
-    if attr_type is not None and attr.attrType != attr_type:
-        raise TypeError(
-            f"Inferred attribute type ({attr.attrType}) mismatched with specified type ({attr_type})"
-        )
-    return attr
+    Attribute.AttributeStart(builder)
+    Attribute.AddName(builder, key)
+    if doc_string:
+        Attribute.AddDocString(builder, doc_string)
 
-
-def get_attribute_value(attr: Attribute.AttributeT) -> Any:  # noqa: PLR0911
-    if attr.refAttrName:
-        raise ValueError(f"Cannot get value of reference attribute: {attr}")
-    if attr.attrType == AttributeType.AttributeType.FLOAT:
-        return attr.f.f
-    if attr.attrType == AttributeType.AttributeType.INT:
-        return attr.i.i
-    if attr.attrType == AttributeType.AttributeType.STRING:
-        return attr.s
-    if attr.attrType == AttributeType.AttributeType.TENSOR:
-        return attr.t
-    if attr.attrType == AttributeType.AttributeType.GRAPH:
-        return attr.g
-    if attr.attrType == AttributeType.AttributeType.TYPE_FBS:
-        return attr.tp
-    if attr.attrType == AttributeType.AttributeType.FLOATS:
-        return list(attr.floats)
-    if attr.attrType == AttributeType.AttributeType.INTS:
-        return list(attr.ints)
-    if attr.attrType == AttributeType.AttributeType.STRINGS:
-        return list(attr.strings)
-    if attr.attrType == AttributeType.AttributeType.TENSORS:
-        return list(attr.tensors)
-    if attr.attrType == AttributeType.AttributeType.GRAPHS:
-        return list(attr.graphs)
-    if attr.attrType == AttributeType.AttributeType.TYPE_FBSS:
-        return list(attr.typeProtos)
-    if attr.attrType == AttributeType.AttributeType.UNDEFINED:
-        return None
-    raise ValueError(f"Unsupported ONNX attribute: {attr}")
+    if attr_i is not None:
+        Attribute.AddI(builder, AttributeI.CreateAttributeI(builder, attr_i))
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().INT)
+    if attr_f is not None:
+        Attribute.AddF(builder, AttributeF.CreateAttributeF(builder, attr_f))
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().FLOAT)
+    if attr_s is not None:
+        Attribute.AddS(builder, attr_s)
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().STRING)
+    if attr_ints is not None:
+        Attribute.AddInts(builder, attr_ints)
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().INTS)
+    if attr_floats is not None:
+        Attribute.AddFloats(builder, attr_floats)
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().FLOATS)
+    if attr_strings is not None:
+        Attribute.AddStrings(builder, attr_strings)
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().STRINGS)
+    return Attribute.End(builder)
 
 
 def make_tensor_type_info(
-    elem_type: int,
-    shape: Optional[Sequence[Union[str, int, None]]],
-    shape_denotation: Optional[List[str]] = None,
-) -> TypeInfo.TypeInfoT:
-    tensorShape = TensorShape.TensorShapeT()
-    tensorShape.dim = []
-
+        elem_type: int,
+        shape: Optional[Sequence[Union[str, int, None]]],
+        shape_denotation: Optional[List[str]] = None,
+) -> int:
+    builder = get_global_fbs_builder()
+    tensor_shape = None
     if shape is not None:
         if shape_denotation and len(shape_denotation) != len(shape):
             raise ValueError(
                 "Invalid shape_denotation. Must be of the same length as shape."
             )
-
+        dim_value = []
         for i, d in enumerate(shape):
-            dimension_value = DimensionValue.DimensionValueT()
-            tensorShape_dim = Dimension.DimensionT()
+            DimensionValue.Start(builder)
             if d is None:
                 pass
             elif isinstance(d, int):
-                dimension_value.dimType = DimensionValueType.DimensionValueType().VALUE
-                dimension_value.dimValue = d
+                DimensionValue.AddDimType(builder, DimensionValueType.DimensionValueType().VALUE)
+                DimensionValue.AddDimValue(builder, d)
+
             elif isinstance(d, str):
-                dimension_value.dimType = DimensionValueType.DimensionValueType().PARAM
-                dimension_value.dimParam = d
+                DimensionValue.AddDimType(builder, DimensionValueType.DimensionValueType().PARAM)
+                DimensionValue.AddDimParam(builder, d)
             else:
                 raise ValueError(
                     f"Invalid item in shape: {d}. Needs to be of int or str."
                 )
+            dim_value.append(DimensionValue.End(builder))
 
-            tensorShape_dim.value = dimension_value
-            if shape_denotation:
-                tensorShape_dim.denotation = shape_denotation[i]
+        if shape_denotation is not None:
+            shape_denotation = [builder.CreateString(builder, s) for s in shape_denotation]
+        dim = []
+        for i in range(len(shape)):
+            Dimension.Start(builder)
+            Dimension.AddValue(builder, dim_value[i])
+            if shape_denotation is not None:
+                Dimension.AddDenotation(builder, shape_denotation[i])
+            dim.append(Dimension.End(builder))
 
-            tensorShape.dim.append(tensorShape_dim)
+        TensorShape.TensorShapeStartDimVector(builder, len(shape))
+        for d in reversed(dim):
+            builder.PrependUOffsetTRelative(d)
+        dim = builder.EndVector()
+        TensorShape.TensorShapeStart(builder)
+        TensorShape.AddDim(builder, dim)
+        tensor_shape = TensorShape.End(builder)
 
-    value = TensorTypeAndShape.TensorTypeAndShapeT()
-    value.elemType = elem_type
-    value.shape = tensorShape
+    TensorTypeAndShape.Start(builder)
+    if tensor_shape is not None:
+        TensorTypeAndShape.AddShape(builder, tensor_shape)
+    TensorTypeAndShape.AddElemType(builder, elem_type)
+    tensor_type_and_shape = TensorTypeAndShape.End(builder)
 
-    """Makes a Tensor TypeInfo.TypeInfoT based on the data type and shape."""
-    type_info = TypeInfo.TypeInfoT()
-    type_info.valueType = TypeInfoValue.TypeInfoValue().tensor_type
-    type_info.value = value
-
-    return type_info
+    TypeInfo.Start(builder)
+    TypeInfo.AddValueType(builder, TypeInfoValue.TypeInfoValue().tensor_type)
+    TypeInfo.AddValue(builder, tensor_type_and_shape)
+    return TypeInfo.End(builder)
 
 
 def make_tensor_value_info(
-    name: str,
-    elem_type: int,
-    shape: Optional[Sequence[Union[str, int, None]]],
-    doc_string: str = "",
-    shape_denotation: Optional[List[str]] = None,
-    exponents: Sequence[int] = [0]
-) -> ValueInfo.ValueInfoT:
-    """Makes a ValueInfo.ValueInfoT based on the data type and shape."""
-    value_info = ValueInfo.ValueInfoT()
-    value_info.name = name
+        name: str,
+        elem_type: int,
+        shape: Optional[Sequence[Union[str, int, None]]],
+        doc_string: str = "",
+        shape_denotation: Optional[List[str]] = None,
+        exponents: Sequence[int] = [0]
+) -> int:
+    """Makes a ValueInfo fbs offset based on the data type and shape."""
+    builder = get_global_fbs_builder()
+    name = builder.CreateString(name)
     if doc_string:
-        value_info.docString = doc_string
-
+        doc_string = builder.CreateString(doc_string)
     type_info = make_tensor_type_info(elem_type, shape, shape_denotation)
-    value_info.valueInfoType = type_info
-    value_info.exponents = [*exponents]
-    return value_info
+    exponents = builder.CreateNumpyVector(np.array(exponents))
+    ValueInfo.Start(builder)
+    ValueInfo.AddName(builder, name)
+    if doc_string:
+        ValueInfo.AddDocString(builder, doc_string)
+    ValueInfo.AddValueInfoType(builder, type_info)
+    ValueInfo.AddExponents(builder, exponents)
+    return ValueInfo.End(builder)
+
 
 def aes_encryptor(data: bytes):
     key = bytearray(random.getrandbits(8) for _ in range(16))
@@ -505,7 +618,7 @@ def aes_encryptor(data: bytes):
     cipher = Cipher(algorithms.AES(key), modes.CTR(iv), backend=default_backend())
     encryptor = cipher.encryptor()
     ct_data = encryptor.update(data) + encryptor.finalize()
-    
+
     hex_key = ''
     for _, byte in enumerate(key):
         hex_key += "0x{:02x}, ".format(byte)
@@ -520,30 +633,22 @@ def aes_decryptor(data: bytes, key: bytearray):
     decrypted_data = decryptor.update(data) + decryptor.finalize()
     return decrypted_data
 
+
 def save(
-    model: Model.ModelT, file_path: str, encrypt_data: bool = False
+        data: bytes, file_path: str, encrypt_data: bool = False
 ):
-    builder = flatbuffers.Builder(1024)
-    builder.Finish(model.Pack(builder))
-    data = builder.Output()
     key = None
     if encrypt_data:
         data, key = aes_encryptor(data)
-    
-    # file header 
+
+    # file header 16 bytes
     header = bytearray("EDL1", 'utf-8')
     header += struct.pack("I", 1 if encrypt_data else 0)
     header += struct.pack("I", len(data))
+    header += struct.pack("x") * 4
     with open(file_path, mode="wb") as f:
         f.write(header + data)
     return key
-
-
-def load(file_path: str) -> Model.ModelT:
-    buf = None
-    with open(file_path, mode="rb") as f:
-        buf = f.read()
-    return Model.ModelT.InitFromPackedBuf(buf, 0)
 
 
 def _sanitize_str(s: Union[str, bytes]) -> str:
@@ -559,10 +664,10 @@ def _sanitize_str(s: Union[str, bytes]) -> str:
 
 
 def printable_attribute(
-    attr: Attribute.AttributeT, subgraphs: bool = False
-) -> Union[str, Tuple[str, List[Graph.GraphT]]]:
+        attr: Attribute.Attribute, subgraphs: bool = False
+) -> Union[str, Tuple[str, List[Graph.Graph]]]:
     content = []
-    content.append(_to_str(attr.name))
+    content.append(_to_str(attr.Name()))
     content.append("=")
 
     def str_float(f: float) -> str:
@@ -585,48 +690,33 @@ def printable_attribute(
     # To support printing subgraphs, if we find a graph attribute, print out
     # its name here and pass the graph itself up to the caller for later
     # printing.
+
+    attr_type = attr.AttrType()
+
     graphs = []
-    if attr.i:
-        content.append(str_int(attr.i.i))
-    elif attr.f:
-        content.append(str_float(attr.f.f))
-    elif attr.s:
+    if attr_type == AttributeType.AttributeType.INT:
+        content.append(str_int(attr.I().I()))
+    elif attr_type == AttributeType.AttributeType.FLOAT:
+        content.append(str_float(attr.F().F()))
+    elif attr_type == AttributeType.AttributeType.STRING:
         # TODO: Bit nervous about Python 2 / Python 3 determinism implications
-        content.append(repr(_sanitize_str(attr.s)))
-    elif attr.t:
-        if len(attr.t.dims) > 0:
+        content.append(repr(_sanitize_str(attr.SAsNumpy().tobytes())))
+    elif attr_type == AttributeType.AttributeType.TENSOR:
+        if attr.t().dimsLength() > 0:
             content.append("<Tensor>")
         else:
             # special case to print scalars
-            field = tensor_dtype_to_field(attr.t.dataType)
-            content.append(f"<Scalar Tensor {getattr(attr.t, field)}>")
-    elif attr.g:
-        content.append(f"<graph {_to_str(attr.g.name)}>")
-        graphs.append(attr.g)
-    elif attr.tp:
-        content.append(f"<Type Info {attr.tp}>")
-    elif attr.floats:
-        content.append(str_list(str_float, attr.floats))
-    elif attr.ints is not None:
-        content.append(str_list(str_int, attr.ints))
-    elif attr.strings:
+            field = tensor_dtype_to_field(attr.t().DataType())
+            content.append(f"<Scalar Tensor {getattr(attr.t(), field)}>")
+    elif attr_type == AttributeType.AttributeType.FLOATS:
+        content.append(str_list(str_float, [attr.Floats(i) for i in range(attr.FloatsLength())]))
+    elif attr_type == AttributeType.AttributeType.INTS:
+        content.append(str_list(str_int, [attr.Ints(i) for i in range(attr.IntsLength())]))
+    elif attr_type == AttributeType.AttributeType.STRINGS:
         # TODO: Bit nervous about Python 2 / Python 3 determinism implications
-        content.append(str(list(map(_sanitize_str, attr.strings))))
-    elif attr.tensors:
+        content.append(str(list(map(_sanitize_str, [attr.Strings(i) for i in range(attr.StringsLength())]))))
+    elif attr_type == AttributeType.AttributeType.TENSORS:
         content.append("[<Tensor>, ...]")
-    elif attr.typeProtos:
-        content.append("[")
-        for i, tp in enumerate(attr.typeProtos):
-            comma = "," if i != len(attr.typeProtos) - 1 else ""
-            content.append(f"<Type Info {tp}>{comma}")
-        content.append("]")
-    elif attr.graphs:
-        content.append("[")
-        for i, g in enumerate(attr.graphs):
-            comma = "," if i != len(attr.graphs) - 1 else ""
-            content.append(f"<graph {_to_str(g.name)}>{comma}")
-        content.append("]")
-        graphs.extend(attr.graphs)
     else:
         content.append("<Unknown>")
     if subgraphs:
@@ -634,13 +724,13 @@ def printable_attribute(
     return " ".join(content)
 
 
-def printable_dim(dim: Dimension.DimensionT) -> str:
-    if dim.value.dimType == DimensionValueType.DimensionValueType.UNKNOWN:
+def printable_dim(dim: Dimension.Dimension) -> str:
+    if dim.Value().DimType() == DimensionValueType.DimensionValueType.UNKNOWN:
         return "?"
-    elif dim.value.dimType == DimensionValueType.DimensionValueType.VALUE:
-        which = dim.value.dimValue
-    elif dim.value.dimType == DimensionValueType.DimensionValueType.PARAM:
-        which = dim.value.dimParam
+    elif dim.Value().DimType() == DimensionValueType.DimensionValueType.VALUE:
+        which = dim.Value().DimValue()
+    elif dim.Value().DimType() == DimensionValueType.DimensionValueType.PARAM:
+        which = dim.Value().DimParam()
     return str(which)
 
 
@@ -657,81 +747,90 @@ def get_class_attribute_name(obj: Any, value: int) -> str:
     return ret
 
 
-def printable_type(t: TypeInfo.TypeInfoT) -> str:
-    if t.valueType == TypeInfoValue.TypeInfoValue.tensor_type:
-        s = get_class_attribute_name(TensorDataType.TensorDataType(), t.value.elemType)
-        if t.value.shape is not None:
-            if len(t.value.shape.dim):
-                s += str(", " + "x".join(map(printable_dim, t.value.shape.dim)))
+def printable_type(t: TypeInfo.TypeInfo) -> str:
+    if t.ValueType() == TypeInfoValue.TypeInfoValue.tensor_type:
+        tensor_type_and_shape = TensorTypeAndShape.TensorTypeAndShape()
+        tensor_type_and_shape.Init(t.Value().Bytes, t.Value().Pos)
+        s = get_class_attribute_name(TensorDataType.TensorDataType(), tensor_type_and_shape.ElemType())
+        if tensor_type_and_shape.Shape() is not None:
+            if tensor_type_and_shape.Shape().DimLength():
+                s += str(", " + "x".join(map(printable_dim, [tensor_type_and_shape.Shape().Dim(i) for i in
+                                                             range(tensor_type_and_shape.Shape().DimLength())])))
             else:
                 s += ", scalar"
         return s  # type: ignore[no-any-return]
-    if t.valueType == TypeInfoValue.TypeInfoValue.NONE:
+    if t.ValueType() == TypeInfoValue.TypeInfoValue.NONE:
         return ""
     return f"Unknown type {t.valueType}"
 
 
-def printable_value_info(v: ValueInfo.ValueInfoT) -> str:
-    s = f"%{_to_str(v.name)}"
-    if v.valueInfoType:
-        s = f"{s}[{printable_type(v.valueInfoType)}]"
-    if v.exponents:
-        s += f", exponents: {repr(v.exponents)}"
+def printable_value_info(v: ValueInfo.ValueInfo) -> str:
+    s = f"%{_to_str(v.Name())}"
+    if v.ValueInfoType():
+        s = f"{s}[{printable_type(v.ValueInfoType())}]"
+    if v.ExponentsLength() > 0:
+        s += f", exponents: {repr(list(v.ExponentsAsNumpy()))}"
     return s
 
 
-def printable_tensor(t: Tensor.TensorT) -> str:
-    s = f"%{_to_str(t.name)}["
-    s += get_class_attribute_name(TensorDataType.TensorDataType(), t.dataType)
-    if t.dims is not None:
-        if len(t.dims):
-            s += str(", " + "x".join(map(str, t.dims)))
-        else:
-            s += ", scalar"
+def printable_tensor(t: Tensor.Tensor) -> str:
+    s = f"%{_to_str(t.Name())}["
+    s += get_class_attribute_name(TensorDataType.TensorDataType(), t.DataType())
+    if t.DimsLength():
+        s += str(", " + "x".join(map(str, [t.Dims(i) for i in range(t.DimsLength())])))
+    else:
+        s += ", scalar"
     s += "]"
     return s
 
 
-def printable_tensor_value(t: Tensor.TensorT) -> str:
-    s = f"%{_to_str(t.name)}, "
-    if t.dims is not None:
-        s += f"shape: {repr(t.dims)}, "
-    if t.exponents is not None:
-        s += f"exponents: {repr(t.exponents)}, "
-    if t.docString is not None:
-        s += f"docString: {t.docString}, "
+def printable_tensor_value(t: Tensor.Tensor) -> str:
+    s = f"%{_to_str(t.Name())}, "
+    if not t.DimsIsNone():
+        s += f"shape: {repr(list(t.DimsAsNumpy()))}, "
+    if not t.ExponentsIsNone():
+        s += f"exponents: {repr(list(t.ExponentsAsNumpy()))}, "
+    if t.DocString() is not None:
+        s += f"docString: {t.DocString()}, "
 
-    if t.floatData is not None:
-        s += f"value: {repr(t.floatData)}"
-    elif t.int32Data is not None:
-        s += f"value: {repr(t.int32Data)}"
-    elif t.stringData is not None:
-        s += f"value: {repr(t.stringData)}"
-    elif t.int64Data is not None:
-        s += f"value: {repr(t.int64Data)}"
-    elif t.rawData is not None:
+    if not t.FloatDataIsNone():
+        s += f"value: {repr(list(t.FloatDataAsNumpy()))}"
+    elif not t.Int32DataIsNone():
+        s += f"value: {repr(list(t.Int32DataAsNumpy()))}"
+    elif not t.StringDataIsNone():
+        string_list = [t.StringData(i) for i in range(t.StringDataLength())]
+        s += f"value: {repr(string_list)}"
+    elif not t.Int64DataIsNone():
+        s += f"value: {repr(list(t.Int64DataAsNumpy()))}"
+    elif not t.RawDataIsNone():
         np.set_printoptions(threshold=np.inf)
-        s += f"\nvalue: {repr(np.frombuffer(t.rawData, dtype=tensor_dtype_to_np_dtype(t.dataType)))}"
-    elif t.doubleData is not None:
-        s += f"value: {repr(t.doubleData)}"
-    elif t.uint64Data is not None:
-        s += f"value: {repr(t.uint64Data)}"
+        chunks = []
+        for i in range(t.RawDataLength()):
+            chunk = t.RawData(i)
+            chunks.append(np.frombuffer(chunk.BytesAsNumpy().tobytes(), dtype=tensor_dtype_to_np_dtype(t.DataType())))
+        chunks = np.array(chunks).flatten()
+        s += f"\nvalue: {repr(chunks)}"
+    elif not t.DoubleDataIsNone():
+        s += f"value: {repr(list(t.DoubleDataAsNumpy()))}"
+    elif not t.Uint64DataIsNone():
+        s += f"value: {repr(list(t.Uint64DataAsNumpy()))}"
 
     return s
 
 
 def printable_node(
-    node: Node.NodeT, prefix: str = "", subgraphs: bool = False
-) -> Union[str, Tuple[str, List[Graph.GraphT]]]:
+        node: Node.Node, prefix: str = "", subgraphs: bool = False
+) -> Union[str, Tuple[str, List[Graph.Graph]]]:
     content = []
-    if len(node.output):
-        content.append(", ".join([f"%{_to_str(name)}" for name in node.output]))
+    if node.OutputLength():
+        content.append(", ".join([f"%{_to_str(node.Output(i))}" for i in range(node.OutputLength())]))
         content.append("=")
     # To deal with nested graphs
-    graphs: List[Graph.GraphT] = []
+    graphs: List[Graph.Graph] = []
     printed_attrs = []
-    if node.attribute:
-        for attr in node.attribute:
+    if node.AttributeLength():
+        for i in range(node.AttributeLength()):
+            attr = node.Attribute(i)
             if subgraphs:
                 printed_attr_subgraphs = printable_attribute(attr, subgraphs)
                 if not isinstance(printed_attr_subgraphs[1], list):
@@ -746,17 +845,18 @@ def printable_node(
                     raise TypeError(f"printed must be an instance of {str}.")
                 printed_attrs.append(printed)
     printed_attributes = ", ".join(sorted(printed_attrs))
-    printed_inputs = ", ".join([f"%{_to_str(name)}" for name in node.input])
-    if node.attribute:
-        content.append(f"{_to_str(node.opType)}[{printed_attributes}]({printed_inputs})")
+    printed_inputs = ", ".join([f"%{_to_str(node.Input(i))}" for i in range(node.InputLength())])
+    if node.AttributeLength():
+        content.append(f"{_to_str(node.OpType())}[{printed_attributes}]({printed_inputs})")
     else:
-        content.append(f"{_to_str(node.opType)}({printed_inputs})")
+        content.append(f"{_to_str(node.OpType())}({printed_inputs})")
     if subgraphs:
         return prefix + " ".join(content), graphs
     return prefix + " ".join(content)
 
 
-def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_value: bool = False, print_value_info: bool = False, print_test_value: bool = False) -> str:
+def printable_graph(model: bytes, prefix: str = "", print_initializer_value: bool = False,
+                    print_value_info: bool = False, print_test_value: bool = False) -> str:
     """Display a Graph as a string.
 
     Args:
@@ -766,19 +866,23 @@ def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_val
     Returns:
         string
     """
+    model = Model.Model.GetRootAs(model, 0)
+    graph = model.Graph()
+
     content = []
     indent = prefix + "  "
     # header
-    header = ["graph", _to_str(graph.name)]
-    initializers = {t.name for t in graph.initializer}
-    if len(graph.input):
+    header = ["graph", _to_str(graph.Name())]
+    initializers = {graph.Initializer(i).Name() for i in range(graph.InitializerLength())}
+    if graph.InputLength():
         header.append("(")
         in_strs = []  # required inputs
         in_with_init_strs = (
             []
         )  # optional inputs with initializer providing default value
-        for inp in graph.input:
-            if inp.name not in initializers:
+        for i in range(graph.InputLength()):
+            inp = graph.Input(i)
+            if inp.Name() not in initializers:
                 in_strs.append(printable_value_info(inp))
             else:
                 in_with_init_strs.append(printable_value_info(inp))
@@ -800,11 +904,11 @@ def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_val
         # from IR 4 onwards an initializer is not required to have a matching graph input
         # so output the name, type and shape of those as well
         if len(in_with_init_strs) < len(initializers):
-            graph_inputs = {i.name for i in graph.input}
+            graph_inputs = {graph.Input(i).Name() for i in range(graph.InputLength())}
             init_strs = [
-                printable_tensor(i)
-                for i in graph.initializer
-                if i.name not in graph_inputs
+                printable_tensor(graph.Initializer(i))
+                for i in range(graph.InitializerLength())
+                if graph.Initializer(i).Name() not in graph_inputs
             ]
             header.append("initializers (")
             content.append(prefix + " ".join(header))
@@ -815,9 +919,10 @@ def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_val
 
     header.append("{")
     content.append(prefix + " ".join(header))
-    graphs: List[Graph.GraphT] = []
+    graphs: List[Graph.Graph] = []
     # body
-    for node in graph.node:
+    for i in range(graph.NodeLength()):
+        node = graph.Node(i)
         contents_subgraphs = printable_node(node, indent, subgraphs=True)
         if not isinstance(contents_subgraphs[1], list):
             raise TypeError(f"contents_subgraphs[1] must be an instance of {list}.")
@@ -825,8 +930,8 @@ def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_val
         graphs.extend(contents_subgraphs[1])
     # tail
     tail = ["return"]
-    if len(graph.output):
-        tail.append(", ".join([f"%{_to_str(out.name)}" for out in graph.output]))
+    if graph.OutputLength():
+        tail.append(", ".join([f"%{_to_str(graph.Output(i).Name())}" for i in range(graph.OutputLength())]))
     content.append(indent + " ".join(tail))
     # closing bracket
     content.append(prefix + "}")
@@ -835,28 +940,28 @@ def printable_graph(graph: Graph.GraphT, prefix: str = "", print_initializer_val
 
     if (print_initializer_value):
         initializers_value = [
-                printable_tensor_value(i)
-                for i in graph.initializer
-            ]
+            printable_tensor_value(graph.Initializer(i))
+            for i in range(graph.InitializerLength())
+        ]
         content.append("\n\n" + "initializers value:\n" + "\n".join(initializers_value))
 
     if (print_value_info):
         values_info = [
-                printable_value_info(i)
-                for i in graph.valueInfo
-            ]
+            printable_value_info(graph.ValueInfo(i))
+            for i in range(graph.ValueInfoLength())
+        ]
         content.append("\n\n" + "values info:\n" + "\n".join(values_info))
 
     if (print_test_value):
         test_inputs_value = [
-                printable_tensor_value(i)
-                for i in graph.testInputsValue
-            ]
+            printable_tensor_value(graph.TestInputsValue(i))
+            for i in range(graph.TestInputsValueLength())
+        ]
         content.append("\n\n" + "test inputs value:\n" + "\n".join(test_inputs_value))
         test_outputs_value = [
-                printable_tensor_value(i)
-                for i in graph.testOutputsValue
-            ]
+            printable_tensor_value(graph.TestOutputsValue(i))
+            for i in range(graph.TestOutputsValueLength())
+        ]
         content.append("\n\n" + "test outputs value:\n" + "\n".join(test_outputs_value))
 
     return "\n".join(content)
@@ -875,7 +980,7 @@ def tensor_dtype_to_np_dtype(tensor_dtype: int) -> np.dtype:
     return mapping.TENSOR_TYPE_MAP[tensor_dtype].np_dtype
 
 
-def tensor_dtype_to_field(tensor_dtype: int) -> str:
+def tensor_dtype_to_field(tensor_dtype: int) -> Callable[..., int]:
     """Convert a TensorDataType to corresponding field name for storage. It can be used while making tensors.
 
     Args:

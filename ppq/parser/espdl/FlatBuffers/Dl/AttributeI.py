@@ -24,37 +24,3 @@ def CreateAttributeI(builder, i):
     builder.Prep(8, 8)
     builder.PrependInt64(i)
     return builder.Offset()
-
-
-class AttributeIT(object):
-
-    # AttributeIT
-    def __init__(self):
-        self.i = 0  # type: int
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        attributeI = AttributeI()
-        attributeI.Init(buf, pos)
-        return cls.InitFromObj(attributeI)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, attributeI):
-        x = AttributeIT()
-        x._UnPack(attributeI)
-        return x
-
-    # AttributeIT
-    def _UnPack(self, attributeI):
-        if attributeI is None:
-            return
-        self.i = attributeI.I()
-
-    # AttributeIT
-    def Pack(self, builder):
-        return CreateAttributeI(builder, self.i)
