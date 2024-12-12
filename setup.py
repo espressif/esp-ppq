@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-ESP_PPQ_VERSION = "v0.1"
+ESP_PPQ_VERSION = "v0.1.1"
 
 def readme():
     with open('README.md', encoding='utf-8') as f:
