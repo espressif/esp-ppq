@@ -418,7 +418,7 @@ class EspdlExporter(GraphExporter):
                 if len(var_shape) != len(perm):
                     logger.error(f"{variable.name} permute do not match shape")
                 var_shape = transpose_shape(var_shape, perm)
-            elif len(var_shape) == 0:
+            elif var_shape is not None and len(var_shape) == 0:
                 var_shape = torch.tensor([1]).shape
 
         # if variable not in exponents, set exponent to 0
