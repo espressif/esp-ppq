@@ -1,6 +1,5 @@
 import os
 import sys
-from typing import List
 
 import numpy as np
 import torch
@@ -14,12 +13,21 @@ from ppq.core import (
     TargetPlatform,
     TensorQuantizationConfig,
     convert_any_to_numpy,
-    convert_any_to_torch_tensor,
 )
 from ppq.executor.base import OPERATION_FORWARD_TABLE
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from ppq.IR.quantize import QuantableOperation
 from ppq.log import NaiveLogger
+from ppq.parser.espdl.espdl_graph_utils import (
+    fuse_downstream_operation,
+    insert_concat_node,
+    insert_dequantize_node,
+    insert_quantize_node,
+    insert_requantize_node,
+    insert_reshape_node,
+    insert_slice_node,
+    insert_transpose_node,
+)
 from ppq.parser.espdl.espdl_typedef import (
     ACTIVATION_OP_SET,
     MATH_OP_SET,
@@ -29,18 +37,7 @@ from ppq.parser.espdl.espdl_typedef import (
     ExporterPatternInfo,
     LayoutAnnotation,
 )
-from ppq.parser.espdl.espdl_graph_utils import(
-    insert_transpose_node,
-    insert_concat_node,
-    insert_slice_node,
-    insert_reshape_node,
-    fuse_downstream_operation,
-    insert_quantize_node,
-    insert_requantize_node,
-    insert_dequantize_node,
-)
 from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
-from ppq.utils.round import ppq_tensor_round
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 
@@ -645,6 +642,8 @@ class AddLUTPattern(OperationExporter):
                 return True
             else:
                 return False
+        elif op.type == "Clip":
+            return True
         elif len(op.outputs) > 1 or len(op.inputs) > 1:
             return False
         elif op.type in ACTIVATION_OP_SET or op.type in MATH_OP_SET:
