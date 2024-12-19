@@ -52,14 +52,14 @@ class EspdlQuantHelper:
         TQC: TensorQuantizationConfig, bounded_var: Variable
     ) -> bool:
         if not TQC.can_export(True):
-            logger.warning(
-                f"Warning: skip {bounded_var.name} because it's not exportable"
+            logger.info(
+                f"Skip {bounded_var.name} because it's not exportable"
             )
             return False
 
         if TQC.visibility == QuantizationVisibility.INTERNAL:
-            logger.warning(
-                f"Warning: skip {bounded_var.name} because TAC visibility is internal"
+            logger.info(
+                f"Skip {bounded_var.name} because TAC visibility is internal"
             )
             return False
 
@@ -121,7 +121,8 @@ class InsertQuantNodePattern(OperationExporter):
                         continue
                     elif var in op.inputs:
                         if (
-                            not isinstance(var.source_op, QuantableOperation)
+                            (not isinstance(var.source_op, QuantableOperation) 
+                            or var.source_op.output_quant_config[var.source_op.outputs.index(var)].state == QuantizationStates.FP32)
                             and var.source_op.type not in QUANT_EXCLUDE_OP_SET
                         ):
                             logger.debug(
