@@ -29,19 +29,34 @@ from ppq.quantization.optim import *
 
 logger = NaiveLogger.get_logger('ESPDL')
 
-def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False):
+def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False, **kwargs: Any,):
+    """Quantize onnx model and return quantized ppq graph and executor .
+
+    Args:
+        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
+                                    which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
+                                    Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
+                                    with double precision during 16-bit operations.
+    """
+
     platform = None
+    hi_precision = kwargs.get('hi_precision', False)
+
     if float:
         platform = TargetPlatform.FP32
     else:
         if num_of_bits == 8 and target == "esp32p4":
             platform = TargetPlatform.ESPDL_INT8
-        elif num_of_bits == 16 and target == "esp32p4":
+        elif num_of_bits == 16 and target == "esp32p4" and not hi_precision:
             platform = TargetPlatform.ESPDL_INT16
         elif num_of_bits == 8 and target == "esp32s3":
             platform = TargetPlatform.ESPDL_S3_INT8
-        elif num_of_bits == 16 and target == "esp32s3":
+        elif num_of_bits == 16 and target == "esp32s3" and not hi_precision:
             platform = TargetPlatform.ESPDL_S3_INT16
+        elif num_of_bits == 16 and target == "esp32p4" and hi_precision:
+            platform = TargetPlatform.ESPDL_H_PRE_INT16
+        elif num_of_bits == 16 and target == "esp32s3" and hi_precision:
+            platform = TargetPlatform.ESPDL_S3_H_PRE_INT16
         else:
             platform = TargetPlatform.FP32
             logger.warning(f"Do not support num_of_bits:{num_of_bits}, will change to TargetPlatform.FP32")
@@ -116,7 +131,7 @@ def espdl_quantize_onnx(
     input_shape: List[Any],
     inputs: List[Any] = None,
     target:str = "esp32p4",
-    num_of_bits:int = 8,
+    num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
     dispatching_method: str = "conservative",
@@ -153,6 +168,10 @@ def espdl_quantize_onnx(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
+        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
+                                       which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
+                                       Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
+                                       with double precision during 16-bit operations.
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
@@ -170,10 +189,8 @@ def espdl_quantize_onnx(
         raise TypeError(
             "Quantization needs a valid calib_dataloader and calib_steps setting."
         )
-    target_platform = get_target_platform(target, num_of_bits)
+    target_platform = get_target_platform(target, num_of_bits, **kwargs)
     input_dtype = torch.float32
-    if num_of_bits == 16:
-        input_dtype = torch.float64
     
     if not collate_fn:
         collate_fn = partial(collate_fn_template, dtype=input_dtype, device=device)
@@ -268,7 +285,7 @@ def espdl_quantize_torch(
     input_shape: List[Any],
     inputs: List[Any] = None,
     target:str = "esp32p4",
-    num_of_bits:int = 8,
+    num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
     dispatching_method: str = "conservative",
@@ -305,6 +322,10 @@ def espdl_quantize_torch(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
+        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
+                                       which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
+                                       Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
+                                       with double precision during 16-bit operations.
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
@@ -317,8 +338,6 @@ def espdl_quantize_torch(
     # step1: export onnx model    
     model = model.eval()
     model = model.to(device)
-    if num_of_bits == 16:
-        model = model.double()
 
     base_file_name, _ = os.path.splitext(espdl_export_file)
     onnx_file_path = base_file_name + ".onnx"
@@ -329,7 +348,7 @@ def espdl_quantize_torch(
                 torch.zeros(
                     size=shape,
                     device=device,
-                    dtype=torch.float32 if num_of_bits == 8 else torch.float64,
+                    dtype=torch.float32,
                 )
                 for shape in input_shape
             ]

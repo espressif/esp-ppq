@@ -87,6 +87,8 @@ class TargetPlatform(Enum):
     ESPDL_INT16 = 552
     ESPDL_S3_INT8 = 553
     ESPDL_S3_INT16 = 554
+    ESPDL_H_PRE_INT16 = 555
+    ESPDL_S3_H_PRE_INT16 = 556
 
     RKNN_INT8 = 601
 

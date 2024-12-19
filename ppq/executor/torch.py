@@ -515,7 +515,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 # if operation is an QuantableOperation, we have to quant its inputs and outputs at first.
                 if isinstance(operation, QuantableOperation):
                     input_configs = [_ for _ in operation.config.input_quantization_config]
-                    if (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_S3_INT16):
+                    if (operation.platform == TargetPlatform.ESPDL_H_PRE_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
                         inputs = ([self.quantize_function(input, config).type(dtype=torch.float64) 
                                         if input is not None and input.dtype == torch.float32
                                         else self.quantize_function(input, config) 
@@ -549,7 +549,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 # quantize all result if is necessary
                 if isinstance(operation, QuantableOperation):
                     output_configs = [_ for _ in operation.config.output_quantization_config]
-                    if (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_S3_INT16):
+                    if (operation.platform == TargetPlatform.ESPDL_H_PRE_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
                         outputs = ([self.quantize_function(output, config).type(dtype=torch.float64) 
                                         if output is not None and output.dtype == torch.float32 
                                         else self.quantize_function(output, config) 

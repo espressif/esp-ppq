@@ -93,6 +93,8 @@ class InsertQuantTypePattern(OperationExporter):
         elif (
             op.platform == TargetPlatform.ESPDL_INT16
             or op.platform == TargetPlatform.ESPDL_S3_INT16
+            or op.platform == TargetPlatform.ESPDL_H_PRE_INT16
+            or op.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16
         ):
             op.attributes["quant_type"] = EspQuantType.S16
         else:
