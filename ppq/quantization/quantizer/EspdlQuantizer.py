@@ -216,6 +216,7 @@ class EspdlQuantizer(BaseQuantizer):
             "LayerNormalization",
             "Gelu",
             "PPQBiasFusedMatMul",
+            "Split",
         }
 
     @property

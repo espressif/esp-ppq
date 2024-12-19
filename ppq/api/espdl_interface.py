@@ -128,6 +128,7 @@ def espdl_quantize_onnx(
     export_test_values: bool = False,
     test_output_names: List[str] = None,
     verbose: int = 0,
+    **kwargs: Any,
 ) -> BaseGraph :
     """Quantize onnx model and return quantized ppq graph and executor .
     
@@ -254,6 +255,7 @@ def espdl_quantize_onnx(
             graph=ppq_graph,
             values_for_test=values_for_test,
             export_config=export_config,
+            **kwargs
         )
     return ppq_graph
 
@@ -278,6 +280,7 @@ def espdl_quantize_torch(
     export_test_values: bool = False,
     test_output_names: List[str] = None,
     verbose: int = 0,
+    **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
     
@@ -362,4 +365,5 @@ def espdl_quantize_torch(
         export_test_values=export_test_values,
         test_output_names=test_output_names,
         verbose=verbose,
+        **kwargs
     )
