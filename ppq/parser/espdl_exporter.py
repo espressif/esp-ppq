@@ -441,6 +441,7 @@ class EspdlExporter(GraphExporter):
                         value.item(),
                     ]  # it is fine for onnx, shape for this value will be []
                     var_shape = torch.tensor(value).shape
+                    is_raw_format = True
             else:
                 value = value  # value is python primary type.
             tensor_proto = helper.make_tensor(
