@@ -14,94 +14,17 @@ from ppq.parser.espdl.espdl_typedef import (
     SOFTMAX_LIKE_OP_SET,
     ExporterPatternInfo,
 )
-from ppq.parser.espdl.export_patterns import fuse_downstream_operation
+from ppq.parser.espdl.espdl_graph_utils import(
+    transpose_shape,
+    get_inverse_transpose,
+    get_default_perm,
+    insert_transpose_node,
+    restore_origin_shape,
+    fuse_downstream_operation,
+)
 
 logger = NaiveLogger.get_logger('ESPDL')
 # logger.set_level("DEBUG")
-
-
-def transpose_shape(input_shape, perm: List[int]) -> List[int]:
-    if not perm:
-        return input_shape
-    return [input_shape[i] for i in perm]
-
-
-def get_inverse_transpose(perm: List[int]) -> List[int]:
-    """
-    tensor == inverse_transpose(transpose(tensor))
-    """
-    # return perm
-    return [perm.index(i) for i in range(len(perm))]
-
-def get_default_perm(var: Variable) -> List[int]:
-    """
-    return the default permute for given variable, [0,1,2,3,...]
-    """
-    if not var or not var.shape:
-        return []
-
-    return [i for i in range(len(var.shape))]
-
-
-def insert_transpose_node(
-    graph: BaseGraph, var: Variable, op: Operation, perm: List[int]
-) -> Operation:
-    """
-    Insert a Transpose Node on given variable, according to given perm.
-    """
-    info = ExporterPatternInfo()
-
-    if perm != range(len(perm)):
-        logger.debug(
-            f"insert transpose node: op: {op.name}, var:{var.name}, perm:{perm}"
-        )
-        created = graph.create_operation(op_type="Transpose", attributes={"perm": perm})
-        if var in op.inputs:
-            var_index = op.inputs.index(var)
-            if isinstance(op, QuantableOperation):
-                config = op.config
-                # For transpose op,  input_quantization_config == output_quantization_config
-                new_config = OperationQuantizationConfig(
-                    [config.input_quantization_config[var_index]],
-                    [config.input_quantization_config[var_index]],
-                )
-                created = QuantableOperation(created, new_config, op.platform)
-                graph.operations[created.name] = created
-
-            graph.insert_op_before(A=created, B=op, input_idx=var_index)
-            new_var = created.outputs[0]
-            new_var.shape = var.shape
-            new_var.is_parameter = var.is_parameter
-            new_var.dtype = var.dtype
-            perm = get_default_perm(created.outputs[0])
-            info.add_var_permute(
-                created.outputs[0].name, get_default_perm(created.outputs[0])
-            )
-
-        else:
-            raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
-
-        return created
-
-
-def restore_origin_shape(op: Operation, graph: BaseGraph):
-    info = ExporterPatternInfo()
-    for var in op.inputs:
-        if var.is_parameter:
-            continue
-
-        var_perm = info.get_var_permute(var.name)
-        if var_perm and var_perm != get_default_perm(var):
-            # There is already a permute, but this op need keep origin shape
-            # A transpose node needs to be inserted into the word.
-            inverse_perm = get_inverse_transpose(var_perm)
-            insert_transpose_node(graph, var, op, inverse_perm)
-        else:
-            info.add_var_permute(var.name, get_default_perm(var))
-
-    for var in op.outputs:
-        info.add_var_permute(var.name, get_default_perm(var))
-    return op
 
 
 class ResetConvLayoutPattern(OperationExporter):

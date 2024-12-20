@@ -154,7 +154,7 @@ class EspdlQuantizer(BaseQuantizer):
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_INT16:
+        elif operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16:
             num_of_bits = 16
             quant_min = -32768
             quant_max = 32767
@@ -216,6 +216,7 @@ class EspdlQuantizer(BaseQuantizer):
             "LayerNormalization",
             "Gelu",
             "PPQBiasFusedMatMul",
+            "Split",
         }
 
     @property
@@ -299,6 +300,18 @@ class EspdlInt16Quantizer(EspdlQuantizer):
         )
 
 
+class EspdlHPreInt16Quantizer(EspdlInt16Quantizer):
+    def __init__(
+        self,
+        graph: BaseGraph,
+    ) -> Union[torch.Tensor, list, dict]:
+        super().__init__(graph=graph)
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_H_PRE_INT16
+
+
 class EspdlS3Quantizer(EspdlQuantizer):
     def __init__(
         self,
@@ -315,7 +328,7 @@ class EspdlS3Quantizer(EspdlQuantizer):
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_S3_INT16:
+        elif operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16:
             num_of_bits = 16
             quant_min = -32768
             quant_max = 32767
@@ -377,3 +390,16 @@ class EspdlS3Int16Quantizer(EspdlQuantizer):
     @property
     def rounding_policy(self):
         return RoundingPolicy.ROUND_HALF_UP
+
+
+class EspdlS3HPreInt16Quantizer(EspdlS3Int16Quantizer):
+    def __init__(
+        self,
+        graph: BaseGraph,
+    ) -> Union[torch.Tensor, list, dict]:
+        super().__init__(graph=graph)
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_S3_H_PRE_INT16
+

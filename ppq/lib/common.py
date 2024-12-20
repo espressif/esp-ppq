@@ -25,9 +25,11 @@ from ppq.parser import (
 from ppq.quantization.quantizer import (
                         AscendQuantizer,
                         EspdlInt16Quantizer,
+                        EspdlHPreInt16Quantizer,
                         EspdlQuantizer,
                         EspdlS3Quantizer,
                         EspdlS3Int16Quantizer,
+                        EspdlS3HPreInt16Quantizer,
                         ExtQuantizer,
                         FPGAQuantizer,
                         GraphCoreQuantizer,
@@ -72,6 +74,8 @@ __QUANTIZER_COLLECTION__ = {
     TargetPlatform.ESPDL_INT16:     EspdlInt16Quantizer,
     TargetPlatform.ESPDL_S3_INT8:  EspdlS3Quantizer,
     TargetPlatform.ESPDL_S3_INT16:  EspdlS3Int16Quantizer,
+    TargetPlatform.ESPDL_H_PRE_INT16:   EspdlHPreInt16Quantizer,
+    TargetPlatform.ESPDL_S3_H_PRE_INT16:  EspdlS3HPreInt16Quantizer,
 }
 
 
@@ -108,6 +112,8 @@ __EXPORTERS__ = {
     TargetPlatform.ESPDL_INT16:     EspdlExporter,
     TargetPlatform.ESPDL_S3_INT8:  EspdlExporter,
     TargetPlatform.ESPDL_S3_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_H_PRE_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_S3_H_PRE_INT16:  EspdlExporter,
 }
 
 
