@@ -148,7 +148,6 @@ class BypassSoftmaxLayoutPattern(OperationExporter):
         if op.type in SOFTMAX_LIKE_OP_SET:
             info = ExporterPatternInfo()
             input = op.inputs[0]
-            output = op.outputs[0]
 
             var_perm = info.get_var_permute(input.name)
             if var_perm and var_perm != get_default_perm(input):
@@ -161,7 +160,8 @@ class BypassSoftmaxLayoutPattern(OperationExporter):
                 info.add_var_permute(input.name, var_perm)
             
             # use input perm
-            info.add_var_permute(output.name, var_perm)
+            for output in op.outputs:
+                info.add_var_permute(output.name, var_perm)
 
         return op
 
