@@ -57,7 +57,6 @@ OTHER_OP_SET = {
     "Transpose",
     "Slice",
     "Pad",
-    "Split",
     "Concat",
     "Constant",
     "Gather",
@@ -84,7 +83,7 @@ OTHER_OP_SET = {
     "Sum",
 }
 
-SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax"}
+SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax", "Split"}
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {"Shape"}
