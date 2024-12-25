@@ -65,3 +65,52 @@ def TensorTypeAndShapeEnd(builder):
 
 def End(builder):
     return TensorTypeAndShapeEnd(builder)
+
+import FlatBuffers.Dl.TensorShape
+try:
+    from typing import Optional
+except:
+    pass
+
+class TensorTypeAndShapeT(object):
+
+    # TensorTypeAndShapeT
+    def __init__(self):
+        self.elemType = 0  # type: int
+        self.shape = None  # type: Optional[FlatBuffers.Dl.TensorShape.TensorShapeT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        tensorTypeAndShape = TensorTypeAndShape()
+        tensorTypeAndShape.Init(buf, pos)
+        return cls.InitFromObj(tensorTypeAndShape)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, tensorTypeAndShape):
+        x = TensorTypeAndShapeT()
+        x._UnPack(tensorTypeAndShape)
+        return x
+
+    # TensorTypeAndShapeT
+    def _UnPack(self, tensorTypeAndShape):
+        if tensorTypeAndShape is None:
+            return
+        self.elemType = tensorTypeAndShape.ElemType()
+        if tensorTypeAndShape.Shape() is not None:
+            self.shape = FlatBuffers.Dl.TensorShape.TensorShapeT.InitFromObj(tensorTypeAndShape.Shape())
+
+    # TensorTypeAndShapeT
+    def Pack(self, builder):
+        if self.shape is not None:
+            shape = self.shape.Pack(builder)
+        TensorTypeAndShapeStart(builder)
+        TensorTypeAndShapeAddElemType(builder, self.elemType)
+        if self.shape is not None:
+            TensorTypeAndShapeAddShape(builder, shape)
+        tensorTypeAndShape = TensorTypeAndShapeEnd(builder)
+        return tensorTypeAndShape

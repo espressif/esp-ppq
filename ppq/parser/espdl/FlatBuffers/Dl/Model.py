@@ -241,3 +241,139 @@ def ModelEnd(builder):
 
 def End(builder):
     return ModelEnd(builder)
+
+import FlatBuffers.Dl.Function
+import FlatBuffers.Dl.Graph
+import FlatBuffers.Dl.OperatorSetId
+import FlatBuffers.Dl.StringStringEntry
+try:
+    from typing import List, Optional
+except:
+    pass
+
+class ModelT(object):
+
+    # ModelT
+    def __init__(self):
+        self.irVersion = 0  # type: int
+        self.opsetImport = None  # type: List[FlatBuffers.Dl.OperatorSetId.OperatorSetIdT]
+        self.producerName = None  # type: str
+        self.producerVersion = None  # type: str
+        self.domain = None  # type: str
+        self.modelVersion = 0  # type: int
+        self.docString = None  # type: str
+        self.graph = None  # type: Optional[FlatBuffers.Dl.Graph.GraphT]
+        self.metadataProps = None  # type: List[FlatBuffers.Dl.StringStringEntry.StringStringEntryT]
+        self.functions = None  # type: List[FlatBuffers.Dl.Function.FunctionT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        model = Model()
+        model.Init(buf, pos)
+        return cls.InitFromObj(model)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, model):
+        x = ModelT()
+        x._UnPack(model)
+        return x
+
+    # ModelT
+    def _UnPack(self, model):
+        if model is None:
+            return
+        self.irVersion = model.IrVersion()
+        if not model.OpsetImportIsNone():
+            self.opsetImport = []
+            for i in range(model.OpsetImportLength()):
+                if model.OpsetImport(i) is None:
+                    self.opsetImport.append(None)
+                else:
+                    operatorSetId_ = FlatBuffers.Dl.OperatorSetId.OperatorSetIdT.InitFromObj(model.OpsetImport(i))
+                    self.opsetImport.append(operatorSetId_)
+        self.producerName = model.ProducerName()
+        self.producerVersion = model.ProducerVersion()
+        self.domain = model.Domain()
+        self.modelVersion = model.ModelVersion()
+        self.docString = model.DocString()
+        if model.Graph() is not None:
+            self.graph = FlatBuffers.Dl.Graph.GraphT.InitFromObj(model.Graph())
+        if not model.MetadataPropsIsNone():
+            self.metadataProps = []
+            for i in range(model.MetadataPropsLength()):
+                if model.MetadataProps(i) is None:
+                    self.metadataProps.append(None)
+                else:
+                    stringStringEntry_ = FlatBuffers.Dl.StringStringEntry.StringStringEntryT.InitFromObj(model.MetadataProps(i))
+                    self.metadataProps.append(stringStringEntry_)
+        if not model.FunctionsIsNone():
+            self.functions = []
+            for i in range(model.FunctionsLength()):
+                if model.Functions(i) is None:
+                    self.functions.append(None)
+                else:
+                    function_ = FlatBuffers.Dl.Function.FunctionT.InitFromObj(model.Functions(i))
+                    self.functions.append(function_)
+
+    # ModelT
+    def Pack(self, builder):
+        if self.opsetImport is not None:
+            opsetImportlist = []
+            for i in range(len(self.opsetImport)):
+                opsetImportlist.append(self.opsetImport[i].Pack(builder))
+            ModelStartOpsetImportVector(builder, len(self.opsetImport))
+            for i in reversed(range(len(self.opsetImport))):
+                builder.PrependUOffsetTRelative(opsetImportlist[i])
+            opsetImport = builder.EndVector()
+        if self.producerName is not None:
+            producerName = builder.CreateString(self.producerName)
+        if self.producerVersion is not None:
+            producerVersion = builder.CreateString(self.producerVersion)
+        if self.domain is not None:
+            domain = builder.CreateString(self.domain)
+        if self.docString is not None:
+            docString = builder.CreateString(self.docString)
+        if self.graph is not None:
+            graph = self.graph.Pack(builder)
+        if self.metadataProps is not None:
+            metadataPropslist = []
+            for i in range(len(self.metadataProps)):
+                metadataPropslist.append(self.metadataProps[i].Pack(builder))
+            ModelStartMetadataPropsVector(builder, len(self.metadataProps))
+            for i in reversed(range(len(self.metadataProps))):
+                builder.PrependUOffsetTRelative(metadataPropslist[i])
+            metadataProps = builder.EndVector()
+        if self.functions is not None:
+            functionslist = []
+            for i in range(len(self.functions)):
+                functionslist.append(self.functions[i].Pack(builder))
+            ModelStartFunctionsVector(builder, len(self.functions))
+            for i in reversed(range(len(self.functions))):
+                builder.PrependUOffsetTRelative(functionslist[i])
+            functions = builder.EndVector()
+        ModelStart(builder)
+        ModelAddIrVersion(builder, self.irVersion)
+        if self.opsetImport is not None:
+            ModelAddOpsetImport(builder, opsetImport)
+        if self.producerName is not None:
+            ModelAddProducerName(builder, producerName)
+        if self.producerVersion is not None:
+            ModelAddProducerVersion(builder, producerVersion)
+        if self.domain is not None:
+            ModelAddDomain(builder, domain)
+        ModelAddModelVersion(builder, self.modelVersion)
+        if self.docString is not None:
+            ModelAddDocString(builder, docString)
+        if self.graph is not None:
+            ModelAddGraph(builder, graph)
+        if self.metadataProps is not None:
+            ModelAddMetadataProps(builder, metadataProps)
+        if self.functions is not None:
+            ModelAddFunctions(builder, functions)
+        model = ModelEnd(builder)
+        return model

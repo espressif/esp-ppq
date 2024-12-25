@@ -61,3 +61,46 @@ def OperatorSetIdEnd(builder):
 
 def End(builder):
     return OperatorSetIdEnd(builder)
+
+
+class OperatorSetIdT(object):
+
+    # OperatorSetIdT
+    def __init__(self):
+        self.domain = None  # type: str
+        self.version = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        operatorSetId = OperatorSetId()
+        operatorSetId.Init(buf, pos)
+        return cls.InitFromObj(operatorSetId)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, operatorSetId):
+        x = OperatorSetIdT()
+        x._UnPack(operatorSetId)
+        return x
+
+    # OperatorSetIdT
+    def _UnPack(self, operatorSetId):
+        if operatorSetId is None:
+            return
+        self.domain = operatorSetId.Domain()
+        self.version = operatorSetId.Version()
+
+    # OperatorSetIdT
+    def Pack(self, builder):
+        if self.domain is not None:
+            domain = builder.CreateString(self.domain)
+        OperatorSetIdStart(builder)
+        if self.domain is not None:
+            OperatorSetIdAddDomain(builder, domain)
+        OperatorSetIdAddVersion(builder, self.version)
+        operatorSetId = OperatorSetIdEnd(builder)
+        return operatorSetId

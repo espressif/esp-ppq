@@ -188,3 +188,115 @@ def NodeEnd(builder):
 
 def End(builder):
     return NodeEnd(builder)
+
+import FlatBuffers.Dl.Attribute
+try:
+    from typing import List
+except:
+    pass
+
+class NodeT(object):
+
+    # NodeT
+    def __init__(self):
+        self.input = None  # type: List[str]
+        self.output = None  # type: List[str]
+        self.name = None  # type: str
+        self.opType = None  # type: str
+        self.domain = None  # type: str
+        self.attribute = None  # type: List[FlatBuffers.Dl.Attribute.AttributeT]
+        self.docString = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        node = Node()
+        node.Init(buf, pos)
+        return cls.InitFromObj(node)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, node):
+        x = NodeT()
+        x._UnPack(node)
+        return x
+
+    # NodeT
+    def _UnPack(self, node):
+        if node is None:
+            return
+        if not node.InputIsNone():
+            self.input = []
+            for i in range(node.InputLength()):
+                self.input.append(node.Input(i))
+        if not node.OutputIsNone():
+            self.output = []
+            for i in range(node.OutputLength()):
+                self.output.append(node.Output(i))
+        self.name = node.Name()
+        self.opType = node.OpType()
+        self.domain = node.Domain()
+        if not node.AttributeIsNone():
+            self.attribute = []
+            for i in range(node.AttributeLength()):
+                if node.Attribute(i) is None:
+                    self.attribute.append(None)
+                else:
+                    attribute_ = FlatBuffers.Dl.Attribute.AttributeT.InitFromObj(node.Attribute(i))
+                    self.attribute.append(attribute_)
+        self.docString = node.DocString()
+
+    # NodeT
+    def Pack(self, builder):
+        if self.input is not None:
+            inputlist = []
+            for i in range(len(self.input)):
+                inputlist.append(builder.CreateString(self.input[i]))
+            NodeStartInputVector(builder, len(self.input))
+            for i in reversed(range(len(self.input))):
+                builder.PrependUOffsetTRelative(inputlist[i])
+            input = builder.EndVector()
+        if self.output is not None:
+            outputlist = []
+            for i in range(len(self.output)):
+                outputlist.append(builder.CreateString(self.output[i]))
+            NodeStartOutputVector(builder, len(self.output))
+            for i in reversed(range(len(self.output))):
+                builder.PrependUOffsetTRelative(outputlist[i])
+            output = builder.EndVector()
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        if self.opType is not None:
+            opType = builder.CreateString(self.opType)
+        if self.domain is not None:
+            domain = builder.CreateString(self.domain)
+        if self.attribute is not None:
+            attributelist = []
+            for i in range(len(self.attribute)):
+                attributelist.append(self.attribute[i].Pack(builder))
+            NodeStartAttributeVector(builder, len(self.attribute))
+            for i in reversed(range(len(self.attribute))):
+                builder.PrependUOffsetTRelative(attributelist[i])
+            attribute = builder.EndVector()
+        if self.docString is not None:
+            docString = builder.CreateString(self.docString)
+        NodeStart(builder)
+        if self.input is not None:
+            NodeAddInput(builder, input)
+        if self.output is not None:
+            NodeAddOutput(builder, output)
+        if self.name is not None:
+            NodeAddName(builder, name)
+        if self.opType is not None:
+            NodeAddOpType(builder, opType)
+        if self.domain is not None:
+            NodeAddDomain(builder, domain)
+        if self.attribute is not None:
+            NodeAddAttribute(builder, attribute)
+        if self.docString is not None:
+            NodeAddDocString(builder, docString)
+        node = NodeEnd(builder)
+        return node

@@ -74,3 +74,49 @@ def DimensionValueEnd(builder):
 
 def End(builder):
     return DimensionValueEnd(builder)
+
+
+class DimensionValueT(object):
+
+    # DimensionValueT
+    def __init__(self):
+        self.dimType = 0  # type: int
+        self.dimValue = 0  # type: int
+        self.dimParam = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        dimensionValue = DimensionValue()
+        dimensionValue.Init(buf, pos)
+        return cls.InitFromObj(dimensionValue)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, dimensionValue):
+        x = DimensionValueT()
+        x._UnPack(dimensionValue)
+        return x
+
+    # DimensionValueT
+    def _UnPack(self, dimensionValue):
+        if dimensionValue is None:
+            return
+        self.dimType = dimensionValue.DimType()
+        self.dimValue = dimensionValue.DimValue()
+        self.dimParam = dimensionValue.DimParam()
+
+    # DimensionValueT
+    def Pack(self, builder):
+        if self.dimParam is not None:
+            dimParam = builder.CreateString(self.dimParam)
+        DimensionValueStart(builder)
+        DimensionValueAddDimType(builder, self.dimType)
+        DimensionValueAddDimValue(builder, self.dimValue)
+        if self.dimParam is not None:
+            DimensionValueAddDimParam(builder, dimParam)
+        dimensionValue = DimensionValueEnd(builder)
+        return dimensionValue

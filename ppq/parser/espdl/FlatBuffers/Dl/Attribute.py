@@ -432,3 +432,226 @@ def AttributeEnd(builder):
 
 def End(builder):
     return AttributeEnd(builder)
+
+import FlatBuffers.Dl.AttributeF
+import FlatBuffers.Dl.AttributeI
+import FlatBuffers.Dl.Graph
+import FlatBuffers.Dl.Tensor
+import FlatBuffers.Dl.TypeInfo
+try:
+    from typing import List, Optional
+except:
+    pass
+
+class AttributeT(object):
+
+    # AttributeT
+    def __init__(self):
+        self.name = None  # type: str
+        self.refAttrName = None  # type: str
+        self.docString = None  # type: str
+        self.attrType = 0  # type: int
+        self.f = None  # type: Optional[FlatBuffers.Dl.AttributeF.AttributeFT]
+        self.i = None  # type: Optional[FlatBuffers.Dl.AttributeI.AttributeIT]
+        self.s = None  # type: List[int]
+        self.t = None  # type: Optional[FlatBuffers.Dl.Tensor.TensorT]
+        self.g = None  # type: Optional[FlatBuffers.Dl.Graph.GraphT]
+        self.tp = None  # type: Optional[FlatBuffers.Dl.TypeInfo.TypeInfoT]
+        self.floats = None  # type: List[float]
+        self.ints = None  # type: List[int]
+        self.strings = None  # type: List[str]
+        self.tensors = None  # type: List[FlatBuffers.Dl.Tensor.TensorT]
+        self.graphs = None  # type: List[FlatBuffers.Dl.Graph.GraphT]
+        self.typeProtos = None  # type: List[FlatBuffers.Dl.TypeInfo.TypeInfoT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        attribute = Attribute()
+        attribute.Init(buf, pos)
+        return cls.InitFromObj(attribute)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, attribute):
+        x = AttributeT()
+        x._UnPack(attribute)
+        return x
+
+    # AttributeT
+    def _UnPack(self, attribute):
+        if attribute is None:
+            return
+        self.name = attribute.Name()
+        self.refAttrName = attribute.RefAttrName()
+        self.docString = attribute.DocString()
+        self.attrType = attribute.AttrType()
+        if attribute.F() is not None:
+            self.f = FlatBuffers.Dl.AttributeF.AttributeFT.InitFromObj(attribute.F())
+        if attribute.I() is not None:
+            self.i = FlatBuffers.Dl.AttributeI.AttributeIT.InitFromObj(attribute.I())
+        if not attribute.SIsNone():
+            if np is None:
+                self.s = []
+                for i in range(attribute.SLength()):
+                    self.s.append(attribute.S(i))
+            else:
+                self.s = attribute.SAsNumpy()
+        if attribute.T() is not None:
+            self.t = FlatBuffers.Dl.Tensor.TensorT.InitFromObj(attribute.T())
+        if attribute.G() is not None:
+            self.g = FlatBuffers.Dl.Graph.GraphT.InitFromObj(attribute.G())
+        if attribute.Tp() is not None:
+            self.tp = FlatBuffers.Dl.TypeInfo.TypeInfoT.InitFromObj(attribute.Tp())
+        if not attribute.FloatsIsNone():
+            if np is None:
+                self.floats = []
+                for i in range(attribute.FloatsLength()):
+                    self.floats.append(attribute.Floats(i))
+            else:
+                self.floats = attribute.FloatsAsNumpy()
+        if not attribute.IntsIsNone():
+            if np is None:
+                self.ints = []
+                for i in range(attribute.IntsLength()):
+                    self.ints.append(attribute.Ints(i))
+            else:
+                self.ints = attribute.IntsAsNumpy()
+        if not attribute.StringsIsNone():
+            self.strings = []
+            for i in range(attribute.StringsLength()):
+                self.strings.append(attribute.Strings(i))
+        if not attribute.TensorsIsNone():
+            self.tensors = []
+            for i in range(attribute.TensorsLength()):
+                if attribute.Tensors(i) is None:
+                    self.tensors.append(None)
+                else:
+                    tensor_ = FlatBuffers.Dl.Tensor.TensorT.InitFromObj(attribute.Tensors(i))
+                    self.tensors.append(tensor_)
+        if not attribute.GraphsIsNone():
+            self.graphs = []
+            for i in range(attribute.GraphsLength()):
+                if attribute.Graphs(i) is None:
+                    self.graphs.append(None)
+                else:
+                    graph_ = FlatBuffers.Dl.Graph.GraphT.InitFromObj(attribute.Graphs(i))
+                    self.graphs.append(graph_)
+        if not attribute.TypeProtosIsNone():
+            self.typeProtos = []
+            for i in range(attribute.TypeProtosLength()):
+                if attribute.TypeProtos(i) is None:
+                    self.typeProtos.append(None)
+                else:
+                    typeInfo_ = FlatBuffers.Dl.TypeInfo.TypeInfoT.InitFromObj(attribute.TypeProtos(i))
+                    self.typeProtos.append(typeInfo_)
+
+    # AttributeT
+    def Pack(self, builder):
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        if self.refAttrName is not None:
+            refAttrName = builder.CreateString(self.refAttrName)
+        if self.docString is not None:
+            docString = builder.CreateString(self.docString)
+        if self.s is not None:
+            if np is not None and type(self.s) is np.ndarray:
+                s = builder.CreateNumpyVector(self.s)
+            else:
+                AttributeStartSVector(builder, len(self.s))
+                for i in reversed(range(len(self.s))):
+                    builder.PrependUint8(self.s[i])
+                s = builder.EndVector()
+        if self.t is not None:
+            t = self.t.Pack(builder)
+        if self.g is not None:
+            g = self.g.Pack(builder)
+        if self.tp is not None:
+            tp = self.tp.Pack(builder)
+        if self.floats is not None:
+            if np is not None and type(self.floats) is np.ndarray:
+                floats = builder.CreateNumpyVector(self.floats)
+            else:
+                AttributeStartFloatsVector(builder, len(self.floats))
+                for i in reversed(range(len(self.floats))):
+                    builder.PrependFloat32(self.floats[i])
+                floats = builder.EndVector()
+        if self.ints is not None:
+            if np is not None and type(self.ints) is np.ndarray:
+                ints = builder.CreateNumpyVector(self.ints)
+            else:
+                AttributeStartIntsVector(builder, len(self.ints))
+                for i in reversed(range(len(self.ints))):
+                    builder.PrependInt64(self.ints[i])
+                ints = builder.EndVector()
+        if self.strings is not None:
+            stringslist = []
+            for i in range(len(self.strings)):
+                stringslist.append(builder.CreateString(self.strings[i]))
+            AttributeStartStringsVector(builder, len(self.strings))
+            for i in reversed(range(len(self.strings))):
+                builder.PrependUOffsetTRelative(stringslist[i])
+            strings = builder.EndVector()
+        if self.tensors is not None:
+            tensorslist = []
+            for i in range(len(self.tensors)):
+                tensorslist.append(self.tensors[i].Pack(builder))
+            AttributeStartTensorsVector(builder, len(self.tensors))
+            for i in reversed(range(len(self.tensors))):
+                builder.PrependUOffsetTRelative(tensorslist[i])
+            tensors = builder.EndVector()
+        if self.graphs is not None:
+            graphslist = []
+            for i in range(len(self.graphs)):
+                graphslist.append(self.graphs[i].Pack(builder))
+            AttributeStartGraphsVector(builder, len(self.graphs))
+            for i in reversed(range(len(self.graphs))):
+                builder.PrependUOffsetTRelative(graphslist[i])
+            graphs = builder.EndVector()
+        if self.typeProtos is not None:
+            typeProtoslist = []
+            for i in range(len(self.typeProtos)):
+                typeProtoslist.append(self.typeProtos[i].Pack(builder))
+            AttributeStartTypeProtosVector(builder, len(self.typeProtos))
+            for i in reversed(range(len(self.typeProtos))):
+                builder.PrependUOffsetTRelative(typeProtoslist[i])
+            typeProtos = builder.EndVector()
+        AttributeStart(builder)
+        if self.name is not None:
+            AttributeAddName(builder, name)
+        if self.refAttrName is not None:
+            AttributeAddRefAttrName(builder, refAttrName)
+        if self.docString is not None:
+            AttributeAddDocString(builder, docString)
+        AttributeAddAttrType(builder, self.attrType)
+        if self.f is not None:
+            f = self.f.Pack(builder)
+            AttributeAddF(builder, f)
+        if self.i is not None:
+            i = self.i.Pack(builder)
+            AttributeAddI(builder, i)
+        if self.s is not None:
+            AttributeAddS(builder, s)
+        if self.t is not None:
+            AttributeAddT(builder, t)
+        if self.g is not None:
+            AttributeAddG(builder, g)
+        if self.tp is not None:
+            AttributeAddTp(builder, tp)
+        if self.floats is not None:
+            AttributeAddFloats(builder, floats)
+        if self.ints is not None:
+            AttributeAddInts(builder, ints)
+        if self.strings is not None:
+            AttributeAddStrings(builder, strings)
+        if self.tensors is not None:
+            AttributeAddTensors(builder, tensors)
+        if self.graphs is not None:
+            AttributeAddGraphs(builder, graphs)
+        if self.typeProtos is not None:
+            AttributeAddTypeProtos(builder, typeProtos)
+        attribute = AttributeEnd(builder)
+        return attribute

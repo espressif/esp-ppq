@@ -281,3 +281,164 @@ def FunctionEnd(builder):
 
 def End(builder):
     return FunctionEnd(builder)
+
+import FlatBuffers.Dl.Attribute
+import FlatBuffers.Dl.Node
+import FlatBuffers.Dl.OperatorSetId
+try:
+    from typing import List
+except:
+    pass
+
+class FunctionT(object):
+
+    # FunctionT
+    def __init__(self):
+        self.name = None  # type: str
+        self.input = None  # type: List[str]
+        self.output = None  # type: List[str]
+        self.attribute = None  # type: List[str]
+        self.attributeProto = None  # type: List[FlatBuffers.Dl.Attribute.AttributeT]
+        self.node = None  # type: List[FlatBuffers.Dl.Node.NodeT]
+        self.docString = None  # type: str
+        self.opsetImport = None  # type: List[FlatBuffers.Dl.OperatorSetId.OperatorSetIdT]
+        self.domain = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        function = Function()
+        function.Init(buf, pos)
+        return cls.InitFromObj(function)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, function):
+        x = FunctionT()
+        x._UnPack(function)
+        return x
+
+    # FunctionT
+    def _UnPack(self, function):
+        if function is None:
+            return
+        self.name = function.Name()
+        if not function.InputIsNone():
+            self.input = []
+            for i in range(function.InputLength()):
+                self.input.append(function.Input(i))
+        if not function.OutputIsNone():
+            self.output = []
+            for i in range(function.OutputLength()):
+                self.output.append(function.Output(i))
+        if not function.AttributeIsNone():
+            self.attribute = []
+            for i in range(function.AttributeLength()):
+                self.attribute.append(function.Attribute(i))
+        if not function.AttributeProtoIsNone():
+            self.attributeProto = []
+            for i in range(function.AttributeProtoLength()):
+                if function.AttributeProto(i) is None:
+                    self.attributeProto.append(None)
+                else:
+                    attribute_ = FlatBuffers.Dl.Attribute.AttributeT.InitFromObj(function.AttributeProto(i))
+                    self.attributeProto.append(attribute_)
+        if not function.NodeIsNone():
+            self.node = []
+            for i in range(function.NodeLength()):
+                if function.Node(i) is None:
+                    self.node.append(None)
+                else:
+                    node_ = FlatBuffers.Dl.Node.NodeT.InitFromObj(function.Node(i))
+                    self.node.append(node_)
+        self.docString = function.DocString()
+        if not function.OpsetImportIsNone():
+            self.opsetImport = []
+            for i in range(function.OpsetImportLength()):
+                if function.OpsetImport(i) is None:
+                    self.opsetImport.append(None)
+                else:
+                    operatorSetId_ = FlatBuffers.Dl.OperatorSetId.OperatorSetIdT.InitFromObj(function.OpsetImport(i))
+                    self.opsetImport.append(operatorSetId_)
+        self.domain = function.Domain()
+
+    # FunctionT
+    def Pack(self, builder):
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        if self.input is not None:
+            inputlist = []
+            for i in range(len(self.input)):
+                inputlist.append(builder.CreateString(self.input[i]))
+            FunctionStartInputVector(builder, len(self.input))
+            for i in reversed(range(len(self.input))):
+                builder.PrependUOffsetTRelative(inputlist[i])
+            input = builder.EndVector()
+        if self.output is not None:
+            outputlist = []
+            for i in range(len(self.output)):
+                outputlist.append(builder.CreateString(self.output[i]))
+            FunctionStartOutputVector(builder, len(self.output))
+            for i in reversed(range(len(self.output))):
+                builder.PrependUOffsetTRelative(outputlist[i])
+            output = builder.EndVector()
+        if self.attribute is not None:
+            attributelist = []
+            for i in range(len(self.attribute)):
+                attributelist.append(builder.CreateString(self.attribute[i]))
+            FunctionStartAttributeVector(builder, len(self.attribute))
+            for i in reversed(range(len(self.attribute))):
+                builder.PrependUOffsetTRelative(attributelist[i])
+            attribute = builder.EndVector()
+        if self.attributeProto is not None:
+            attributeProtolist = []
+            for i in range(len(self.attributeProto)):
+                attributeProtolist.append(self.attributeProto[i].Pack(builder))
+            FunctionStartAttributeProtoVector(builder, len(self.attributeProto))
+            for i in reversed(range(len(self.attributeProto))):
+                builder.PrependUOffsetTRelative(attributeProtolist[i])
+            attributeProto = builder.EndVector()
+        if self.node is not None:
+            nodelist = []
+            for i in range(len(self.node)):
+                nodelist.append(self.node[i].Pack(builder))
+            FunctionStartNodeVector(builder, len(self.node))
+            for i in reversed(range(len(self.node))):
+                builder.PrependUOffsetTRelative(nodelist[i])
+            node = builder.EndVector()
+        if self.docString is not None:
+            docString = builder.CreateString(self.docString)
+        if self.opsetImport is not None:
+            opsetImportlist = []
+            for i in range(len(self.opsetImport)):
+                opsetImportlist.append(self.opsetImport[i].Pack(builder))
+            FunctionStartOpsetImportVector(builder, len(self.opsetImport))
+            for i in reversed(range(len(self.opsetImport))):
+                builder.PrependUOffsetTRelative(opsetImportlist[i])
+            opsetImport = builder.EndVector()
+        if self.domain is not None:
+            domain = builder.CreateString(self.domain)
+        FunctionStart(builder)
+        if self.name is not None:
+            FunctionAddName(builder, name)
+        if self.input is not None:
+            FunctionAddInput(builder, input)
+        if self.output is not None:
+            FunctionAddOutput(builder, output)
+        if self.attribute is not None:
+            FunctionAddAttribute(builder, attribute)
+        if self.attributeProto is not None:
+            FunctionAddAttributeProto(builder, attributeProto)
+        if self.node is not None:
+            FunctionAddNode(builder, node)
+        if self.docString is not None:
+            FunctionAddDocString(builder, docString)
+        if self.opsetImport is not None:
+            FunctionAddOpsetImport(builder, opsetImport)
+        if self.domain is not None:
+            FunctionAddDomain(builder, domain)
+        function = FunctionEnd(builder)
+        return function

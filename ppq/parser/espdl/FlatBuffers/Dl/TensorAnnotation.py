@@ -85,3 +85,67 @@ def TensorAnnotationEnd(builder):
 
 def End(builder):
     return TensorAnnotationEnd(builder)
+
+import FlatBuffers.Dl.StringStringEntry
+try:
+    from typing import List
+except:
+    pass
+
+class TensorAnnotationT(object):
+
+    # TensorAnnotationT
+    def __init__(self):
+        self.tensorName = None  # type: str
+        self.quantParameterTensorNames = None  # type: List[FlatBuffers.Dl.StringStringEntry.StringStringEntryT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        tensorAnnotation = TensorAnnotation()
+        tensorAnnotation.Init(buf, pos)
+        return cls.InitFromObj(tensorAnnotation)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, tensorAnnotation):
+        x = TensorAnnotationT()
+        x._UnPack(tensorAnnotation)
+        return x
+
+    # TensorAnnotationT
+    def _UnPack(self, tensorAnnotation):
+        if tensorAnnotation is None:
+            return
+        self.tensorName = tensorAnnotation.TensorName()
+        if not tensorAnnotation.QuantParameterTensorNamesIsNone():
+            self.quantParameterTensorNames = []
+            for i in range(tensorAnnotation.QuantParameterTensorNamesLength()):
+                if tensorAnnotation.QuantParameterTensorNames(i) is None:
+                    self.quantParameterTensorNames.append(None)
+                else:
+                    stringStringEntry_ = FlatBuffers.Dl.StringStringEntry.StringStringEntryT.InitFromObj(tensorAnnotation.QuantParameterTensorNames(i))
+                    self.quantParameterTensorNames.append(stringStringEntry_)
+
+    # TensorAnnotationT
+    def Pack(self, builder):
+        if self.tensorName is not None:
+            tensorName = builder.CreateString(self.tensorName)
+        if self.quantParameterTensorNames is not None:
+            quantParameterTensorNameslist = []
+            for i in range(len(self.quantParameterTensorNames)):
+                quantParameterTensorNameslist.append(self.quantParameterTensorNames[i].Pack(builder))
+            TensorAnnotationStartQuantParameterTensorNamesVector(builder, len(self.quantParameterTensorNames))
+            for i in reversed(range(len(self.quantParameterTensorNames))):
+                builder.PrependUOffsetTRelative(quantParameterTensorNameslist[i])
+            quantParameterTensorNames = builder.EndVector()
+        TensorAnnotationStart(builder)
+        if self.tensorName is not None:
+            TensorAnnotationAddTensorName(builder, tensorName)
+        if self.quantParameterTensorNames is not None:
+            TensorAnnotationAddQuantParameterTensorNames(builder, quantParameterTensorNames)
+        tensorAnnotation = TensorAnnotationEnd(builder)
+        return tensorAnnotation

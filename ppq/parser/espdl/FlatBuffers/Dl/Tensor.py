@@ -465,3 +465,237 @@ def TensorEnd(builder):
 
 def End(builder):
     return TensorEnd(builder)
+
+import FlatBuffers.Dl.AlignedBytes
+import FlatBuffers.Dl.StringStringEntry
+try:
+    from typing import List
+except:
+    pass
+
+class TensorT(object):
+
+    # TensorT
+    def __init__(self):
+        self.dims = None  # type: List[int]
+        self.dataType = 0  # type: int
+        self.floatData = None  # type: List[float]
+        self.int32Data = None  # type: List[int]
+        self.stringData = None  # type: List[str]
+        self.int64Data = None  # type: List[int]
+        self.name = None  # type: str
+        self.docString = None  # type: str
+        self.rawData = None  # type: List[FlatBuffers.Dl.AlignedBytes.AlignedBytesT]
+        self.externalData = None  # type: List[FlatBuffers.Dl.StringStringEntry.StringStringEntryT]
+        self.dataLocation = 0  # type: int
+        self.doubleData = None  # type: List[float]
+        self.uint64Data = None  # type: List[int]
+        self.exponents = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        tensor = Tensor()
+        tensor.Init(buf, pos)
+        return cls.InitFromObj(tensor)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, tensor):
+        x = TensorT()
+        x._UnPack(tensor)
+        return x
+
+    # TensorT
+    def _UnPack(self, tensor):
+        if tensor is None:
+            return
+        if not tensor.DimsIsNone():
+            if np is None:
+                self.dims = []
+                for i in range(tensor.DimsLength()):
+                    self.dims.append(tensor.Dims(i))
+            else:
+                self.dims = tensor.DimsAsNumpy()
+        self.dataType = tensor.DataType()
+        if not tensor.FloatDataIsNone():
+            if np is None:
+                self.floatData = []
+                for i in range(tensor.FloatDataLength()):
+                    self.floatData.append(tensor.FloatData(i))
+            else:
+                self.floatData = tensor.FloatDataAsNumpy()
+        if not tensor.Int32DataIsNone():
+            if np is None:
+                self.int32Data = []
+                for i in range(tensor.Int32DataLength()):
+                    self.int32Data.append(tensor.Int32Data(i))
+            else:
+                self.int32Data = tensor.Int32DataAsNumpy()
+        if not tensor.StringDataIsNone():
+            self.stringData = []
+            for i in range(tensor.StringDataLength()):
+                self.stringData.append(tensor.StringData(i))
+        if not tensor.Int64DataIsNone():
+            if np is None:
+                self.int64Data = []
+                for i in range(tensor.Int64DataLength()):
+                    self.int64Data.append(tensor.Int64Data(i))
+            else:
+                self.int64Data = tensor.Int64DataAsNumpy()
+        self.name = tensor.Name()
+        self.docString = tensor.DocString()
+        if not tensor.RawDataIsNone():
+            self.rawData = []
+            for i in range(tensor.RawDataLength()):
+                if tensor.RawData(i) is None:
+                    self.rawData.append(None)
+                else:
+                    alignedBytes_ = FlatBuffers.Dl.AlignedBytes.AlignedBytesT.InitFromObj(tensor.RawData(i))
+                    self.rawData.append(alignedBytes_)
+        if not tensor.ExternalDataIsNone():
+            self.externalData = []
+            for i in range(tensor.ExternalDataLength()):
+                if tensor.ExternalData(i) is None:
+                    self.externalData.append(None)
+                else:
+                    stringStringEntry_ = FlatBuffers.Dl.StringStringEntry.StringStringEntryT.InitFromObj(tensor.ExternalData(i))
+                    self.externalData.append(stringStringEntry_)
+        self.dataLocation = tensor.DataLocation()
+        if not tensor.DoubleDataIsNone():
+            if np is None:
+                self.doubleData = []
+                for i in range(tensor.DoubleDataLength()):
+                    self.doubleData.append(tensor.DoubleData(i))
+            else:
+                self.doubleData = tensor.DoubleDataAsNumpy()
+        if not tensor.Uint64DataIsNone():
+            if np is None:
+                self.uint64Data = []
+                for i in range(tensor.Uint64DataLength()):
+                    self.uint64Data.append(tensor.Uint64Data(i))
+            else:
+                self.uint64Data = tensor.Uint64DataAsNumpy()
+        if not tensor.ExponentsIsNone():
+            if np is None:
+                self.exponents = []
+                for i in range(tensor.ExponentsLength()):
+                    self.exponents.append(tensor.Exponents(i))
+            else:
+                self.exponents = tensor.ExponentsAsNumpy()
+
+    # TensorT
+    def Pack(self, builder):
+        if self.dims is not None:
+            if np is not None and type(self.dims) is np.ndarray:
+                dims = builder.CreateNumpyVector(self.dims)
+            else:
+                TensorStartDimsVector(builder, len(self.dims))
+                for i in reversed(range(len(self.dims))):
+                    builder.PrependInt64(self.dims[i])
+                dims = builder.EndVector()
+        if self.floatData is not None:
+            if np is not None and type(self.floatData) is np.ndarray:
+                floatData = builder.CreateNumpyVector(self.floatData)
+            else:
+                TensorStartFloatDataVector(builder, len(self.floatData))
+                for i in reversed(range(len(self.floatData))):
+                    builder.PrependFloat32(self.floatData[i])
+                floatData = builder.EndVector()
+        if self.int32Data is not None:
+            if np is not None and type(self.int32Data) is np.ndarray:
+                int32Data = builder.CreateNumpyVector(self.int32Data)
+            else:
+                TensorStartInt32DataVector(builder, len(self.int32Data))
+                for i in reversed(range(len(self.int32Data))):
+                    builder.PrependInt32(self.int32Data[i])
+                int32Data = builder.EndVector()
+        if self.stringData is not None:
+            stringDatalist = []
+            for i in range(len(self.stringData)):
+                stringDatalist.append(builder.CreateString(self.stringData[i]))
+            TensorStartStringDataVector(builder, len(self.stringData))
+            for i in reversed(range(len(self.stringData))):
+                builder.PrependUOffsetTRelative(stringDatalist[i])
+            stringData = builder.EndVector()
+        if self.int64Data is not None:
+            if np is not None and type(self.int64Data) is np.ndarray:
+                int64Data = builder.CreateNumpyVector(self.int64Data)
+            else:
+                TensorStartInt64DataVector(builder, len(self.int64Data))
+                for i in reversed(range(len(self.int64Data))):
+                    builder.PrependInt64(self.int64Data[i])
+                int64Data = builder.EndVector()
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        if self.docString is not None:
+            docString = builder.CreateString(self.docString)
+        if self.rawData is not None:
+            TensorStartRawDataVector(builder, len(self.rawData))
+            for i in reversed(range(len(self.rawData))):
+                self.rawData[i].Pack(builder)
+            rawData = builder.EndVector()
+        if self.externalData is not None:
+            externalDatalist = []
+            for i in range(len(self.externalData)):
+                externalDatalist.append(self.externalData[i].Pack(builder))
+            TensorStartExternalDataVector(builder, len(self.externalData))
+            for i in reversed(range(len(self.externalData))):
+                builder.PrependUOffsetTRelative(externalDatalist[i])
+            externalData = builder.EndVector()
+        if self.doubleData is not None:
+            if np is not None and type(self.doubleData) is np.ndarray:
+                doubleData = builder.CreateNumpyVector(self.doubleData)
+            else:
+                TensorStartDoubleDataVector(builder, len(self.doubleData))
+                for i in reversed(range(len(self.doubleData))):
+                    builder.PrependFloat64(self.doubleData[i])
+                doubleData = builder.EndVector()
+        if self.uint64Data is not None:
+            if np is not None and type(self.uint64Data) is np.ndarray:
+                uint64Data = builder.CreateNumpyVector(self.uint64Data)
+            else:
+                TensorStartUint64DataVector(builder, len(self.uint64Data))
+                for i in reversed(range(len(self.uint64Data))):
+                    builder.PrependUint64(self.uint64Data[i])
+                uint64Data = builder.EndVector()
+        if self.exponents is not None:
+            if np is not None and type(self.exponents) is np.ndarray:
+                exponents = builder.CreateNumpyVector(self.exponents)
+            else:
+                TensorStartExponentsVector(builder, len(self.exponents))
+                for i in reversed(range(len(self.exponents))):
+                    builder.PrependInt64(self.exponents[i])
+                exponents = builder.EndVector()
+        TensorStart(builder)
+        if self.dims is not None:
+            TensorAddDims(builder, dims)
+        TensorAddDataType(builder, self.dataType)
+        if self.floatData is not None:
+            TensorAddFloatData(builder, floatData)
+        if self.int32Data is not None:
+            TensorAddInt32Data(builder, int32Data)
+        if self.stringData is not None:
+            TensorAddStringData(builder, stringData)
+        if self.int64Data is not None:
+            TensorAddInt64Data(builder, int64Data)
+        if self.name is not None:
+            TensorAddName(builder, name)
+        if self.docString is not None:
+            TensorAddDocString(builder, docString)
+        if self.rawData is not None:
+            TensorAddRawData(builder, rawData)
+        if self.externalData is not None:
+            TensorAddExternalData(builder, externalData)
+        TensorAddDataLocation(builder, self.dataLocation)
+        if self.doubleData is not None:
+            TensorAddDoubleData(builder, doubleData)
+        if self.uint64Data is not None:
+            TensorAddUint64Data(builder, uint64Data)
+        if self.exponents is not None:
+            TensorAddExponents(builder, exponents)
+        tensor = TensorEnd(builder)
+        return tensor

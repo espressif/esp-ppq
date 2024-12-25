@@ -77,3 +77,61 @@ def TypeInfoEnd(builder):
 
 def End(builder):
     return TypeInfoEnd(builder)
+
+import FlatBuffers.Dl.MapType
+import FlatBuffers.Dl.OptionalType
+import FlatBuffers.Dl.SequenceType
+import FlatBuffers.Dl.TensorTypeAndShape
+import FlatBuffers.Dl.TypeInfoValue
+try:
+    from typing import Union
+except:
+    pass
+
+class TypeInfoT(object):
+
+    # TypeInfoT
+    def __init__(self):
+        self.valueType = 0  # type: int
+        self.value = None  # type: Union[None, FlatBuffers.Dl.TensorTypeAndShape.TensorTypeAndShapeT, FlatBuffers.Dl.SequenceType.SequenceTypeT, FlatBuffers.Dl.MapType.MapTypeT, FlatBuffers.Dl.OptionalType.OptionalTypeT]
+        self.denotation = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        typeInfo = TypeInfo()
+        typeInfo.Init(buf, pos)
+        return cls.InitFromObj(typeInfo)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, typeInfo):
+        x = TypeInfoT()
+        x._UnPack(typeInfo)
+        return x
+
+    # TypeInfoT
+    def _UnPack(self, typeInfo):
+        if typeInfo is None:
+            return
+        self.valueType = typeInfo.ValueType()
+        self.value = FlatBuffers.Dl.TypeInfoValue.TypeInfoValueCreator(self.valueType, typeInfo.Value())
+        self.denotation = typeInfo.Denotation()
+
+    # TypeInfoT
+    def Pack(self, builder):
+        if self.value is not None:
+            value = self.value.Pack(builder)
+        if self.denotation is not None:
+            denotation = builder.CreateString(self.denotation)
+        TypeInfoStart(builder)
+        TypeInfoAddValueType(builder, self.valueType)
+        if self.value is not None:
+            TypeInfoAddValue(builder, value)
+        if self.denotation is not None:
+            TypeInfoAddDenotation(builder, denotation)
+        typeInfo = TypeInfoEnd(builder)
+        return typeInfo

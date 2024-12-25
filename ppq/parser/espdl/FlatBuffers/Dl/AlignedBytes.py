@@ -44,3 +44,47 @@ def CreateAlignedBytes(builder, bytes):
     for _idx0 in range(16 , 0, -1):
         builder.PrependUint8(bytes[_idx0-1])
     return builder.Offset()
+
+try:
+    from typing import List
+except:
+    pass
+
+class AlignedBytesT(object):
+
+    # AlignedBytesT
+    def __init__(self):
+        self.bytes = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        alignedBytes = AlignedBytes()
+        alignedBytes.Init(buf, pos)
+        return cls.InitFromObj(alignedBytes)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, alignedBytes):
+        x = AlignedBytesT()
+        x._UnPack(alignedBytes)
+        return x
+
+    # AlignedBytesT
+    def _UnPack(self, alignedBytes):
+        if alignedBytes is None:
+            return
+        if not alignedBytes.BytesIsNone():
+            if np is None:
+                self.bytes = []
+                for i in range(alignedBytes.BytesLength()):
+                    self.bytes.append(alignedBytes.Bytes(i))
+            else:
+                self.bytes = alignedBytes.BytesAsNumpy()
+
+    # AlignedBytesT
+    def Pack(self, builder):
+        return CreateAlignedBytes(builder, self.bytes)

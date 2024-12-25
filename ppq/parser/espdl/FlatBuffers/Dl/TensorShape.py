@@ -72,3 +72,61 @@ def TensorShapeEnd(builder):
 
 def End(builder):
     return TensorShapeEnd(builder)
+
+import FlatBuffers.Dl.Dimension
+try:
+    from typing import List
+except:
+    pass
+
+class TensorShapeT(object):
+
+    # TensorShapeT
+    def __init__(self):
+        self.dim = None  # type: List[FlatBuffers.Dl.Dimension.DimensionT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        tensorShape = TensorShape()
+        tensorShape.Init(buf, pos)
+        return cls.InitFromObj(tensorShape)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, tensorShape):
+        x = TensorShapeT()
+        x._UnPack(tensorShape)
+        return x
+
+    # TensorShapeT
+    def _UnPack(self, tensorShape):
+        if tensorShape is None:
+            return
+        if not tensorShape.DimIsNone():
+            self.dim = []
+            for i in range(tensorShape.DimLength()):
+                if tensorShape.Dim(i) is None:
+                    self.dim.append(None)
+                else:
+                    dimension_ = FlatBuffers.Dl.Dimension.DimensionT.InitFromObj(tensorShape.Dim(i))
+                    self.dim.append(dimension_)
+
+    # TensorShapeT
+    def Pack(self, builder):
+        if self.dim is not None:
+            dimlist = []
+            for i in range(len(self.dim)):
+                dimlist.append(self.dim[i].Pack(builder))
+            TensorShapeStartDimVector(builder, len(self.dim))
+            for i in reversed(range(len(self.dim))):
+                builder.PrependUOffsetTRelative(dimlist[i])
+            dim = builder.EndVector()
+        TensorShapeStart(builder)
+        if self.dim is not None:
+            TensorShapeAddDim(builder, dim)
+        tensorShape = TensorShapeEnd(builder)
+        return tensorShape

@@ -642,7 +642,7 @@ def save(
         data, key = aes_encryptor(data)
 
     # file header 16 bytes
-    header = bytearray("EDL1", 'utf-8')
+    header = bytearray("EDL2", 'utf-8')
     header += struct.pack("I", 1 if encrypt_data else 0)
     header += struct.pack("I", len(data))
     header += struct.pack("x") * 4

@@ -24,3 +24,37 @@ def CreateAttributeF(builder, f):
     builder.Prep(4, 4)
     builder.PrependFloat32(f)
     return builder.Offset()
+
+
+class AttributeFT(object):
+
+    # AttributeFT
+    def __init__(self):
+        self.f = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        attributeF = AttributeF()
+        attributeF.Init(buf, pos)
+        return cls.InitFromObj(attributeF)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, attributeF):
+        x = AttributeFT()
+        x._UnPack(attributeF)
+        return x
+
+    # AttributeFT
+    def _UnPack(self, attributeF):
+        if attributeF is None:
+            return
+        self.f = attributeF.F()
+
+    # AttributeFT
+    def Pack(self, builder):
+        return CreateAttributeF(builder, self.f)
