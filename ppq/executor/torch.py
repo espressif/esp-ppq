@@ -527,9 +527,9 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                                         for input, config in zip(inputs, input_configs)])
 
                 # PATCH 20220208
-                for idx, var in enumerate(operation.inputs):
-                    if var.name in output_names:
-                        result_collector[output_names.index(var.name)] = inputs[idx]
+                # for idx, var in enumerate(operation.inputs):
+                #     if var.name in output_names:
+                #         result_collector[output_names.index(var.name)] = inputs[idx]
 
                 # invoking pre-forward hook
                 if operation_runtime_hook is not None:

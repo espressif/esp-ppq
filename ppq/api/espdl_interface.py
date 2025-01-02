@@ -177,6 +177,11 @@ def espdl_quantize_onnx(
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
     """    
     
+    model = onnx.load(onnx_import_file)
+    model_sim, check = simplify(model)
+    if check:
+        onnx.save(model_sim, onnx_import_file)
+
     export_path = os.path.dirname(os.path.abspath(espdl_export_file))
     os.makedirs(export_path, exist_ok=True)
 
@@ -357,11 +362,6 @@ def espdl_quantize_torch(
         opset_version=13,
         do_constant_folding=True,
     )
-
-    model = onnx.load(onnx_file_path)
-    model_sim, check = simplify(model)
-    if check:
-        onnx.save(model_sim, onnx_file_path)
     
     # step2: quantize onnx model and export espdl model
     return espdl_quantize_onnx(
