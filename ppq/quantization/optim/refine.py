@@ -545,7 +545,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                 for up_op in graph.get_upstream_operations(operation):
                     if not isinstance(up_op, QuantableOperation): continue
 
-                    if len(graph.get_downstream_operations(up_op)) != 1 and not self.force_overlap: continue
+                    if (up_op.type in PASSIVE_OPERATIONS or len(graph.get_downstream_operations(up_op)) != 1) and not self.force_overlap: continue
                     # for cfg, var in up_op.config_with_variable:
                     for cfg, var in zip(up_op.config.output_quantization_config, up_op.outputs):
                         if operation in var.dest_ops:
