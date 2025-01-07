@@ -176,13 +176,12 @@ def make_graph_test_value(
 
         # Get the output test value
         for output_name, output_value in valuesForTest.get('outputs', {}).items():
+            output_value = np.atleast_1d(output_value)
             var_exponents = exponents.get(output_name, [0])
             tensor_type = np_dtype_to_tensor_dtype(output_value.dtype)
             output_shape = output_value.shape
             if len(output_shape) > 1:
                 output_value = output_value.flatten()
-            if len(output_shape) == 0:
-                output_shape = [1]
             output_value_fbs = make_tensor(output_name, tensor_type, output_shape, output_value, raw=True,
                                            exponents=var_exponents)
             output_test_values.append(output_value_fbs)
