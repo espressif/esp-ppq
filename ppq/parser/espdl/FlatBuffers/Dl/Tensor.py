@@ -177,16 +177,13 @@ class Tensor(object):
     def RawData(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
         if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
-        return 0
-
-    # Tensor
-    def RawDataAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
-        return 0
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 16
+            from FlatBuffers.Dl.AlignedBytes import AlignedBytes
+            obj = AlignedBytes()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
 
     # Tensor
     def RawDataLength(self):
@@ -404,7 +401,7 @@ def AddRawData(builder, rawData):
     TensorAddRawData(builder, rawData)
 
 def TensorStartRawDataVector(builder, numElems):
-    return builder.StartVector(1, numElems, 1)
+    return builder.StartVector(16, numElems, 16)
 
 def StartRawDataVector(builder, numElems):
     return TensorStartRawDataVector(builder, numElems)
@@ -469,6 +466,7 @@ def TensorEnd(builder):
 def End(builder):
     return TensorEnd(builder)
 
+import FlatBuffers.Dl.AlignedBytes
 import FlatBuffers.Dl.StringStringEntry
 try:
     from typing import List
@@ -487,7 +485,7 @@ class TensorT(object):
         self.int64Data = None  # type: List[int]
         self.name = None  # type: str
         self.docString = None  # type: str
-        self.rawData = None  # type: List[int]
+        self.rawData = None  # type: List[FlatBuffers.Dl.AlignedBytes.AlignedBytesT]
         self.externalData = None  # type: List[FlatBuffers.Dl.StringStringEntry.StringStringEntryT]
         self.dataLocation = 0  # type: int
         self.doubleData = None  # type: List[float]
@@ -551,12 +549,13 @@ class TensorT(object):
         self.name = tensor.Name()
         self.docString = tensor.DocString()
         if not tensor.RawDataIsNone():
-            if np is None:
-                self.rawData = []
-                for i in range(tensor.RawDataLength()):
-                    self.rawData.append(tensor.RawData(i))
-            else:
-                self.rawData = tensor.RawDataAsNumpy()
+            self.rawData = []
+            for i in range(tensor.RawDataLength()):
+                if tensor.RawData(i) is None:
+                    self.rawData.append(None)
+                else:
+                    alignedBytes_ = FlatBuffers.Dl.AlignedBytes.AlignedBytesT.InitFromObj(tensor.RawData(i))
+                    self.rawData.append(alignedBytes_)
         if not tensor.ExternalDataIsNone():
             self.externalData = []
             for i in range(tensor.ExternalDataLength()):
@@ -635,13 +634,10 @@ class TensorT(object):
         if self.docString is not None:
             docString = builder.CreateString(self.docString)
         if self.rawData is not None:
-            if np is not None and type(self.rawData) is np.ndarray:
-                rawData = builder.CreateNumpyVector(self.rawData)
-            else:
-                TensorStartRawDataVector(builder, len(self.rawData))
-                for i in reversed(range(len(self.rawData))):
-                    builder.PrependUint8(self.rawData[i])
-                rawData = builder.EndVector()
+            TensorStartRawDataVector(builder, len(self.rawData))
+            for i in reversed(range(len(self.rawData))):
+                self.rawData[i].Pack(builder)
+            rawData = builder.EndVector()
         if self.externalData is not None:
             externalDatalist = []
             for i in range(len(self.externalData)):

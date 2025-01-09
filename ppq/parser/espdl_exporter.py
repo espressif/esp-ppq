@@ -32,10 +32,6 @@ from .espdl.export_patterns import (
     QuantVariableToIntPattern,
     ResetParamLayoutPattern,
 )
-from .espdl.FlatBuffers.Dl.Model import ModelT
-from .espdl.FlatBuffers.Dl.Node import NodeT
-from .espdl.FlatBuffers.Dl.Tensor import TensorT
-from .espdl.FlatBuffers.Dl.ValueInfo import ValueInfoT
 from .espdl.layout_patterns import (
     reset_graph_layout,
     transpose_shape,
@@ -135,8 +131,8 @@ class EspdlExporter(GraphExporter):
                 config_path = file_base_name + ".json"
             self.export_quantization_config(config_path, graph)
 
-        model: ModelT = self.export_graph(
-            graph=graph, model_version=model_version, values_for_test=values_for_test
+        model = self.export_graph(
+            graph=graph, model_version=model_version, values_for_test=values_for_test,
         )
 
         # Export the information of quantized espdl model.
@@ -145,7 +141,7 @@ class EspdlExporter(GraphExporter):
             with open(info_file_path, "w") as file_info:
                 file_info.write(
                     helper.printable_graph(
-                        model.graph,
+                        model,
                         print_initializer_value=True,
                         print_value_info=True,
                         print_test_value=True,
@@ -237,7 +233,7 @@ class EspdlExporter(GraphExporter):
         graph: BaseGraph,
         model_version: int = 0,
         values_for_test: Dict[str, Dict[str, torch.Tensor]] = None,
-    ) -> ModelT:
+    ) -> bytes:
         """
         Convert a PPQ IR to Onnx IR.
         This export will only convert PPQ Op and var to onnx, all quantization configs will be skipped.
@@ -291,14 +287,14 @@ class EspdlExporter(GraphExporter):
         )
 
         espdl_model = helper.make_model(
-            graph=graph_def, producerName=PPQ_CONFIG.NAME, model_version=model_version
+            graph=graph_def, producerName=PPQ_CONFIG.NAME, model_version=model_version, ir_version=graph._detail.get("ir_version", ONNX_VERSION)
         )
-        espdl_model.ir_version = graph._detail.get("ir_version", ONNX_VERSION)
+
         return espdl_model
 
     def build_lut_proto(
         self, graph: BaseGraph, info: ExporterPatternInfo
-    ) -> List[TensorT]:
+    ) -> List[int]:
         """
         Convert torch.Tensor to flatbuffer.Tensor and add them to graph.
         """
@@ -313,7 +309,7 @@ class EspdlExporter(GraphExporter):
                     name=lut_name,
                     data_type=onnx_dtype,
                     dims=lut.shape,
-                    vals=lut_value.tobytes(),
+                    vals=lut_value,
                     raw=True,
                     exponents=info.get_var_exponents(lut_name),
                 )
@@ -323,7 +319,7 @@ class EspdlExporter(GraphExporter):
 
     def build_test_value_proto(
         self, values_for_test: Dict[str, Dict[str, torch.Tensor]] = None
-    ) -> Tuple[Sequence[TensorT], Sequence[TensorT]]:
+    ) -> Tuple[Sequence[int], Sequence[int]]:
         def quantize_and_transpose(var_name, tensor, pattern_info):
             perm = pattern_info.get_var_permute(var_name)
             config = pattern_info.get_var_config(var_name)
@@ -358,7 +354,7 @@ class EspdlExporter(GraphExporter):
             quant_values_for_test, pattern_info.var_exponents
         )
 
-    def build_operator_proto(self, operation: Operation) -> NodeT:
+    def build_operator_proto(self, operation: Operation) -> int:
         """
         Convert PPQ Op to Onnx Operation
         An Op consumes zero or more Tensors, and produces zero or more Tensors.
@@ -397,7 +393,7 @@ class EspdlExporter(GraphExporter):
         exponent: List[int],
         layout: str,
         perm: Union[None, List[int]] = None,
-    ) -> Union[ValueInfoT, TensorT]:
+    ) -> int:
         """
         Convert PPQ Variable to Onnx TensorProto, There are 2 different types of Tensor in Onnx:
             Variable: Represents a Tensor whose value is not known until inference-time.
@@ -439,13 +435,13 @@ class EspdlExporter(GraphExporter):
                     value = []
                 elif value.ndim >= 1:
                     value = convert_any_to_numpy(variable.value).flatten()
-                    value = value.tobytes()
                     is_raw_format = True
                 elif value.ndim == 0:  # Pytorch Scalar Type
                     value = [
                         value.item(),
                     ]  # it is fine for onnx, shape for this value will be []
                     var_shape = torch.tensor(value).shape
+                    is_raw_format = True
             else:
                 value = value  # value is python primary type.
             tensor_proto = helper.make_tensor(
@@ -455,8 +451,8 @@ class EspdlExporter(GraphExporter):
                 vals=value,
                 raw=is_raw_format,
                 exponents=var_exponents,
+                doc_string="layout ==> " + layout
             )
-            tensor_proto.docString = "layout ==> " + layout
         return tensor_proto
 
     def export_quantization_config(self, config_path: str, graph: BaseGraph):

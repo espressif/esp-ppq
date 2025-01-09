@@ -9,6 +9,7 @@ import FlatBuffers.Dl.OptionalType as OptionalType
 import FlatBuffers.Dl.SequenceType as SequenceType
 import FlatBuffers.Dl.Tensor as Tensor
 import FlatBuffers.Dl.TensorDataType as TensorDataType
+import FlatBuffers.Dl.Tensor
 
 
 class TensorDtypeMap(NamedTuple):
@@ -117,14 +118,14 @@ _NP_TYPE_TO_TENSOR_TYPE = {
 
 
 _STORAGE_TENSOR_TYPE_TO_FIELD = {
-    int(TensorDataType.TensorDataType().FLOAT): "floatData",
-    int(TensorDataType.TensorDataType().INT32): "int32Data",
-    int(TensorDataType.TensorDataType().INT64): "int64Data",
-    int(TensorDataType.TensorDataType().UINT8): "int32Data",
-    int(TensorDataType.TensorDataType().UINT16): "int32Data",
-    int(TensorDataType.TensorDataType().DOUBLE): "doubleData",
-    int(TensorDataType.TensorDataType().UINT32): "uint64Data",
-    int(TensorDataType.TensorDataType().UINT64): "uint64Data",
-    int(TensorDataType.TensorDataType().STRING): "stringData",
-    int(TensorDataType.TensorDataType().BOOL): "int32Data",
+    int(TensorDataType.TensorDataType().FLOAT): Tensor.AddFloatData,
+    int(TensorDataType.TensorDataType().INT32): Tensor.AddInt32Data,
+    int(TensorDataType.TensorDataType().INT64): Tensor.AddInt64Data,
+    int(TensorDataType.TensorDataType().UINT8): Tensor.AddInt32Data,
+    int(TensorDataType.TensorDataType().UINT16): Tensor.AddInt32Data,
+    int(TensorDataType.TensorDataType().DOUBLE): Tensor.AddDoubleData,
+    int(TensorDataType.TensorDataType().UINT32): Tensor.AddUint64Data,
+    int(TensorDataType.TensorDataType().UINT64): Tensor.AddUint64Data,
+    int(TensorDataType.TensorDataType().STRING): Tensor.AddStringData,
+    int(TensorDataType.TensorDataType().BOOL): Tensor.AddInt32Data,
 }
