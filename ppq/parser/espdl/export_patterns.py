@@ -173,7 +173,7 @@ class InsertRequantNodePattern(OperationExporter):
 
                         if (
                             source_op_output_config.num_of_bits != config.num_of_bits
-                            or scale_diff >= 1e-4
+                            or scale_diff >= 1e-5
                             or zeropoint_diff >= 1e-1
                         ):
                             # if config
