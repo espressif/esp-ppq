@@ -218,6 +218,7 @@ class EspdlQuantizer(BaseQuantizer):
             "PPQBiasFusedMatMul",
             "Split",
             "Gather",
+            "Tanh",
         }
 
     @property
