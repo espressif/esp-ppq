@@ -17,6 +17,8 @@ from typing import (
     cast,
 )
 
+import onnx
+from onnx import numpy_helper
 import flatbuffers
 import numpy as np
 from cryptography.hazmat.backends import default_backend
@@ -450,6 +452,7 @@ def make_attribute(
     attr_i = None
     attr_f = None
     attr_s = None
+    attr_t = None
     attr_ints = None
     attr_floats = None
     attr_strings = None
@@ -462,6 +465,21 @@ def make_attribute(
         # Encode strings into utf-8
         value = _to_bytes(value)
         attr_s = builder.CreateByteVector(value)
+    elif isinstance(value, onnx.TensorProto):
+        value_data = numpy_helper.to_array(value)
+        if (value.data_type >= TensorDataType.TensorDataType.UNDEFINED
+            and value.data_type <= TensorDataType.TensorDataType.UINT64):
+            attr_t = make_tensor(
+                        name = value.name,
+                        data_type = value.data_type,
+                        dims = value.dims,
+                        vals = value_data,
+                        raw = True,
+                        doc_string = value.doc_string,
+                    )
+        else:
+            raise ValueError(f"Don't support type {onnx.TensorProto.DataType.Name(value.data_type)}")
+
     # Iterable cases
     elif isinstance(value, collections.abc.Iterable):
         value = list(value)
@@ -515,6 +533,9 @@ def make_attribute(
     if attr_s is not None:
         Attribute.AddS(builder, attr_s)
         Attribute.AddAttrType(builder, AttributeType.AttributeType().STRING)
+    if attr_t is not None:
+        Attribute.AddT(builder, attr_t)
+        Attribute.AddAttrType(builder, AttributeType.AttributeType().TENSOR)
     if attr_ints is not None:
         Attribute.AddInts(builder, attr_ints)
         Attribute.AddAttrType(builder, AttributeType.AttributeType().INTS)
@@ -701,7 +722,7 @@ def printable_attribute(
         # TODO: Bit nervous about Python 2 / Python 3 determinism implications
         content.append(repr(_sanitize_str(attr.SAsNumpy().tobytes())))
     elif attr_type == AttributeType.AttributeType.TENSOR:
-        if attr.t().dimsLength() > 0:
+        if attr.T().DimsLength() > 0:
             content.append("<Tensor>")
         else:
             # special case to print scalars
