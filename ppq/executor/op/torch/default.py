@@ -297,6 +297,7 @@ def Conv_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
     # conv - 2d
     elif ndim == 4:
         process_attribute(op.attributes, values[0].shape[2:], values[1].shape[2:])
+        onnx_pads = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='pads', default=0)
         # onnx pads format[top, left, bottom, right] to torch pads format[left, right, top, bottom]
         if isinstance(onnx_pads, list) and len(onnx_pads) == 4:
             p_left, p_right, p_top, p_bottom = onnx_pads[1], onnx_pads[3], onnx_pads[0], onnx_pads[2]
