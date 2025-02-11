@@ -220,6 +220,7 @@ class EspdlQuantizer(BaseQuantizer):
             "Gather",
             "Tanh",
             "Elu",
+            "Greater",
         }
 
     @property
