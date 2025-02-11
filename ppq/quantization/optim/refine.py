@@ -413,11 +413,13 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                  concat_alignment: str = 'Align to Output',
                  pooling_alignment: str = 'None',
                  resize_alignment: str = 'None',
+                 logical_elementwise_alignment: str = 'Align to Large',
                  force_overlap: bool = False) -> None:
         self.pooling_alignment       = pooling_alignment
         self.elementwise_alignment   = elementwise_alignment
         self.concat_alignment        = concat_alignment
         self.resize_alignment        = resize_alignment
+        self.logical_elementwise_alignment  = logical_elementwise_alignment
         self.force_overlap           = force_overlap
         assert self.elementwise_alignment in {'Align to Large', 'Align to Output', 'None'}, (
             'Elementwise Alignment can only be (None), (Align to Large) or (Align to Output)')
@@ -427,6 +429,8 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             'Alignment method can only be (None), (Align to Input) or (Align to Output)')
         assert self.resize_alignment in {'Align to Output', 'None', 'Align to Input'}, (
             'concat_merge_method can only be (None), (Align to Input) or (Align to Output)')
+        assert self.logical_elementwise_alignment in {'Align to Large', 'None'}, (
+            'Logical Elementwise Alignment can only be (None) or (Align to Large)')
         super().__init__(name='PPQ Quantization Alignment Pass')
 
     def align_to_input(self, op: QuantableOperation) -> TensorQuantizationConfig:
@@ -530,7 +534,12 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     self.align_to_input(operation) # do not set master_config
                 if self.resize_alignment == 'Align to Large':
                     raise ValueError('Alignment Method Error, Resize Op can not align to lager.')
-                
+
+            elif operation.type in TYPES_FOR_ALIGNMENT['LogicalElementwise']:
+                if self.logical_elementwise_alignment == 'None': continue
+                if self.logical_elementwise_alignment == 'Align to Large':
+                    master_config = self.align_to_large(operation)
+
             elif ALIGNMENT_MANUL_OVERRIDE in operation.extension_attrib:
                 method = operation.extension_attrib[ALIGNMENT_MANUL_OVERRIDE]
                 if self.concat_alignment == 'Align to Large':
