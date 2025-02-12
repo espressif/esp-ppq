@@ -62,7 +62,7 @@ TYPES_FOR_ALIGNMENT = {
     'Elementwise': {'Add', 'Sub', 'Sum'}, 
     'Concat': {'Concat'}, 
     'Pooling': {'AveragePool', 'GlobalAveragePool'},
-    'LogicalElementwise': {'Greater'}}
+    'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'}}
 # 强制联合定点手动覆盖
 ALIGNMENT_MANUL_OVERRIDE = 'ALIGNMENT_MANUL_OVERRIDE'
 

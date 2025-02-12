@@ -221,6 +221,10 @@ class EspdlQuantizer(BaseQuantizer):
             "Tanh",
             "Elu",
             "Greater",
+            "Less",
+            "Equal",
+            "GreaterOrEqual",
+            "LessOrEqual",
         }
 
     @property
