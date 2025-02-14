@@ -46,7 +46,7 @@ QUANT_OP_SET = {
 }
 PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET | MATH_OP_SET
 CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool", "ConvTranspose", "GlobalMaxPool"}
-ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div", "And", "Equal", "Greater", "Less"}
+ADD_LIKE_OP_SET = {"Add", "Sub", "Mul", "Div", "And", "Equal", "Greater", "Less", "GreaterOrEqual", "LessOrEqual"}
 OTHER_OP_SET = {
     "MatMul",
     "Gemm",

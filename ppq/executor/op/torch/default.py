@@ -1252,6 +1252,16 @@ def Greater_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackend
     return output
 
 
+def GreaterOrEqual_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+    input_a, input_b = values
+    if input_a.dim() >= input_b.dim() or input_a.shape > input_b.shape:
+        output = torch.ge(input_a, input_b)
+    else:
+        output = torch.le(input_b, input_a)
+    return output
+
+
 def Less_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     input_a, input_b = values
@@ -1259,6 +1269,16 @@ def Less_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
         output = torch.lt(input_a, input_b)
     else:
         output = torch.gt(input_b, input_a)
+    return output
+
+
+def LessOrEqual_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+    input_a, input_b = values
+    if input_a.dim() >= input_b.dim() or input_a.shape > input_b.shape:
+        output = torch.le(input_a, input_b)
+    else:
+        output = torch.ge(input_b, input_a)
     return output
 
 
@@ -3681,10 +3701,12 @@ DEFAULT_BACKEND_TABLE = {
     'GlobalAveragePool': AveragePool_forward,
     'GlobalMaxPool': MaxPool2d_forward,
     'Greater': Greater_forward,
+    'GreaterOrEqual': GreaterOrEqual_forward,
     'LayerNorm': LayerNorm_forward, # mmdepoly op
     'LayerNormalization': LayerNorm_forward,
     'LeakyRelu': LeakyRelu_forward,
     'Less': Less_forward,
+    'LessOrEqual': LessOrEqual_forward,
     'LogSoftmax': LogSoftmax_forward,
     'MatMul': MatMul_forward,
     'Max': Eltwise_forward,
