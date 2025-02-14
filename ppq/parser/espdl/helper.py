@@ -380,8 +380,8 @@ def make_tensor(
         raise ValueError(
             f"Number of values does not match tensor's size. Expected {expected_size}, but it is {len(vals)}. "
         )
-    dims = builder.CreateNumpyVector(np.array(dims))
-    exponents = builder.CreateNumpyVector(np.array(exponents))
+    dims = builder.CreateNumpyVector(np.array(dims, dtype=np.int64))
+    exponents = builder.CreateNumpyVector(np.array(exponents, dtype=np.int64))
     if doc_string:
         doc_string = builder.CreateString(doc_string)
 
@@ -503,7 +503,7 @@ def make_attribute(
                 )
 
         if attr_type == AttributeType.AttributeType().INTS:
-            value = np.array(value).astype(int)
+            value = np.array(value, dtype=np.int64)
             attr_ints = builder.CreateNumpyVector(value)
         elif attr_type == AttributeType.AttributeType().FLOATS:
             value = np.array(value).astype(float)
@@ -622,7 +622,7 @@ def make_tensor_value_info(
     if doc_string:
         doc_string = builder.CreateString(doc_string)
     type_info = make_tensor_type_info(elem_type, shape, shape_denotation)
-    exponents = builder.CreateNumpyVector(np.array(exponents))
+    exponents = builder.CreateNumpyVector(np.array(exponents, dtype=np.int64))
     ValueInfo.Start(builder)
     ValueInfo.AddName(builder, name)
     if doc_string:
