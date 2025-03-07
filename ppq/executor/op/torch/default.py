@@ -1550,8 +1550,8 @@ def ReverseSequence_forward(op: Operation, values: List[torch.Tensor], ctx: Torc
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     input_data, sequence_lens = values
 
-    batch_axis = op.attributes.get('batch_axis', 0)
-    time_axis = op.attributes.get('time_axis', 1)
+    batch_axis = op.attributes.get('batch_axis', 1)
+    time_axis = op.attributes.get('time_axis', 0)
     
     # 获取输入张量的形状
     input_shape = list(input_data.size())
