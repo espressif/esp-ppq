@@ -4,6 +4,7 @@
 
 MAX_RECURSION_DEPTH = 5000
 import sys
+
 sys.setrecursionlimit(MAX_RECURSION_DEPTH)
 
 # Observer 中，最小 scale 限制，所有小于该值的 scale 将被该值覆盖
@@ -51,7 +52,7 @@ FORMATTER_REMOVE_ISOLATED = True
 PASSIVE_OPERATIONS = {
     'MaxPool', 'GlobalMaxPool', 'Reshape', 'Flatten', 'Identity', 'Dropout',
     'Slice', 'Pad', 'Split', 'Transpose', 'Interp', 'Squeeze', 'Unsqueeze',
-    'Gather'}
+    'Gather', 'ReverseSequence'}
 # COPUTING OP 是所有计算层，该属性被用于联合定点和子图切分
 COMPUTING_OP = {'Conv', 'Gemm', 'ConvTranspose', 'MatMul', 'Attention', 'PPQBiasFusedMatMul', 'LSTM'}
 # SOI OP 是所有产生 SOI 输出的节点类型，该属性被用于子图切分
@@ -87,6 +88,7 @@ CAFFE_DOMAIN = 'ppq.caffe'
 DEFAULT_OPSET_DOMAIN  = 'ai.onnx'
 DEFAULT_OPSET_VERSION = 11
 STRICT_OPSET_CHECKING = False
+LATEST_OPSET_VERSION = 23
 
 # LSTM 算子的权重缓存属性
 LSTM_FLATTEN_WEIGHT_ATTRIB = 'LSTM_FLATTEN_WEIGHT_ATTRIB'

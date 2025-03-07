@@ -64,6 +64,7 @@ OTHER_OP_SET = {
     "GatherND",
     "Shape",
     "ConstantOfShape",
+    "ReverseSequence",
     "Expand",
     "ReduceMean",
     "ReduceL2",

@@ -225,6 +225,8 @@ class EspdlQuantizer(BaseQuantizer):
             "Equal",
             "GreaterOrEqual",
             "LessOrEqual",
+            "ReverseSequence",
+            "Identity"
         }
 
     @property

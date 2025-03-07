@@ -1,9 +1,17 @@
 from abc import ABCMeta, abstractproperty
 from typing import Any, Dict, List
 
-from ppq.core import (CAFFE_DOMAIN, COMPUTING_OP, DEFAULT_OPSET_DOMAIN,
-                      DEFAULT_OPSET_VERSION, ONNX_DOMAIN, OperationMeta,
-                      STRICT_OPSET_CHECKING, TargetPlatform)
+from ppq.core import (
+    CAFFE_DOMAIN,
+    COMPUTING_OP,
+    DEFAULT_OPSET_DOMAIN,
+    DEFAULT_OPSET_VERSION,
+    LATEST_OPSET_VERSION,
+    ONNX_DOMAIN,
+    STRICT_OPSET_CHECKING,
+    OperationMeta,
+    TargetPlatform,
+)
 
 
 class Opset():
@@ -859,6 +867,30 @@ def Onehot_Socket(op: OperationBase) -> OpSocket:
         op=op, in_plat=in_plat[: op.num_of_input], 
         out_plat=out_plat, links=[])
 
+def ReverseSequence_Socket(op: OperationBase) -> OpSocket:
+    """
+    Inputs
+        indices (non-differentiable) : T1
+
+        depth (non-differentiable) : T2
+            
+        values (non-differentiable) : T3
+    
+    Outputs
+        output (non-differentiable) : T3
+
+    Args:
+        op (Operation): _description_
+
+    Returns:
+        OpSocket: _description_
+    """
+    CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=LATEST_OPSET_VERSION)
+    in_plat  = [TargetPlatform.UNSPECIFIED, TargetPlatform.SOI]
+    return OpSocket(
+        op=op, in_plat=in_plat[: op.num_of_input], 
+        links=[VLink(in_idx=0, out_idx=0)])
+
 
 DEFAULT_SOCKET_TABLE = {
     'AdaptiveAvgPool2d': DEFAULT_SOCKET_CREATOR,
@@ -956,5 +988,6 @@ DEFAULT_SOCKET_TABLE = {
     'Xor': Logical_Socket,
     'Or': Logical_Socket,
     'And': Logical_Socket,
-    'Erf': DEFAULT_SOCKET_CREATOR
+    'Erf': DEFAULT_SOCKET_CREATOR,
+    'ReverseSequence': ReverseSequence_Socket
 }

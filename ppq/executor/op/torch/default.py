@@ -1543,6 +1543,57 @@ def Resize_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendC
         output = F.interpolate(value, size, scale_factor, mode)
     return output
 
+def ReverseSequence_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
+    """
+    Using Gather to implement ReverseSequence
+    """
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+    input_data, sequence_lens = values
+
+    batch_axis = op.attributes.get('batch_axis', 0)
+    time_axis = op.attributes.get('time_axis', 1)
+    
+    # 获取输入张量的形状
+    input_shape = list(input_data.size())
+    seq_len = input_shape[time_axis]
+    
+    # 调整张量的维度顺序，使得 batch_axis 是第一个维度，time_axis 是第二个维度
+    # 例如，对于输入形状 (a, b, c, d)，若 batch_axis=1，time_axis=0，则调整为 (b, a, c, d)
+    perm = list(range(len(input_shape)))
+    perm[0], perm[batch_axis] = perm[batch_axis], perm[0]
+    perm[1], perm[time_axis] = perm[time_axis], perm[1]
+    input_permuted = input_data.permute(perm).contiguous()
+    
+    # 生成时间步张量
+    t = torch.arange(seq_len).to(input_permuted.device)
+    t = t.view(1, seq_len)  # 形状为 (1, seq_len)
+    
+    # 扩展 sequence_lens 为 (batch_size, 1)
+    seq_lens = sequence_lens.view(-1, 1)
+    
+    # 生成反转索引
+    reverse_index = seq_lens - 1 - t  # 形状为 (batch_size, seq_len)
+    
+    # 生成最终的索引
+    range_t = torch.arange(seq_len).view(1, -1).to(input_permuted.device)
+    indices = torch.where(range_t < seq_lens, reverse_index, range_t)
+    
+    # 调整 indices 的形状以匹配 input_permuted 的形状
+    indices_expanded = indices.view(-1, seq_len, *([1] * (len(input_shape) - 2)))
+    indices_expanded = indices_expanded.expand(-1, -1, *input_permuted.shape[2:])
+    indices_expanded
+    
+    # 使用 torch.gather 收集元素
+    output_permuted = torch.gather(input_permuted, dim=1, index=indices_expanded.long())
+    
+    # 调整输出张量的维度顺序回原始顺序
+    inv_perm = list(range(len(input_shape)))
+    inv_perm[0], inv_perm[perm[0]] = perm[0], inv_perm[0]
+    inv_perm[1], inv_perm[perm[1]] = perm[1], inv_perm[1]
+    output = output_permuted.permute(inv_perm)
+    
+    return output
+
 
 def _NMS_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
     """Filter out boxes that have high intersection-over-union (IOU) overlap
@@ -3728,6 +3779,7 @@ DEFAULT_BACKEND_TABLE = {
     'Relu': UnaryEltwise_forward,
     'Reshape': Reshape_forward,
     'Resize': Resize_forward,
+    'ReverseSequence': ReverseSequence_forward,
     'ScatterElements': ScatterElements_forward,
     'ScatterND': ScatterND_forward,
     'Shape': Shape_forward,
