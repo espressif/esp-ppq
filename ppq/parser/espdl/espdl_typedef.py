@@ -142,6 +142,8 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
         return self.luts.get(lut_name, default)
 
     def add_var_exponents(self, var_name: str, exponent: Union[int, List[int]]):
+        if isinstance(exponent, int):
+            exponent = [exponent]
         self.var_exponents[var_name] = exponent
 
     def add_var_layout(self, var_name: str, layout: LayoutAnnotation):
