@@ -226,6 +226,17 @@ class EspdlExporter(GraphExporter):
             elif not exponents:
                 logger.warning(f"{variable.name} does not bind exponents parameter")
 
+        for op in graph.topological_sort():
+            if op.type in ["Conv", "Gemm", "MatMul", "Mul"]:
+                input0_exponent = info.get_var_exponents(op.inputs[0].name)
+                input1_exponent = info.get_var_exponents(op.inputs[1].name)
+                output_exponent = info.get_var_exponents(op.outputs[0].name)
+                # By default, it is per-tensor. Currently, esp-dl does not support per-channel.
+                if (output_exponent[0] - input0_exponent[0] - input1_exponent[0]) < 0:
+                    logger.error(f"When deploying with esp-dl, the calculation result of the {op.name}(type: {op.type}) "
+                                 "operator will cause an exception. Please adjust the model to ensure "
+                                 "that (output_exponent - input0_exponent - input1_exponent) >= 0.")
+
         return graph
 
     def export_graph(

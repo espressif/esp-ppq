@@ -379,7 +379,7 @@ class QuantVariableToIntPattern(OperationExporter):
             QuantizationProperty.PER_CHANNEL
         ) and config.policy.has_property(QuantizationProperty.POWER_OF_2):
             scale = convert_any_to_numpy(config.scale)
-            exponent = np.log2(scale).astype(int)
+            exponent = np.log2(scale).astype(int).tolist()
         return exponent
 
     def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
