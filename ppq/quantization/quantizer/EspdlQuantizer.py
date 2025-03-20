@@ -21,11 +21,8 @@ from ppq.quantization.optim import QuantizationOptimizationPipeline
 from .base import BaseQuantizer
 
 
-class EspdlQuantizer(BaseQuantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+class BaseEspdlQuantizer(BaseQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 8
         self._quant_min = -128
@@ -44,6 +41,7 @@ class EspdlQuantizer(BaseQuantizer):
         num_of_bits: int,
         quant_min: int,
         quant_max: int,
+        bias_bits: int,
     ) -> OperationQuantizationConfig:
         base_quant_config = self.create_default_quant_config(
             policy=self.quantize_policy,
@@ -58,43 +56,32 @@ class EspdlQuantizer(BaseQuantizer):
 
         for index in range(operation.num_of_input):
             if not operation.inputs[index].is_parameter:
-                base_quant_config.input_quantization_config[index].detail[
-                    OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                ] = 32 * int(pow(2, num_of_bits - 1))
+                base_quant_config.input_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, num_of_bits - 1))
 
         for index in range(operation.num_of_output):
-            base_quant_config.output_quantization_config[index].detail[
-                OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-            ] = 32 * int(pow(2, num_of_bits - 1))
+            base_quant_config.output_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, num_of_bits - 1))
 
         if operation.type in {"Conv", "ConvTranspose", "Gemm"}:
             # reset num_of_bits of bias to 32 bits
-            assert (
-                operation.num_of_input > 0
-            ), "Seems you got a Conv layer with no parameters."
+            assert (operation.num_of_input > 0), "Seems you got a Conv layer with no parameters."
 
             # if operation has bias
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
-                bias_config.num_of_bits = self.bias_bits
+                bias_config.num_of_bits = bias_bits
                 bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
         elif operation.type in {"LSTM"}:
             for index in range(len(operation.inputs)):
-                if (
-                    operation.inputs[index].name is None
+                if (operation.inputs[index].name is None
                     or len(operation.inputs[index].name) == 0
                 ):
-                    base_quant_config.input_quantization_config[
-                        index
-                    ].state = QuantizationStates.FP32
+                    base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
         elif operation.type in {"Softmax"}:
             # reset output to float32
-            base_quant_config.output_quantization_config[
-                0
-            ].state = QuantizationStates.FP32
+            base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
             # Those op are not active op.
@@ -110,42 +97,22 @@ class EspdlQuantizer(BaseQuantizer):
                 tqc_index = int(re.findall(r"\d+", tqc_name)[0])
                 if "input" in tqc_name:
                     if tqc_index >= operation.num_of_input:
-                        ppq_warning(
-                            f"Your input tqc index has exceeds num_of_input({operation.num_of_input})!"
-                        )
+                        ppq_warning(f"Your input tqc index has exceeds num_of_input({operation.num_of_input})!")
                         continue
 
-                    base_quant_config.input_quantization_config[
-                        tqc_index
-                    ].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.input_quantization_config[tqc_index].quant_max = (
-                        +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    )
-                    base_quant_config.input_quantization_config[
-                        tqc_index
-                    ].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                    base_quant_config.input_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
+                    base_quant_config.input_quantization_config[tqc_index].num_of_bits = configs[tqc_name]["bit_width"]
+                    base_quant_config.input_quantization_config[tqc_index].quant_max = (+int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1)
+                    base_quant_config.input_quantization_config[tqc_index].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
+                    base_quant_config.input_quantization_config[tqc_index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
                 elif "output" in tqc_name:
                     if tqc_index >= operation.num_of_output:
-                        ppq_warning(
-                            f"Your output tqc index has exceeds num_of_output({operation.num_of_output})!"
-                        )
+                        ppq_warning(f"Your output tqc index has exceeds num_of_output({operation.num_of_output})!")
                         continue
 
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].quant_max = +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    base_quant_config.output_quantization_config[
-                        tqc_index
-                    ].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                    base_quant_config.output_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
+                    base_quant_config.output_quantization_config[tqc_index].num_of_bits = configs[tqc_name]["bit_width"]
+                    base_quant_config.output_quantization_config[tqc_index].quant_max = +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
+                    base_quant_config.output_quantization_config[tqc_index].quant_min = -int(pow(2, configs[tqc_name]["bit_width"] - 1))
+                    base_quant_config.output_quantization_config[tqc_index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
 
         return base_quant_config
 
@@ -154,18 +121,26 @@ class EspdlQuantizer(BaseQuantizer):
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16:
+        elif (operation.platform == TargetPlatform.ESPDL_INT8 or operation.platform == TargetPlatform.ESPDL_S3_INT8):
+            num_of_bits = 8
+            quant_min = -128
+            quant_max = 127
+        elif (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16
+              or operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
             num_of_bits = 16
             quant_min = -32768
             quant_max = 32767
         else:
-            raise KeyError(
-                f"EspdlQuantizer do not support operation platform : {operation.platform}."
-            )
+            raise KeyError(f"EspdlQuantizer do not support operation platform : {operation.platform}.")
 
-        return self.create_espdl_quant_config(
-            operation, num_of_bits, quant_min, quant_max
-        )
+        bias_bits = 32
+        if operation.platform == TargetPlatform.ESPDL_S3_INT8:
+            bias_bits = 20
+        elif (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16
+              or operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
+            bias_bits = 40
+
+        return self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
 
     @property
     def target_platform(self) -> TargetPlatform:
@@ -174,10 +149,6 @@ class EspdlQuantizer(BaseQuantizer):
     @property
     def default_platform(self) -> TargetPlatform:
         return TargetPlatform.FP32
-
-    @property
-    def bias_bits(self):
-        return 32
 
     @property
     def quant_operation_types(self) -> set:
@@ -276,11 +247,15 @@ class EspdlQuantizer(BaseQuantizer):
         self._custom_tqc = custom_op_tqc
 
 
-class EspdlInt16Quantizer(EspdlQuantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+
+class EspdlQuantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
+        super().__init__(graph=graph)
+
+
+
+class EspdlInt16Quantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 16
         self._quant_min = -32768
@@ -291,30 +266,10 @@ class EspdlInt16Quantizer(EspdlQuantizer):
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_INT16
 
-    def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
-        if operation.platform == self.target_platform:
-            num_of_bits = self._num_of_bits
-            quant_min = self._quant_min
-            quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_INT8:
-            num_of_bits = 8
-            quant_min = -128
-            quant_max = 127
-        else:
-            raise KeyError(
-                f"EspdlQuantizer do not support operation platform : {operation.platform}."
-            )
-
-        return self.create_espdl_quant_config(
-            operation, num_of_bits, quant_min, quant_max
-        )
 
 
 class EspdlHPreInt16Quantizer(EspdlInt16Quantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
 
     @property
@@ -322,34 +277,10 @@ class EspdlHPreInt16Quantizer(EspdlInt16Quantizer):
         return TargetPlatform.ESPDL_H_PRE_INT16
 
 
-class EspdlS3Quantizer(EspdlQuantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+
+class EspdlS3Quantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
-        self._num_of_bits = 8
-        self._quant_min = -128
-        self._quant_max = +127
-        self._custom_tqc = None
-
-    def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
-        if operation.platform == self.target_platform:
-            num_of_bits = self._num_of_bits
-            quant_min = self._quant_min
-            quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16:
-            num_of_bits = 16
-            quant_min = -32768
-            quant_max = 32767
-        else:
-            raise KeyError(
-                f"EspdlQuantizer do not support operation platform : {operation.platform}."
-            )
-
-        return self.create_espdl_quant_config(
-            operation, num_of_bits, quant_min, quant_max
-        )
 
     @property
     def target_platform(self) -> TargetPlatform:
@@ -359,39 +290,15 @@ class EspdlS3Quantizer(EspdlQuantizer):
     def rounding_policy(self):
         return RoundingPolicy.ROUND_HALF_UP
 
-    @property
-    def bias_bits(self):
-        return 20
 
 
-class EspdlS3Int16Quantizer(EspdlQuantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+class EspdlS3Int16Quantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 16
         self._quant_min = -32768
         self._quant_max = +32767
         self._custom_tqc = None
-
-    def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
-        if operation.platform == self.target_platform:
-            num_of_bits = self._num_of_bits
-            quant_min = self._quant_min
-            quant_max = self._quant_max
-        elif operation.platform == TargetPlatform.ESPDL_S3_INT8:
-            num_of_bits = 8
-            quant_min = -128
-            quant_max = 127
-        else:
-            raise KeyError(
-                f"EspdlQuantizer do not support operation platform : {operation.platform}."
-            )
-
-        return self.create_espdl_quant_config(
-            operation, num_of_bits, quant_min, quant_max
-        )
 
     @property
     def target_platform(self) -> TargetPlatform:
@@ -402,11 +309,9 @@ class EspdlS3Int16Quantizer(EspdlQuantizer):
         return RoundingPolicy.ROUND_HALF_UP
 
 
+
 class EspdlS3HPreInt16Quantizer(EspdlS3Int16Quantizer):
-    def __init__(
-        self,
-        graph: BaseGraph,
-    ) -> Union[torch.Tensor, list, dict]:
+    def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
 
     @property

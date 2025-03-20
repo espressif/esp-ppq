@@ -424,7 +424,7 @@ policy 属性用于描述量化的规则，一个完整的量化策略是由多�
 
 quant_min, quant_max 分别由 TQC.quant_min, TQC.quant_max 属性确定，对于线性量化而言他们是整数，通常为[-128, 127]。部分框架使用 [-127, 127] 作为截断值，在部分场景下如此定义将有优势，但在 Onnx 的 Q/DQ 算子定义中不允许使用 [-127, 127] 作为截断。
 
-PPQ 可以模拟 1-32 bit 的任意位宽量化，但若以部署为目的，不建议使用 8 bit 之外的配置。用户须知高位宽量化可能造成 Scale 过小，以至于浮点下溢出。
+PPQ 可以模拟 1-64 bit 的任意位宽量化，但若以部署为目的，不建议使用 8 bit 之外的配置。用户须知高位宽量化可能造成 Scale 过小，以至于浮点下溢出。
 
 ### 3. 浮点量化与相关属性
 
@@ -547,7 +547,7 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
 
             rounding (RoundingPolicy): Rounding policy used in quantization.
 
-            num_of_bits (int): Quantization fraction bits. (2 < num_of_bits < 32)
+            num_of_bits (int): Quantization fraction bits. (2 < num_of_bits < 64)
             
             exponent_bits (int): Quantization exponent bits. (0 < num_of_bits < 8)
                 For Int8 Quantization, num_of_bits = 8 and exponent_bits = 0
@@ -584,7 +584,7 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
                 Defaults to QuantizationStates.INITIAL, see QuantizationStates for more detail.
         """
 
-        assert num_of_bits <= 32, 'Cannot quantize a tensor with more than 32 bits.'
+        assert num_of_bits <= 64, 'Cannot quantize a tensor with more than 64 bits.'
         assert num_of_bits >= 2, 'Cannot quantize a tensor with less than 2 bits.'
         assert exponent_bits <= 8, 'Cannot quantize a tensor with more than 8 bits exponent(fp32 overflow).'
         assert exponent_bits >= 0, 'Cannot quantize a tensor with less than 0 bits exponent.'

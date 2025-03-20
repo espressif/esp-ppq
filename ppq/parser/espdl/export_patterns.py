@@ -428,7 +428,10 @@ class QuantVariableToIntPattern(OperationExporter):
                     config.state = QuantizationStates.PASSIVE
 
                 if config.policy.has_property(QuantizationProperty.LINEAR):
-                    var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
+                    if ((op.platform == TargetPlatform.ESPDL_H_PRE_INT16 or op.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16) and config.num_of_bits >= 16):
+                        var.value = PPQLinearQuant_toInt(tensor=var.value.type(dtype=torch.float64), config=config)
+                    else:
+                        var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
             elif not var.is_parameter:
                 if config.policy.has_property(QuantizationProperty.LINEAR):
                     quant_type = op.attributes.get("quant_type", None)
