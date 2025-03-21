@@ -39,6 +39,9 @@ class RunnableGraph(GraphCommandProcessor):
         elif command.command_type == GraphCommandType.DEPLOY_TO_NUMPY:
             return self.retrieve()
 
+        elif command.command_type == GraphCommandType.DEPLOY_TO_MPS:
+            return self.deploy('mps')
+
     def __enter__(self):
         self.deploy(self._device)
 
@@ -49,7 +52,8 @@ class RunnableGraph(GraphCommandProcessor):
         return [
             GraphCommandType.DEPLOY_TO_CPU,
             GraphCommandType.DEPLOY_TO_CUDA,
-            GraphCommandType.DEPLOY_TO_NUMPY
+            GraphCommandType.DEPLOY_TO_NUMPY,
+            GraphCommandType.DEPLOY_TO_MPS
         ]
 
     def retrieve(self):

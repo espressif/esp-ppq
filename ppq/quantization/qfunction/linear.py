@@ -255,11 +255,6 @@ def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig)
     if not config.policy.has_property(QuantizationProperty.LINEAR):
         raise ValueError('Critical Quantization Error! Non-linear config detected.')
 
-    if config.num_of_bits < 16:
-        tensor = tensor.type(dtype=torch.float32)
-    elif config.num_of_bits >= 16:
-        tensor = tensor.type(dtype=torch.float64)
-
     if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
         shape = [1 if axis != config.channel_axis else -1 for axis in range(tensor.ndim)]
         scale, offset = config.scale.view(shape), config.offset.view(shape)
@@ -279,6 +274,14 @@ def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig)
             return tensor.type(dtype=torch.int16)
         if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
             return tensor.type(dtype=torch.uint16)
-    elif config.num_of_bits > 16:
-        return tensor.type(dtype=torch.int32)
+    elif config.num_of_bits > 16 and config.num_of_bits <= 32:
+        if config.policy.has_property(QuantizationProperty.SYMMETRICAL):
+            return tensor.type(dtype=torch.int32)
+        if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+            return tensor.type(dtype=torch.uint32)
+    elif config.num_of_bits > 32 and config.num_of_bits <= 64:
+        if config.policy.has_property(QuantizationProperty.SYMMETRICAL):
+            return tensor.type(dtype=torch.int64)
+        if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
+            return tensor.type(dtype=torch.uint64)
     else: raise Exception('Do not konw how to convert value into int. num of bits is unexpected.')
