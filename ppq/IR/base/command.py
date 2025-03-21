@@ -21,6 +21,10 @@ class GraphCommandType(Enum):
     # deploy graph weights to CPU, in array format
     DEPLOY_TO_NUMPY = 3
 
+    # 图上权重部署到 MAC MPS(tensor)，由 RunnableGraph 进行处理
+    # deploy graph weights to MAC MPS, in tensor format
+    DEPLOY_TO_MPS = 4
+
     # 量化一个指定OP，同时将所有关联的 variable 转换为量化 variable
     # quantize a specified operation, and converts all connected
     # variables to quantable variables
@@ -128,6 +132,8 @@ class GraphDeployCommand(GraphCommand):
             super().__init__(GraphCommandType.DEPLOY_TO_CUDA)
         elif device.startswith('cpu'):
             super().__init__(GraphCommandType.DEPLOY_TO_CPU)
+        elif device.startswith('mps'):
+            super().__init__(GraphCommandType.DEPLOY_TO_MPS)
         else:
             raise ValueError(f'Device type {device} not understand.')
         self._device = device
