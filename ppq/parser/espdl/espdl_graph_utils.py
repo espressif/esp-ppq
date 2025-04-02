@@ -78,7 +78,6 @@ def insert_transpose_node(
             new_var.dtype = var.dtype
 
             info = ExporterPatternInfo()
-            perm = get_default_perm(created.outputs[0])
             info.add_var_permute(
                 created.outputs[0].name, get_default_perm(created.outputs[0])
             )
