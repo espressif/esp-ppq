@@ -272,44 +272,45 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
                                             var = op.inputs[1],
                                             op = op,
                                             perm = list(range(len(input1.shape) - 2)) + [-1, -2])
-                insert_slice_node(graph = graph, 
-                                var = op.inputs[1],
-                                op = op, 
-                                starts = [0] * len(input1.shape),
-                                ends = input1.shape[:-2] + [aligned_len, c],
-                                axes = list(range(len(input1.shape))),
-                                steps = [1] * len(input1.shape))
-                insert_reshape_node(graph = graph,
-                                var = op.inputs[1],
-                                op = op,
-                                shape = input1.shape[:-2] + [n // align, align, c])
-                insert_transpose_node(graph = graph,
+                if aligned_len > 0:
+                    insert_slice_node(graph = graph, 
+                                    var = op.inputs[1],
+                                    op = op, 
+                                    starts = [0] * len(input1.shape),
+                                    ends = input1.shape[:-2] + [aligned_len, c],
+                                    axes = list(range(len(input1.shape))),
+                                    steps = [1] * len(input1.shape))
+                    insert_reshape_node(graph = graph,
                                     var = op.inputs[1],
                                     op = op,
-                                    perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
-                insert_reshape_node(graph = graph,
-                                var = op.inputs[1],
-                                op = op,
-                                shape = input1.shape[:-2] + [aligned_len, c])
-                # concat align and unalign
-                concat_op = insert_concat_node(graph = graph,
-                                            insert_op_var = op.inputs[1],
-                                            insert_op = op,
-                                            link_vars = [trans_op.outputs[0]], 
-                                            link_vars_src_op = [trans_op],
-                                            axis = -2)
-                # insert unalign
-                insert_slice_node(graph = graph,
-                                var = concat_op.inputs[1],
-                                op = concat_op,
-                                starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
-                                ends = input1.shape[:-2] + [input1_n_size, c],
-                                axes = list(range(len(input1.shape))),
-                                steps = [1] * len(input1.shape))
-                concat_axis = concat_op.attributes["axis"]
-                concat_op.outputs[0].shape[concat_axis] = 0
-                for input in concat_op.inputs:
-                    concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+                                    shape = input1.shape[:-2] + [n // align, align, c])
+                    insert_transpose_node(graph = graph,
+                                        var = op.inputs[1],
+                                        op = op,
+                                        perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
+                    insert_reshape_node(graph = graph,
+                                    var = op.inputs[1],
+                                    op = op,
+                                    shape = input1.shape[:-2] + [aligned_len, c])
+                    # concat align and unalign
+                    concat_op = insert_concat_node(graph = graph,
+                                                insert_op_var = op.inputs[1],
+                                                insert_op = op,
+                                                link_vars = [trans_op.outputs[0]], 
+                                                link_vars_src_op = [trans_op],
+                                                axis = -2)
+                    # insert unalign
+                    insert_slice_node(graph = graph,
+                                    var = concat_op.inputs[1],
+                                    op = concat_op,
+                                    starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
+                                    ends = input1.shape[:-2] + [input1_n_size, c],
+                                    axes = list(range(len(input1.shape))),
+                                    steps = [1] * len(input1.shape))
+                    concat_axis = concat_op.attributes["axis"]
+                    concat_op.outputs[0].shape[concat_axis] = 0
+                    for input in concat_op.inputs:
+                        concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
 
                 insert_reshape_node(graph = graph,
                                 var = op.inputs[1],
