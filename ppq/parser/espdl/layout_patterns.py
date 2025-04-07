@@ -1,6 +1,8 @@
 from typing import List
-
+import torch
+import numpy as np
 from ppq.core import (
+    DataType,
     OperationQuantizationConfig,
 )
 from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
@@ -209,76 +211,131 @@ class ResetResizePattern(OperationExporter):
         if op.type in ["Resize"]:
             info = ExporterPatternInfo()
             input_var = op.inputs[0]
-            if len(op.inputs) > 1:
-                roi = op.inputs[1]
+            input_shape_orig = input_var.shape
+            perm = None
+            if len(input_shape_orig) == 4:      # 2d, NCHW -> NHWC
+                perm = [0, 2, 3, 1]
+            elif len(input_shape_orig) == 3:    # 1d, NCW -> NWC
+                perm = [0, 2, 1]
             else:
-                roi = None
-            
-            if len(op.inputs) > 2:
-                scales = op.inputs[2]
-            else:
-                scales = None
-            
-            if len(op.inputs) > 3:
-                sizes = op.inputs[3]
-            else:
-                sizes = None
-            
-            for var in op.inputs[1:]:
-                perm = info.get_var_permute(var.name, get_default_perm(var))
+                logger.error(f"Reize: do not support shape for {input_shape_orig}")
 
             input_perm = info.get_var_permute(input_var.name)
-            output_var = op.outputs[0]
-
             if input_perm:
-                for var in op.inputs[1:]:
-                    if var:
-                        info.add_var_permute(var.name, get_default_perm(var))
-                info.add_var_permute(output_var.name, input_perm)
-                # axes = op.attributes["axis"]
-                # if axes:
-                #     new_axes = [input_perm.index(i) for i in axes]
-                #     op.attributes["axis"] = new_axes
-                #     logger.debug(f"resize axes from {axes} to {new_axes} ")
-                # else:
-                #     if scales:
-                #         values = scales.tolist()
-                #         new_values = [
-                #             values[input_perm[int(i)]] for i in range(len(values))
-                #         ]
-                #         scales.value = torch.Tensor(new_values, dtype=torch.int32)
-                #         logger.debug(
-                #             f"{op.name} reset scales from {values} to {new_values} "
-                #         )
-                #     if sizes:
-                #         values = sizes.tolist()
-                #         new_values = [
-                #             values[input_perm[int(i)]] for i in range(len(values))
-                #         ]
-                #         sizes.value = torch.Tensor(new_values, dtype=torch.int32)
-                #         logger.debug(
-                #             f"{op.name} reset sizes from {values} to {new_values} "
-                #         )
-                #     if roi:
-                #         values = sizes.tolist()
-                #         new_values = []
-                #         for i in range(len(values) / 2):
-                #             new_values.append(values[input_perm[int(i)] * 2])
-                #             new_values.append(values[input_perm[int(i)] * 2 + 1])
-                #         roi.value = torch.Tensor(new_values, dtype=torch.int32)
-                #         logger.debug(
-                #             f"{op.name} reset sizes from {values} to {new_values} "
-                #         )
+                if perm != input_perm:
+                    # There is already a permute, but it does not match the Reize layout.
+                    # A transpose node needs to be inserted into the graph.
+                    inverse_perm = get_inverse_transpose(input_perm)
+                    new_perm = transpose_shape(inverse_perm, perm)
+                    insert_transpose_node(graph, input_var, op, new_perm)
             else:
-                if len(input_var.shape) == 4:  # conv2d, NCHW -> NHWC
-                    perm = [0, 2, 3, 1]
-                elif len(input_var.shape) == 3:  # conv1d, NCW -> NWC
-                    perm = [0, 2, 1]
-                else:
-                    logger.error(f"Reize: do not support shape for {input_var.shape}")
-                
                 info.add_var_permute(input_var.name, perm)
-                info.add_var_permute(output_var.name, perm)
+
+            # Get roi
+            roi_var = op.inputs[1]
+            if not roi_var.name or roi_var.value.numel() == 0:
+                roi_var = None
+
+            # Get scales
+            scales_var = op.inputs[2]
+            if not scales_var.name:
+                scales_var = None
+
+            # Get sizes
+            if len(op.inputs) > 3:
+                sizes_var = op.inputs[3]
+            else:
+                sizes_var = None
+
+            if (scales_var is None and sizes_var is None):
+                raise ValueError("scales_var is None and sizes_var is None.")
+
+            rank = len(input_shape_orig)
+            axes = op.attributes.get("axes", None)
+
+            # Adjust roi, scales, and sizes to the same dimensions as input.
+            # But the data arrangement is still in NCHW or NCW format.
+            if axes is not None:
+                # Adjust roi parameters
+                if roi_var is not None:
+                    new_roi_value = ([0.0] * rank) + ([1.0] * rank)
+                    naxes = len(axes)
+                    for i, d in enumerate(axes):
+                        new_roi_value[d] = roi_var.value[i]
+                        new_roi_value[rank + d] = roi_var.value[naxes + i]
+                    roi_var.value = torch.tensor(new_roi_value).type(roi_var.dtype.to_torch())
+                    roi_var.shape = roi_var.value.shape
+
+                # Adjust scales parameters
+                if scales_var is not None:
+                    new_scales_value = [1.0] * rank
+                    for i, d in enumerate(axes):
+                        new_scales_value[d] = scales_var.value[i]
+                    scales_var.value = torch.tensor(new_scales_value).type(scales_var.dtype.to_torch())
+                    scales_var.shape = scales_var.value.shape
+
+                # Adjust sizes parameters
+                if sizes_var is not None:
+                    new_sizes_value = [input_shape_orig[i] for i in range(rank)]
+                    for i, d in enumerate(axes):
+                        new_sizes_value[d] = sizes_var.value[i]
+                    sizes_var.value = torch.tensor(new_sizes_value).type(sizes_var.dtype.to_torch())
+                    sizes_var.shape = sizes_var.value.shape
+
+            else:
+                axes = list(range(rank))
+
+            # Adjust scales and sizes according to keep_aspect_ratio_policy.
+            # This attribute describes how to interpret the sizes input with regard to keeping the original 
+            # aspect ratio of the input, and it is not applicable when the scales input is used.
+            keep_aspect_ratio_policy = op.attributes.get("keep_aspect_ratio_policy", None)
+            if sizes_var is not None:
+                scale_factors = [sizes_var.value[i] / input_shape_orig[i] for i in range(rank)]
+                if keep_aspect_ratio_policy and keep_aspect_ratio_policy != "stretch":
+                    if keep_aspect_ratio_policy == "not_larger":
+                        scale = np.array(scale_factors)[axes].min()
+                    elif keep_aspect_ratio_policy == "not_smaller":
+                        scale = np.array(scale_factors)[axes].max()
+                    else:
+                        raise ValueError(
+                            f"Invalid keep_aspect_ratio_policy={keep_aspect_ratio_policy!r}"
+                        )
+
+                    scale_factors = [scale if i in axes else 1.0 for i in range(rank)]
+
+                    def round_half_up(x: float) -> int:
+                        return int(x + 0.5)
+
+                    output_size = [
+                        round_half_up(scale * input_shape_orig[i]) if i in axes else input_shape_orig[i]
+                        for i in range(rank)
+                    ]
+
+                scales_var.value = torch.tensor(scale_factors).type(scales_var.dtype.to_torch())
+            else:
+                output_size = (scales_var.value * torch.tensor(input_shape_orig)).type(torch.int64)  # type: ignore[union-attr]
+
+            if sizes_var:
+                sizes_var.value = torch.tensor(output_size).type(sizes_var.dtype.to_torch())
+
+            # Align the data arrangement of the parameters with that of the input.
+            # if perm:
+            #     if roi_var is not None:
+            #         roi_value_1 = torch.tensor(transpose_shape(roi_var.value[0:rank], perm)).type(dtype=DataType.to_torch(roi_var.dtype))
+            #         roi_value_2 = torch.tensor(transpose_shape(roi_var.value[rank:], perm)).type(dtype=DataType.to_torch(roi_var.dtype))
+            #         roi_var.value = torch.cat((roi_value_1, roi_value_2))
+            #         roi_var.shape = roi_var.value.shape
+            #     if scales_var is not None:
+            #         scales_var.value = torch.tensor(transpose_shape(scales_var.value, perm)).type(dtype=DataType.to_torch(scales_var.dtype))
+            #         scales_var.shape = scales_var.value.shape
+            #     if sizes_var is not None:
+            #         sizes_var.value = torch.tensor(transpose_shape(sizes_var.value, perm)).type(dtype=DataType.to_torch(sizes_var.dtype))
+            #         sizes_var.shape = sizes_var.value.shape
+
+            for var in op.inputs[1:]:
+                if var:
+                    info.add_var_permute(var.name, get_default_perm(var))
+            info.add_var_permute(op.outputs[0].name, perm)
 
         return op
 
