@@ -630,7 +630,8 @@ class AddLUTPattern(OperationExporter):
             for op_input in op.inputs[1:]:
                 inputs.append(op_input.value * self.get_scale(op_input, info))
         output = operation_forward_func(op, inputs)
-        lut = PPQLinearQuant_toInt(output, op.output_quant_config[0])
+        device = op.output_quant_config[0].scale.device
+        lut = PPQLinearQuant_toInt(output.to(device), op.output_quant_config[0])
 
         return lut
 
