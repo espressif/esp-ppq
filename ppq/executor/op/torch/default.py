@@ -1506,11 +1506,11 @@ def Resize_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendC
             if len(scale_factor) == 2:
                 # 大家相安无事，和平共处
                 pass
-            elif len(scale_factor) == 4:
+            elif len(scale_factor) == 4 or len(scale_factor) == 3:
                 if scale_factor[:2] != [1, 1]:
                     raise NotImplementedError(
                         'Can not resize your image with current op, '
-                        'cause 4-dimension resize is not implemented with pytorch.')
+                        'cause 4-dimension or 3-dimension resize is not implemented with pytorch.')
                 scale_factor = scale_factor[2:]
             else:
                 raise NotImplementedError(

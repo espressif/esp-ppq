@@ -310,13 +310,16 @@ class ResetResizePattern(OperationExporter):
                         round_half_up(scale * input_shape_orig[i]) if i in axes else input_shape_orig[i]
                         for i in range(rank)
                     ]
+                else:
+                    output_size = sizes_var.value.tolist()
 
-                scales_var.value = torch.tensor(scale_factors).type(scales_var.dtype.to_torch())
+                if scales_var:
+                    scales_var.value = torch.tensor(scale_factors).type(dtype=DataType.to_torch(scales_var.dtype))
             else:
                 output_size = (scales_var.value * torch.tensor(input_shape_orig)).type(torch.int64)  # type: ignore[union-attr]
 
             if sizes_var:
-                sizes_var.value = torch.tensor(output_size).type(sizes_var.dtype.to_torch())
+                sizes_var.value = torch.tensor(output_size).type(dtype=DataType.to_torch(sizes_var.dtype))
 
             # Align the data arrangement of the parameters with that of the input.
             # if perm:
