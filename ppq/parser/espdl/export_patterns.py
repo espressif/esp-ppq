@@ -448,55 +448,100 @@ class QuantVariableToIntPattern(OperationExporter):
 
 class ResetParamLayoutPattern(OperationExporter):
     def reset_conv_filter_layout(self, tensor, quant_type, group=None):
-        if len(tensor.shape) != 4:
+        aligned_tensor = tensor
+        layout = LayoutAnnotation.NCHW
+
+        if len(tensor.shape) != 3 and len(tensor.shape) != 4:
             logger.error(
-                f"Conv filter should be 4D tensor, but got {len(tensor.shape)}D tensor."
+                f"Conv filter don't support {len(tensor.shape)}D tensor."
             )
-            return tensor, LayoutAnnotation.NCHW
+            return aligned_tensor, layout
 
-        n, c, h, w = (
-            tensor.shape
-        )  # n denotes output channels, c denotes input channels,
-        tensor = tensor.permute(0, 2, 3, 1)  # NCHW -> NHWC
+        if len(tensor.shape) == 3:
+            n, c, w = tensor.shape  # n denotes output channels, c denotes input channels,
+            tensor = tensor.permute(0, 2, 1)  # NCW -> NWC
+            align = 16 if quant_type == EspQuantType.S8 else 8
+            aligned_len = n // align * align
+            aligned_tensor = tensor[0:aligned_len, ...]
+            aligned_tensor = aligned_tensor.reshape(
+                n // align, align, w, c
+            )  # NWC -> (N/align,align)WC
+            # (N/align,align)WC -> (N/align)WC(align)
+            aligned_tensor = aligned_tensor.permute(0, 2, 3, 1)
+            # (N/align)WC(align) -> (aligned_len)WC
+            aligned_tensor = aligned_tensor.reshape(aligned_len, w, c)
 
-        align = 16 if quant_type == EspQuantType.S8 else 8
-        aligned_len = n // align * align
-        aligned_tensor = tensor[0:aligned_len, ...]
-        aligned_tensor = aligned_tensor.reshape(
-            n // align, align, h, w, c
-        )  # NHWC -> (N/align,align)HWC
-        # (N/align,align)HWC -> (N/align)HWC(align)
-        aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)
-        # (N/align)HWC(align) -> (aligned_len)HWC
-        aligned_tensor = aligned_tensor.reshape(aligned_len, h, w, c)
+            if n % align != 0:
+                unaligned_tensor = tensor[aligned_len:n, ...]  # NWC
+                if group == 1 or group == None:
+                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                else:
+                    n_remain = n - aligned_len
+                    unaligned_tensor = unaligned_tensor.permute(2, 1, 0)  # depthwise unaligned: NWC -> CWN
+                    unaligned_tensor = unaligned_tensor.reshape(n_remain, w, c)
+                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
 
-        if n % align != 0:
-            unaligned_tensor = tensor[aligned_len:n, ...]  # NHWC
+                if align == 16:
+                    layout = LayoutAnnotation.N16WC16_UNALIGNED
+                else:
+                    layout = LayoutAnnotation.N8WC8_UNALIGNED
+            else:
+                if align == 16:
+                    layout = LayoutAnnotation.N16WC16
+                else:
+                    layout = LayoutAnnotation.N8WC8
+
+            # TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
             if group == 1 or group == None:
-                aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                aligned_tensor = aligned_tensor.reshape(w, c, n)  # reshape to WCN
             else:
-                n_remain = n - aligned_len
-                unaligned_tensor = unaligned_tensor.permute(
-                    3, 1, 2, 0
-                )  # depthwise unaligned: NHWC -> CHWN
-                unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
-                aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                aligned_tensor = aligned_tensor.reshape(w, n, c)  # reshape to WNC
 
-            if align == 16:
-                layout = LayoutAnnotation.N16HWC16_UNALIGNED
-            else:
-                layout = LayoutAnnotation.N8HWC8_UNALIGNED
-        else:
-            if align == 16:
-                layout = LayoutAnnotation.N16HWC16
-            else:
-                layout = LayoutAnnotation.N8HWC8
+        elif len(tensor.shape) == 4:
+            n, c, h, w = (
+                tensor.shape
+            )  # n denotes output channels, c denotes input channels,
+            tensor = tensor.permute(0, 2, 3, 1)  # NCHW -> NHWC
 
-        # TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
-        if group == 1 or group == None:
-            aligned_tensor = aligned_tensor.reshape(h, w, c, n)  # reshape to HWCN
-        else:
-            aligned_tensor = aligned_tensor.reshape(h, w, n, c)  # reshape to HWNC
+            align = 16 if quant_type == EspQuantType.S8 else 8
+            aligned_len = n // align * align
+            aligned_tensor = tensor[0:aligned_len, ...]
+            aligned_tensor = aligned_tensor.reshape(
+                n // align, align, h, w, c
+            )  # NHWC -> (N/align,align)HWC
+            # (N/align,align)HWC -> (N/align)HWC(align)
+            aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)
+            # (N/align)HWC(align) -> (aligned_len)HWC
+            aligned_tensor = aligned_tensor.reshape(aligned_len, h, w, c)
+
+            if n % align != 0:
+                unaligned_tensor = tensor[aligned_len:n, ...]  # NHWC
+                if group == 1 or group == None:
+                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                else:
+                    n_remain = n - aligned_len
+                    unaligned_tensor = unaligned_tensor.permute(
+                        3, 1, 2, 0
+                    )  # depthwise unaligned: NHWC -> CHWN
+                    unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
+                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+
+                if align == 16:
+                    layout = LayoutAnnotation.N16HWC16_UNALIGNED
+                else:
+                    layout = LayoutAnnotation.N8HWC8_UNALIGNED
+            else:
+                if align == 16:
+                    layout = LayoutAnnotation.N16HWC16
+                else:
+                    layout = LayoutAnnotation.N8HWC8
+
+            # TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
+            if group == 1 or group == None:
+                aligned_tensor = aligned_tensor.reshape(h, w, c, n)  # reshape to HWCN
+            else:
+                aligned_tensor = aligned_tensor.reshape(h, w, n, c)  # reshape to HWNC
+
         return aligned_tensor, layout
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
@@ -516,7 +561,7 @@ class ResetParamLayoutPattern(OperationExporter):
                     continue
 
                 tensor = var.value
-                if len(tensor.shape) == 4:  # Conv2d Filter
+                if len(tensor.shape) == 3 or len(tensor.shape) == 4:  # Conv1d/Conv2d Filter
                     group = op.attributes.get("group", None)
                     aligned_tensor, layout = self.reset_conv_filter_layout(
                         tensor, quant_type, group
