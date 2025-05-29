@@ -46,6 +46,7 @@ import FlatBuffers.Dl.TypeInfo as TypeInfo
 import FlatBuffers.Dl.TypeInfoValue as TypeInfoValue
 import FlatBuffers.Dl.ValueInfo as ValueInfo
 import FlatBuffers.Dl.AlignedBytes as AlignedBytes
+import FlatBuffers.Dl.StringStringEntry as StringStringEntry
 import mapping as mapping
 
 global_fbs_builder = None
@@ -272,6 +273,27 @@ def make_graph(
     return Graph.End(builder)
 
 
+def make_metadata_props(metadata_props: Dict[str, str]) -> Sequence[int]:
+    """Construct a StringStringEntry
+
+    Args:
+        metadata_props (Dict[str, str]): the key/value of metadata_props
+    Returns:
+        StringStringEntry fbs offset
+    """
+    builder = get_global_fbs_builder()
+    _metadata_props = []
+    if metadata_props:
+        for k, v in metadata_props.items():
+            k_offset = builder.CreateString(k)
+            v_offset = builder.CreateString(v)
+            StringStringEntry.Start(builder)
+            StringStringEntry.AddKey(builder, k_offset)
+            StringStringEntry.AddValue(builder, v_offset)
+            _metadata_props.append(StringStringEntry.End(builder))
+    return _metadata_props
+
+
 def make_model(graph: int, **kwargs: Any) -> bytes:
     """Construct a Model
 
@@ -316,6 +338,13 @@ def make_model(graph: int, **kwargs: Any) -> bytes:
     if doc_string:
         doc_string = builder.CreateString(doc_string)
 
+    metadata_props = kwargs.pop("metadata_props", None)
+    if metadata_props:
+        Model.StartMetadataPropsVector(builder, len(metadata_props))
+        for i in reversed(metadata_props):
+            builder.PrependUOffsetTRelative(i)
+        metadata_props = builder.EndVector()
+
     Model.Start(builder)
     Model.AddGraph(builder, graph)
     Model.AddOpsetImport(builder, opset_imports)
@@ -335,6 +364,8 @@ def make_model(graph: int, **kwargs: Any) -> bytes:
         Model.AddModelVersion(builder, model_version)
     if doc_string:
         Model.AddDocString(builder, doc_string)
+    if metadata_props:
+        Model.AddMetadataProps(builder, metadata_props)
     model = Model.End(builder)
     builder.Finish(model)
     model_data = builder.Output()
@@ -875,6 +906,17 @@ def printable_node(
     return prefix + " ".join(content)
 
 
+def printable_model_properties(model: Model.Model) -> str:
+    s = ""
+    s += "metadata_props:\n"
+    for i in range(model.MetadataPropsLength()):
+        metadata_prop: StringStringEntry.StringStringEntry = model.MetadataProps(i)
+        k = metadata_prop.Key()
+        v = metadata_prop.Value()
+        s += f"{_to_str(k)}: {_to_str(v)}\n"
+    return s
+
+
 def printable_graph(model: bytes, prefix: str = "", print_initializer_value: bool = False,
                     print_value_info: bool = False, print_test_value: bool = False) -> str:
     """Display a Graph as a string.
@@ -890,6 +932,8 @@ def printable_graph(model: bytes, prefix: str = "", print_initializer_value: boo
     graph = model.Graph()
 
     content = []
+    content.append("model properties:\n" + printable_model_properties(model) + "\n")
+
     indent = prefix + "  "
     # header
     header = ["graph", _to_str(graph.Name())]
