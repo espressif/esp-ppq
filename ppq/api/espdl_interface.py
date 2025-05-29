@@ -168,10 +168,11 @@ def espdl_quantize_onnx(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
-        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
+        hi_precision (bool, optional): It's in kwargs. When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
                                        which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
                                        Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
                                        with double precision during 16-bit operations.
+        metadata_props (Dict[str, str], optional): It's in kwargs. You can add custom key-value pairs to the model.
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
@@ -327,10 +328,11 @@ def espdl_quantize_torch(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
-        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
+        hi_precision (bool, optional): It's in kwargs. When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
                                        which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
                                        Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
                                        with double precision during 16-bit operations.
+        metadata_props (Dict[str, str], optional): It's in kwargs. You can add custom key-value pairs to the model.
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution

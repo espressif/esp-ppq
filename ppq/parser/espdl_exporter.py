@@ -73,6 +73,7 @@ class EspdlExporter(GraphExporter):
         export_config: bool = True,
         encrypt_data: bool = False,
         int16_lut_step: int = 256,
+        metadata_props: Dict[str, str] = None,
         **kwargs: Any,
     ):
         """Export model to flatbuffers file
@@ -97,7 +98,7 @@ class EspdlExporter(GraphExporter):
                     },
                 }
             int16_lut_step (int): -1: do not add lut for int16, otherwise add lut for int16 with given step
-
+            metadata_props (Dict[str, str]): metadata properties
         """
 
         # during export we will remove all boundary operations from graph.
@@ -132,7 +133,7 @@ class EspdlExporter(GraphExporter):
             self.export_quantization_config(config_path, graph)
 
         model = self.export_graph(
-            graph=graph, model_version=model_version, values_for_test=values_for_test,
+            graph=graph, model_version=model_version, values_for_test=values_for_test, metadata_props=metadata_props, **kwargs
         )
 
         # Export the information of quantized espdl model.
@@ -244,6 +245,8 @@ class EspdlExporter(GraphExporter):
         graph: BaseGraph,
         model_version: int = 0,
         values_for_test: Dict[str, Dict[str, torch.Tensor]] = None,
+        metadata_props: Dict[str, str] = None,
+        **kwargs: Any,
     ) -> bytes:
         """
         Convert a PPQ IR to Onnx IR.
@@ -297,8 +300,14 @@ class EspdlExporter(GraphExporter):
             test_outputs_value=test_outputs_value,
         )
 
+        metadata_props = helper.make_metadata_props(metadata_props)
+
         espdl_model = helper.make_model(
-            graph=graph_def, producerName=PPQ_CONFIG.NAME, model_version=model_version, ir_version=graph._detail.get("ir_version", ONNX_VERSION)
+            graph=graph_def,
+            producerName=PPQ_CONFIG.NAME,
+            model_version=model_version,
+            ir_version=graph._detail.get("ir_version", ONNX_VERSION),
+            metadata_props=metadata_props,
         )
 
         return espdl_model
