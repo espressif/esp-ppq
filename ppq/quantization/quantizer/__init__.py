@@ -1,7 +1,17 @@
 from .AscendQuantizer import AscendQuantizer
 from .base import BaseQuantizer
 from .DSPQuantizer import PPL_DSP_Quantizer, PPL_DSP_TI_Quantizer
-from .EspdlQuantizer import EspdlInt16Quantizer, EspdlQuantizer, EspdlS3Quantizer, EspdlS3Int16Quantizer, EspdlHPreInt16Quantizer, EspdlS3HPreInt16Quantizer
+from .EspdlQuantizer import (
+    EspdlInt16Quantizer,
+    EspdlQuantizer,
+    EspdlS3Quantizer,
+    EspdlS3Int16Quantizer,
+    EspdlHPreInt16Quantizer,
+    EspdlS3HPreInt16Quantizer,
+    EspdlCQuantizer,
+    EspdlCInt16Quantizer,
+    EspdlCHPreInt16Quantizer
+    )
 from .FP8Quantizer import GraphCoreQuantizer, TensorRTQuantizer_FP8
 
 # from .TRTQuantizer import TensorRTQuantizer

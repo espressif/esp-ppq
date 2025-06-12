@@ -85,17 +85,11 @@ class EspdlQuantHelper:
 
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        if (
-            op.platform == TargetPlatform.ESPDL_INT8
-            or op.platform == TargetPlatform.ESPDL_S3_INT8
-        ):
+        if op.platform in [TargetPlatform.ESPDL_INT8, TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8]:
             op.attributes["quant_type"] = EspQuantType.S8
-        elif (
-            op.platform == TargetPlatform.ESPDL_INT16
-            or op.platform == TargetPlatform.ESPDL_S3_INT16
-            or op.platform == TargetPlatform.ESPDL_H_PRE_INT16
-            or op.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16
-        ):
+        elif (op.platform in [TargetPlatform.ESPDL_INT16, TargetPlatform.ESPDL_S3_INT16,
+                              TargetPlatform.ESPDL_H_PRE_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                              TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
             op.attributes["quant_type"] = EspQuantType.S16
         else:
             op.attributes["quant_type"] = EspQuantType.F32
@@ -245,77 +239,90 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
         input1_orig_shape = input1.shape
         align = 16 if input1_num_of_bits == 8 else 8
 
-        # align
-        if input1_n_size % align == 0:
+        if (op.platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
             if input1_dims >= 2:
-                # *CN -> *(N/align)C(align) = *(N/align)HWC(align)
-                c, n = input1.shape[-2:]
-                insert_reshape_node(graph = graph, 
-                                var = op.inputs[1],
-                                op = op, 
-                                shape = input1.shape[: -2] + [c, n // align, align])
-                insert_transpose_node(graph = graph, 
-                                    var = op.inputs[1],
-                                    op = op, 
-                                    perm = list(range(len(input1.shape) - 2)) + [-2, -3, -1])
-                insert_reshape_node(graph = graph, 
-                                var = op.inputs[1],
-                                op = op, 
-                                shape = input1_orig_shape)
-        # unalign
-        else:
-            aligned_len = input1_n_size // align * align
-
-            if input1_dims >= 2:
-                c, n = input1.shape[-2:]
-                trans_op = insert_transpose_node(graph = graph,
-                                            var = op.inputs[1],
-                                            op = op,
-                                            perm = list(range(len(input1.shape) - 2)) + [-1, -2])
-                if aligned_len > 0:
-                    insert_slice_node(graph = graph, 
-                                    var = op.inputs[1],
-                                    op = op, 
-                                    starts = [0] * len(input1.shape),
-                                    ends = input1.shape[:-2] + [aligned_len, c],
-                                    axes = list(range(len(input1.shape))),
-                                    steps = [1] * len(input1.shape))
-                    insert_reshape_node(graph = graph,
-                                    var = op.inputs[1],
-                                    op = op,
-                                    shape = input1.shape[:-2] + [n // align, align, c])
+                    # *CN -> *NC
+                    # Because esp-dl's Conv2D implementation in C requires the filter layout to be NHWC.
                     insert_transpose_node(graph = graph,
                                         var = op.inputs[1],
                                         op = op,
-                                        perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
+                                        perm = list(range(len(input1.shape) - 2)) + [-1, -2])
                     insert_reshape_node(graph = graph,
                                     var = op.inputs[1],
                                     op = op,
-                                    shape = input1.shape[:-2] + [aligned_len, c])
-                    # concat align and unalign
-                    concat_op = insert_concat_node(graph = graph,
-                                                insert_op_var = op.inputs[1],
-                                                insert_op = op,
-                                                link_vars = [trans_op.outputs[0]], 
-                                                link_vars_src_op = [trans_op],
-                                                axis = -2)
-                    # insert unalign
-                    insert_slice_node(graph = graph,
-                                    var = concat_op.inputs[1],
-                                    op = concat_op,
-                                    starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
-                                    ends = input1.shape[:-2] + [input1_n_size, c],
-                                    axes = list(range(len(input1.shape))),
-                                    steps = [1] * len(input1.shape))
-                    concat_axis = concat_op.attributes["axis"]
-                    concat_op.outputs[0].shape[concat_axis] = 0
-                    for input in concat_op.inputs:
-                        concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+                                    shape = input1_orig_shape)
+        else:
+            # align
+            if input1_n_size % align == 0:
+                if input1_dims >= 2:
+                    # *CN -> *(N/align)C(align) = *(N/align)HWC(align)
+                    c, n = input1.shape[-2:]
+                    insert_reshape_node(graph = graph, 
+                                    var = op.inputs[1],
+                                    op = op, 
+                                    shape = input1.shape[: -2] + [c, n // align, align])
+                    insert_transpose_node(graph = graph, 
+                                        var = op.inputs[1],
+                                        op = op, 
+                                        perm = list(range(len(input1.shape) - 2)) + [-2, -3, -1])
+                    insert_reshape_node(graph = graph, 
+                                    var = op.inputs[1],
+                                    op = op, 
+                                    shape = input1_orig_shape)
+            # unalign
+            else:
+                aligned_len = input1_n_size // align * align
 
-                insert_reshape_node(graph = graph,
-                                var = op.inputs[1],
-                                op = op,
-                                shape = input1_orig_shape)
+                if input1_dims >= 2:
+                    c, n = input1.shape[-2:]
+                    trans_op = insert_transpose_node(graph = graph,
+                                                var = op.inputs[1],
+                                                op = op,
+                                                perm = list(range(len(input1.shape) - 2)) + [-1, -2])
+                    if aligned_len > 0:
+                        insert_slice_node(graph = graph, 
+                                        var = op.inputs[1],
+                                        op = op, 
+                                        starts = [0] * len(input1.shape),
+                                        ends = input1.shape[:-2] + [aligned_len, c],
+                                        axes = list(range(len(input1.shape))),
+                                        steps = [1] * len(input1.shape))
+                        insert_reshape_node(graph = graph,
+                                        var = op.inputs[1],
+                                        op = op,
+                                        shape = input1.shape[:-2] + [n // align, align, c])
+                        insert_transpose_node(graph = graph,
+                                            var = op.inputs[1],
+                                            op = op,
+                                            perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
+                        insert_reshape_node(graph = graph,
+                                        var = op.inputs[1],
+                                        op = op,
+                                        shape = input1.shape[:-2] + [aligned_len, c])
+                        # concat align and unalign
+                        concat_op = insert_concat_node(graph = graph,
+                                                    insert_op_var = op.inputs[1],
+                                                    insert_op = op,
+                                                    link_vars = [trans_op.outputs[0]], 
+                                                    link_vars_src_op = [trans_op],
+                                                    axis = -2)
+                        # insert unalign
+                        insert_slice_node(graph = graph,
+                                        var = concat_op.inputs[1],
+                                        op = concat_op,
+                                        starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
+                                        ends = input1.shape[:-2] + [input1_n_size, c],
+                                        axes = list(range(len(input1.shape))),
+                                        steps = [1] * len(input1.shape))
+                        concat_axis = concat_op.attributes["axis"]
+                        concat_op.outputs[0].shape[concat_axis] = 0
+                        for input in concat_op.inputs:
+                            concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+
+                    insert_reshape_node(graph = graph,
+                                    var = op.inputs[1],
+                                    op = op,
+                                    shape = input1_orig_shape)
 
         return op
 
@@ -429,7 +436,10 @@ class QuantVariableToIntPattern(OperationExporter):
                     config.state = QuantizationStates.PASSIVE
 
                 if config.policy.has_property(QuantizationProperty.LINEAR):
-                    if ((op.platform == TargetPlatform.ESPDL_H_PRE_INT16 or op.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16) and config.num_of_bits >= 16):
+                    if ((op.platform in [TargetPlatform.ESPDL_H_PRE_INT16,
+                                         TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                                         TargetPlatform.ESPDL_C_H_PRE_INT16])
+                        and config.num_of_bits >= 16):
                         var.value = PPQLinearQuant_toInt(tensor=var.value.type(dtype=torch.float64), config=config)
                     else:
                         var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
@@ -447,55 +457,63 @@ class QuantVariableToIntPattern(OperationExporter):
 
 
 class ResetParamLayoutPattern(OperationExporter):
-    def reset_conv_filter_layout(self, tensor, quant_type, group=None):
-        aligned_tensor = tensor
+    def reset_conv_filter_layout(self, tensor, quant_type, group=None, platform=TargetPlatform.ESPDL_INT8):
         layout = LayoutAnnotation.NCHW
 
         if len(tensor.shape) != 3 and len(tensor.shape) != 4:
             logger.error(
                 f"Conv filter don't support {len(tensor.shape)}D tensor."
             )
-            return aligned_tensor, layout
+            return tensor, layout
 
         if len(tensor.shape) == 3:
             n, c, w = tensor.shape  # n denotes output channels, c denotes input channels,
             tensor = tensor.permute(0, 2, 1)  # NCW -> NWC
-            align = 16 if quant_type == EspQuantType.S8 else 8
-            aligned_len = n // align * align
-            aligned_tensor = tensor[0:aligned_len, ...]
-            aligned_tensor = aligned_tensor.reshape(
-                n // align, align, w, c
-            )  # NWC -> (N/align,align)WC
-            # (N/align,align)WC -> (N/align)WC(align)
-            aligned_tensor = aligned_tensor.permute(0, 2, 3, 1)
-            # (N/align)WC(align) -> (aligned_len)WC
-            aligned_tensor = aligned_tensor.reshape(aligned_len, w, c)
 
-            if n % align != 0:
-                unaligned_tensor = tensor[aligned_len:n, ...]  # NWC
-                if group == 1 or group == None:
-                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
-                else:
-                    n_remain = n - aligned_len
-                    unaligned_tensor = unaligned_tensor.permute(2, 1, 0)  # depthwise unaligned: NWC -> CWN
-                    unaligned_tensor = unaligned_tensor.reshape(n_remain, w, c)
-                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
-
-                if align == 16:
-                    layout = LayoutAnnotation.N16WC16_UNALIGNED
-                else:
-                    layout = LayoutAnnotation.N8WC8_UNALIGNED
+            if (platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+                layout = LayoutAnnotation.NWC
+                if group > 1:
+                    tensor = tensor.permute(1, 2, 0)  # depthwise: NWC -> WCN
+                    layout = LayoutAnnotation.WCN
             else:
-                if align == 16:
-                    layout = LayoutAnnotation.N16WC16
+                align = 16 if quant_type == EspQuantType.S8 else 8
+                aligned_len = n // align * align
+                aligned_tensor = tensor[0:aligned_len, ...]
+                aligned_tensor = aligned_tensor.reshape(
+                    n // align, align, w, c
+                )  # NWC -> (N/align,align)WC
+                # (N/align,align)WC -> (N/align)WC(align)
+                aligned_tensor = aligned_tensor.permute(0, 2, 3, 1)
+                # (N/align)WC(align) -> (aligned_len)WC
+                aligned_tensor = aligned_tensor.reshape(aligned_len, w, c)
+
+                if n % align != 0:
+                    unaligned_tensor = tensor[aligned_len:n, ...]  # NWC
+                    if group == 1 or group == None:
+                        aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                    else:
+                        n_remain = n - aligned_len
+                        unaligned_tensor = unaligned_tensor.permute(2, 1, 0)  # depthwise unaligned: NWC -> CWN
+                        unaligned_tensor = unaligned_tensor.reshape(n_remain, w, c)
+                        aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+
+                    if align == 16:
+                        layout = LayoutAnnotation.N16WC16_UNALIGNED
+                    else:
+                        layout = LayoutAnnotation.N8WC8_UNALIGNED
                 else:
-                    layout = LayoutAnnotation.N8WC8
+                    if align == 16:
+                        layout = LayoutAnnotation.N16WC16
+                    else:
+                        layout = LayoutAnnotation.N8WC8
+
+                tensor = aligned_tensor
 
             # TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
             if group == 1 or group == None:
-                aligned_tensor = aligned_tensor.reshape(w, c, n)  # reshape to WCN
+                tensor = tensor.reshape(w, c, n)  # reshape to WCN
             else:
-                aligned_tensor = aligned_tensor.reshape(w, n, c)  # reshape to WNC
+                tensor = tensor.reshape(w, n, c)  # reshape to WNC
 
         elif len(tensor.shape) == 4:
             n, c, h, w = (
@@ -503,46 +521,54 @@ class ResetParamLayoutPattern(OperationExporter):
             )  # n denotes output channels, c denotes input channels,
             tensor = tensor.permute(0, 2, 3, 1)  # NCHW -> NHWC
 
-            align = 16 if quant_type == EspQuantType.S8 else 8
-            aligned_len = n // align * align
-            aligned_tensor = tensor[0:aligned_len, ...]
-            aligned_tensor = aligned_tensor.reshape(
-                n // align, align, h, w, c
-            )  # NHWC -> (N/align,align)HWC
-            # (N/align,align)HWC -> (N/align)HWC(align)
-            aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)
-            # (N/align)HWC(align) -> (aligned_len)HWC
-            aligned_tensor = aligned_tensor.reshape(aligned_len, h, w, c)
-
-            if n % align != 0:
-                unaligned_tensor = tensor[aligned_len:n, ...]  # NHWC
-                if group == 1 or group == None:
-                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
-                else:
-                    n_remain = n - aligned_len
-                    unaligned_tensor = unaligned_tensor.permute(
-                        3, 1, 2, 0
-                    )  # depthwise unaligned: NHWC -> CHWN
-                    unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
-                    aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
-
-                if align == 16:
-                    layout = LayoutAnnotation.N16HWC16_UNALIGNED
-                else:
-                    layout = LayoutAnnotation.N8HWC8_UNALIGNED
+            if (platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+                layout = LayoutAnnotation.NHWC
+                if group is not None and group > 1:
+                    tensor = tensor.permute(1, 2, 3, 0)  # depthwise: NHWC -> HWCN
+                    layout = LayoutAnnotation.HWCN
             else:
-                if align == 16:
-                    layout = LayoutAnnotation.N16HWC16
+                align = 16 if quant_type == EspQuantType.S8 else 8
+                aligned_len = n // align * align
+                aligned_tensor = tensor[0:aligned_len, ...]
+                aligned_tensor = aligned_tensor.reshape(
+                    n // align, align, h, w, c
+                )  # NHWC -> (N/align,align)HWC
+                # (N/align,align)HWC -> (N/align)HWC(align)
+                aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)
+                # (N/align)HWC(align) -> (aligned_len)HWC
+                aligned_tensor = aligned_tensor.reshape(aligned_len, h, w, c)
+
+                if n % align != 0:
+                    unaligned_tensor = tensor[aligned_len:n, ...]  # NHWC
+                    if group == 1 or group == None:
+                        aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+                    else:
+                        n_remain = n - aligned_len
+                        unaligned_tensor = unaligned_tensor.permute(
+                            3, 1, 2, 0
+                        )  # depthwise unaligned: NHWC -> CHWN
+                        unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
+                        aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
+
+                    if align == 16:
+                        layout = LayoutAnnotation.N16HWC16_UNALIGNED
+                    else:
+                        layout = LayoutAnnotation.N8HWC8_UNALIGNED
                 else:
-                    layout = LayoutAnnotation.N8HWC8
+                    if align == 16:
+                        layout = LayoutAnnotation.N16HWC16
+                    else:
+                        layout = LayoutAnnotation.N8HWC8
+
+                tensor = aligned_tensor
 
             # TODO:: modify the layout of depthwise conv in ESP-DL, keep it same with conv
             if group == 1 or group == None:
-                aligned_tensor = aligned_tensor.reshape(h, w, c, n)  # reshape to HWCN
+                tensor = tensor.reshape(h, w, c, n)  # reshape to HWCN
             else:
-                aligned_tensor = aligned_tensor.reshape(h, w, n, c)  # reshape to HWNC
+                tensor = tensor.reshape(h, w, n, c)  # reshape to HWNC
 
-        return aligned_tensor, layout
+        return tensor, layout
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         quant_type = op.attributes.get("quant_type", None)
@@ -564,7 +590,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 if len(tensor.shape) == 3 or len(tensor.shape) == 4:  # Conv1d/Conv2d Filter
                     group = op.attributes.get("group", None)
                     aligned_tensor, layout = self.reset_conv_filter_layout(
-                        tensor, quant_type, group
+                        tensor, quant_type, group, op.platform
                     )
                     info.add_var_layout(var.name, layout)
                     var.value = aligned_tensor
@@ -598,7 +624,7 @@ class ResetParamLayoutPattern(OperationExporter):
                     tensor = tensor.permute(1, 0, 2, 3)
 
                     aligned_tensor, layout = self.reset_conv_filter_layout(
-                        tensor, quant_type, None
+                        tensor, quant_type, None, op.platform
                     )
                     info.add_var_layout(var.name, layout)
                     var.value = aligned_tensor
@@ -620,7 +646,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 tensor_tmp = tensor_tmp.permute(1, 0, 2, 3)
 
                 tensor_tmp, layout = self.reset_conv_filter_layout(
-                    tensor_tmp, quant_type, None
+                    tensor_tmp, quant_type, None, op.platform
                 )
                 # HWCN -> CN
                 tensor_tmp.squeeze(0).squeeze(0)

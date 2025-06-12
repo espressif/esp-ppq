@@ -121,12 +121,13 @@ class BaseEspdlQuantizer(BaseQuantizer):
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif (operation.platform == TargetPlatform.ESPDL_INT8 or operation.platform == TargetPlatform.ESPDL_S3_INT8):
+        elif operation.platform in [TargetPlatform.ESPDL_INT8, TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8]:
             num_of_bits = 8
             quant_min = -128
             quant_max = 127
-        elif (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16
-              or operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
+        elif (operation.platform in [TargetPlatform.ESPDL_INT16, TargetPlatform.ESPDL_H_PRE_INT16,
+                                     TargetPlatform.ESPDL_S3_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                                     TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
             num_of_bits = 16
             quant_min = -32768
             quant_max = 32767
@@ -136,9 +137,11 @@ class BaseEspdlQuantizer(BaseQuantizer):
         bias_bits = 32
         if operation.platform == TargetPlatform.ESPDL_S3_INT8:
             bias_bits = 20
-        elif (operation.platform == TargetPlatform.ESPDL_INT16 or operation.platform == TargetPlatform.ESPDL_H_PRE_INT16
-              or operation.platform == TargetPlatform.ESPDL_S3_INT16 or operation.platform == TargetPlatform.ESPDL_S3_H_PRE_INT16):
+        elif (operation.platform in [TargetPlatform.ESPDL_INT16, TargetPlatform.ESPDL_H_PRE_INT16,
+                                     TargetPlatform.ESPDL_S3_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16]):
             bias_bits = 40
+        elif operation.platform in [TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]:
+            bias_bits = 64
 
         return self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
 
@@ -318,3 +321,43 @@ class EspdlS3HPreInt16Quantizer(EspdlS3Int16Quantizer):
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_S3_H_PRE_INT16
 
+
+class EspdlCQuantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
+        super().__init__(graph=graph)
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_C_INT8
+
+    @property
+    def rounding_policy(self):
+        return RoundingPolicy.ROUND_HALF_UP
+
+
+
+class EspdlCInt16Quantizer(BaseEspdlQuantizer):
+    def __init__(self, graph: BaseGraph) -> None:
+        super().__init__(graph=graph)
+        self._num_of_bits = 16
+        self._quant_min = -32768
+        self._quant_max = +32767
+        self._custom_tqc = None
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_C_INT16
+
+    @property
+    def rounding_policy(self):
+        return RoundingPolicy.ROUND_HALF_UP
+
+
+
+class EspdlCHPreInt16Quantizer(EspdlCInt16Quantizer):
+    def __init__(self, graph: BaseGraph) -> None:
+        super().__init__(graph=graph)
+
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_C_H_PRE_INT16

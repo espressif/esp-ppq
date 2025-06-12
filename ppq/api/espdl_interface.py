@@ -40,6 +40,7 @@ def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False, 
     """
 
     platform = None
+    target = target.lower()
     hi_precision = kwargs.get('hi_precision', False)
 
     if float:
@@ -57,6 +58,12 @@ def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False, 
             platform = TargetPlatform.ESPDL_H_PRE_INT16
         elif num_of_bits == 16 and target == "esp32s3" and hi_precision:
             platform = TargetPlatform.ESPDL_S3_H_PRE_INT16
+        elif num_of_bits == 8 and target == "c":
+            platform = TargetPlatform.ESPDL_C_INT8
+        elif num_of_bits == 16 and target == "c" and not hi_precision:
+            platform = TargetPlatform.ESPDL_C_INT16
+        elif num_of_bits == 16 and target == "c" and hi_precision:
+            platform = TargetPlatform.ESPDL_C_H_PRE_INT16
         else:
             platform = TargetPlatform.FP32
             logger.warning(f"Do not support num_of_bits:{num_of_bits}, will change to TargetPlatform.FP32")
@@ -153,7 +160,7 @@ def espdl_quantize_onnx(
         calib_steps (int): calibration steps
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
-        target: target chip, support "esp32p4" and "esp32s3"
+        target: target chip, support "esp32p4", "esp32s3" or "c"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.
@@ -313,7 +320,7 @@ def espdl_quantize_torch(
         calib_steps (int): calibration steps
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
-        target: target chip, support "esp32p4" and "esp32s3"
+        target: target chip, support "esp32p4", "esp32s3" or "c"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.
