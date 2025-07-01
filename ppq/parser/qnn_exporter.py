@@ -8,7 +8,6 @@ from ppq.IR import BaseGraph, GraphExporter
 from ppq.IR.quantize import QuantableOperation
 
 from .onnx_exporter import OnnxExporter
-from .caffe_exporter import CaffeExporter
 from .util import convert_value
 
 
@@ -62,9 +61,6 @@ class QNNDSPExporter(GraphExporter):
     def export(self, file_path: str, graph: BaseGraph, config_path: str = None, input_shapes: List[List[int]] = [[1, 3, 224, 224]]):
         if config_path is not None:
             self.export_quantization_config(config_path, graph)
-        if graph._built_from == NetworkFramework.CAFFE:
-            exporter = CaffeExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None, input_shapes=input_shapes)
-        elif graph._built_from == NetworkFramework.ONNX:
+        if graph._built_from == NetworkFramework.ONNX:
             exporter = OnnxExporter()
             exporter.export(file_path=file_path, graph=graph, config_path=None)

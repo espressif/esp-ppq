@@ -5,7 +5,6 @@ from ppq.core import (DataType, NetworkFramework, QuantizationProperty,
                       QuantizationStates)
 from ppq.IR import BaseGraph, GraphExporter, QuantableOperation
 
-from .caffe_exporter import CaffeExporter
 from .onnx_exporter import OnnxExporter
 from .util import convert_value
 
@@ -51,19 +50,6 @@ class NCNNExporter(GraphExporter):
             self.export_quantization_config(config_path, graph)
 
         _, ext = os.path.splitext(file_path)
-        if ext == '.onnx':
-            exporter = OnnxExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None)
-        elif ext in {'.prototxt', '.caffemodel'}:
-            exporter = CaffeExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None, input_shapes=input_shapes)
-        
-        # no pre-determined export format, we export according to the
-        # original model format
-        elif graph._built_from == NetworkFramework.CAFFE:
-            exporter = CaffeExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None, input_shapes=input_shapes)
-
-        elif graph._built_from == NetworkFramework.ONNX:
+        if ext == '.onnx' or graph._built_from == NetworkFramework.ONNX:
             exporter = OnnxExporter()
             exporter.export(file_path=file_path, graph=graph, config_path=None)

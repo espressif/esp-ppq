@@ -1,8 +1,6 @@
 from ppq.core import NetworkFramework, TargetPlatform
 from ppq.parser import (
                         AscendExporter,
-                        CaffeExporter,
-                        CaffeParser,
                         EspdlExporter,
                         ExtensionExporter,
                         MNNExporter,
@@ -15,10 +13,7 @@ from ppq.parser import (
                         ONNXRUNTIMExporter,
                         OpenvinoExporter,
                         PPLBackendExporter,
-                        PPLDSPCaffeExporter,
-                        PPLDSPTICaffeExporter,
                         QNNDSPExporter,
-                        SNPECaffeExporter,
                         TengineExporter,
                         TensorRTExporter_JSON,
 )
@@ -87,22 +82,21 @@ __QUANTIZER_COLLECTION__ = {
 
 __PARSERS__ = {
     NetworkFramework.ONNX: OnnxParser,
-    NetworkFramework.CAFFE: CaffeParser,
     NetworkFramework.NATIVE: NativeImporter
 }
 
 
 __EXPORTERS__ = {
-    TargetPlatform.PPL_DSP_INT8:  PPLDSPCaffeExporter,
-    TargetPlatform.PPL_DSP_TI_INT8: PPLDSPTICaffeExporter,
+    # TargetPlatform.PPL_DSP_INT8:  PPLDSPCaffeExporter,
+    # TargetPlatform.PPL_DSP_TI_INT8: PPLDSPTICaffeExporter,
     TargetPlatform.QNN_DSP_INT8:  QNNDSPExporter,
     TargetPlatform.PPL_CUDA_INT8: PPLBackendExporter,
-    TargetPlatform.SNPE_INT8:     SNPECaffeExporter,
+    # TargetPlatform.SNPE_INT8:     SNPECaffeExporter,
     TargetPlatform.NXP_INT8:      NxpExporter,
     TargetPlatform.ONNX:          OnnxExporter,
     TargetPlatform.ONNXRUNTIME:   ONNXRUNTIMExporter,
     TargetPlatform.OPENVINO_INT8: OpenvinoExporter,
-    TargetPlatform.CAFFE:         CaffeExporter,
+    # TargetPlatform.CAFFE:         CaffeExporter,
     TargetPlatform.NATIVE:        NativeExporter,
     TargetPlatform.EXTENSION:     ExtensionExporter,
     TargetPlatform.RKNN_INT8:     OnnxExporter,

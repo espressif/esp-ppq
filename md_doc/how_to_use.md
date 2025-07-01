@@ -18,19 +18,13 @@ note that you don't have to turn on the above option if your environment fails t
 it's just for accelration and PPQ will do fine without it turning on.
 
 ## Prepare Your DataLoader
-First thing first, you need to prepare your model and calibration data folder, note that only onnx and caffe
+First thing first, you need to prepare your model and calibration data folder, note that only onnx 
 models are supported in PPQ for now, and you may need to preprocess your calibration data in advance and store
 them in your calibration data folder in npy or binary files. If your model is in onnx format
 
 ```python
 model_path = '/path/to/your/model.onnx'
 data_path  = '/path/to/your/dataFolder'
-```
-or if you are quantizing a caffe model
-```python
-prototxt_path = '/path/to/your/model.prototxt'
-weight_path   = '/path/to/your/model.caffemodel'
-data_path     = '/path/to/your/dataFolder'
 ```
 you can customize your own dataloader, your dataloader could be anything iterable, like a List. It's really
 easy for you to construct a dataloader if your calibration data is stored as npy files
@@ -67,13 +61,12 @@ dataloader = [{'input_1': torch.randn(16, 3, 224, 224), 'input_2': torch.randn(1
 ```
 
 ## Load Your Model
-PPQ needs to load your model into PPQ IR graph before anything could go further, and only onnx/caffe
+PPQ needs to load your model into PPQ IR graph before anything could go further, and only onnx
 models are supported
 ```python
-from ppq.api import load_onnx_graph, load_caffe_graph
+from ppq.api import load_onnx_graph
 
 ppq_graph_ir = load_onnx_graph(model_path) # for onnx
-ppq_graph_ir = load_caffe_graph(prototxt_path, weight_path) # for caffe
 ```
 
 ## Confirm Target Platform

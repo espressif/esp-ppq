@@ -24,7 +24,6 @@ from ppq.core import (NetworkFramework, QuantizationPolicy,
 from ppq.IR import BaseGraph, GraphExporter
 from ppq.IR.quantize import QuantableOperation
 
-from .caffe_exporter import CaffeExporter
 from .onnxruntime_exporter import OnnxExporter, ONNXRUNTIMExporter
 
 
@@ -123,18 +122,6 @@ class TensorRTExporter_JSON(GraphExporter):
             self.export_quantization_config(config_path, graph)
             self.export_weights(graph, config_path)
         _, ext = os.path.splitext(file_path)
-        if ext == '.onnx':
-            exporter = OnnxExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None)
-        elif ext in {'.prototxt', '.caffemodel'}:
-            exporter = CaffeExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None, input_shapes=input_shapes)
-
-        # no pre-determined export format, we export according to the
-        # original model format
-        elif graph._built_from == NetworkFramework.CAFFE:
-            exporter = CaffeExporter()
-            exporter.export(file_path=file_path, graph=graph, config_path=None, input_shapes=input_shapes)
-        elif graph._built_from == NetworkFramework.ONNX:
+        if ext == '.onnx' or graph._built_from == NetworkFramework.ONNX:
             exporter = OnnxExporter()
             exporter.export(file_path=file_path, graph=graph, config_path=None)

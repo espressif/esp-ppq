@@ -188,7 +188,7 @@ After that you can invoke your quantizer via ppq.api functions:
 
 from ppq.lib import Quantizer
 from ppq.executor import TorchExecutor
-from ppq.api import load_onnx_graph, load_caffe_graph
+from ppq.api import load_onnx_graph
 from ppq.api.interface import dispatch_graph
 
 target_platform = TargetPlatform.ACADEMIC_INT8 # your created platform

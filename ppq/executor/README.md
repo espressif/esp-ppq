@@ -1,6 +1,6 @@
 ## PPQ Graph Executor(PPQ 执行引擎)
 
-为了量化并优化神经网络模型，PPQ 实现了基于 Pytorch 的执行引擎，该执行引擎能够执行 Onnx 与 Caffe 的模型文件，目前支持 90 余种常见 Onnx 算子，涵盖 1d, 2d, 3d 视觉、语音、文本模型。
+为了量化并优化神经网络模型，PPQ 实现了基于 Pytorch 的执行引擎，该执行引擎能够执行 Onnx 的模型文件，目前支持 90 余种常见 Onnx 算子，涵盖 1d, 2d, 3d 视觉、语音、文本模型。
 PPQ 的执行引擎位于 ppq.executor 目录下，由两个主要部分组成： ppq.executor.torch.py 文件中包含了执行引擎自身； ppq.executor.op 文件夹中则包含了不同后端的算子库。
 
 在开始阅理解执行引擎之前，我们先介绍算子库的相关内容

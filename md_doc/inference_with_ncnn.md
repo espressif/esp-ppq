@@ -1,5 +1,5 @@
 # Inference with ncnn
-this tutorial gives you a simple illustration how you could actually use PPQ to quantize your model and export quantization parameter file to inference with ncnn as your backend. Note that ncnn supports conversion of both caffe and onnx models, in this tutorial we take the onnx model, shufflenet-v2, as an example to illustrate the whole process going from a ready-to-quantize model to int8 ready-to-run artifact which can be executed in quantization mode by ncnn.
+this tutorial gives you a simple illustration how you could actually use PPQ to quantize your model and export quantization parameter file to inference with ncnn as your backend. Note that ncnn supports conversion of onnx models, in this tutorial we take the onnx model, shufflenet-v2, as an example to illustrate the whole process going from a ready-to-quantize model to int8 ready-to-run artifact which can be executed in quantization mode by ncnn.
 
 ## Optimize Your Network
 ncnn does not support some shape-related operations like Shape, Gather ... so before we send the network

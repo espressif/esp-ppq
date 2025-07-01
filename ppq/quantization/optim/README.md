@@ -4,7 +4,7 @@
 
 我们提供两种不同的优化过程调用接口：
 
-1. PPQ 的 api 函数 quantize_onnx_model, quantize_caffe_model, quantize_torch_model 等，将根据输入的量化配置 (QuantizationSetting) 决定启动那些优化过程，同时传递相应的参数，用户可以检阅 ppq\api\setting.py 文件获取更多的信息。当使用 API 函数进行量化时，用户无法调用自定义的优化过程，只能使用系统预制的量化优化过程实现功能，当然它更加稳定。
+1. PPQ 的 api 函数 quantize_onnx_model, quantize_torch_model 等，将根据输入的量化配置 (QuantizationSetting) 决定启动那些优化过程，同时传递相应的参数，用户可以检阅 ppq\api\setting.py 文件获取更多的信息。当使用 API 函数进行量化时，用户无法调用自定义的优化过程，只能使用系统预制的量化优化过程实现功能，当然它更加稳定。
     
 2. (推荐)用户可以自行组织量化管线，自行选取需要使用的量化过程并在初始化时传入相应的参数，用户可以参考 ProgramEntrace_2.py 样例，手动创建符合自己需要的量化管线。需要注意：量化过程是彼此独立的，但调用时应当遵循固定的先后次序。如 QuantFusionPass 应当在 RuntimeCalibrationPass 之前完成调用。
 
@@ -76,7 +76,7 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
     
 2. 在 optimize 函数中定义参数，并在调用优化过程时传参
 
-当用户使用 quantize_onnx_model, quantize_caffe_model, quantize_torch_model 函数对模型进行量化时，PPQ 会在 ppq\quantization\quantizer\base.py 文件中完成所有量化优化过程的创建，并赋予它们初始化的参数。而后 Quantizer 将创建量化管线并完成优化过程的调用，此时传入的参数如下：
+当用户使用 quantize_onnx_model, quantize_torch_model 函数对模型进行量化时，PPQ 会在 ppq\quantization\quantizer\base.py 文件中完成所有量化优化过程的创建，并赋予它们初始化的参数。而后 Quantizer 将创建量化管线并完成优化过程的调用，此时传入的参数如下：
 
     # Quantizer 创建量化管线
     quant_pipeline = self.build_quant_pipeline(setting)

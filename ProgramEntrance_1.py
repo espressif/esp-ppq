@@ -8,9 +8,6 @@ This file will show you how to quantize your network with PPQ
     ~/working/model.onnx                          <--  your model
     ~/working/data/*.npy or ~/working/data/*.bin  <--  your dataset
 
-if you are using caffe model:
-    ~/working/model.caffemdoel  <--  your model
-    ~/working/model.prototext   <--  your model
 
 ### MAKE SURE YOUR INPUT LAYOUT IS [N, C, H, W] or [C, H, W] ###
 
@@ -23,7 +20,7 @@ import os
 # modify configuration below:
 WORKING_DIRECTORY = 'working'                             # choose your working directory
 TARGET_PLATFORM   = TargetPlatform.PPL_CUDA_INT8          # choose your target platform
-MODEL_TYPE        = NetworkFramework.ONNX                 # or NetworkFramework.CAFFE
+MODEL_TYPE        = NetworkFramework.ONNX                 # 
 INPUT_LAYOUT          = 'chw'                             # input data layout, chw or hwc
 NETWORK_INPUTSHAPE    = [1, 3, 224, 224]                  # input shape of your network
 CALIBRATION_BATCHSIZE = 16                                # batchsize of calibration dataset
@@ -32,17 +29,13 @@ REQUIRE_ANALYSE       = False
 TRAINING_YOUR_NETWORK = True                              # 是否需要 Finetuning 一下你的网络
 
 # -------------------------------------------------------------------
-# 加载你的模型文件，PPQ 将会把 onnx 或者 caffe 模型文件解析成自己的格式
+# 加载你的模型文件，PPQ 将会把 onnx 模型文件解析成自己的格式
 # 如果你正使用 pytorch, tensorflow 等框架，你可以先将模型导出成 onnx
 # 使用 torch.onnx.export 即可，如果你在导出 torch 模型时发生错误，欢迎与我们联系。
 # -------------------------------------------------------------------
 graph = None
 if MODEL_TYPE == NetworkFramework.ONNX:
     graph = load_onnx_graph(onnx_import_file = os.path.join(WORKING_DIRECTORY, 'model.onnx'))
-if MODEL_TYPE == NetworkFramework.CAFFE:
-    graph = load_caffe_graph(
-        caffemodel_path = os.path.join(WORKING_DIRECTORY, 'model.caffemodel'),
-        prototxt_path = os.path.join(WORKING_DIRECTORY, 'model.prototxt'))
 assert graph is not None, 'Graph Loading Error, Check your input again.'
 
 # -------------------------------------------------------------------

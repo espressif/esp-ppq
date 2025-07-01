@@ -23,21 +23,21 @@ docker run -it --rm --ipc=host --cap-add=SYS_PTRACE --security-opt seccomp=uncon
 - Please refer to the script `ProgramEntrance.py`.
 - WORKING_DIRECTORY is the directory where you store data and models, and the quantized results will also be exported to this directory.
 - Create the folder WORKING_DIRECTORY , e.g. `working`, and create the folder `data` in the WORKING_DIRECTORY folder to store data which can end with `.bin` files or `.npy` arranged in (1,c,h,w) format. (Note that the data must be preprocessed)
-- Change the name of your model to `model.onnx`(or `model.caffemodel`, `model.prototxt` for caffe), then put it in the WORKING_DIRECTORY folder.
+- Change the name of your model to `model.onnx`, then put it in the WORKING_DIRECTORY folder.
 - TargetPlatform should select `TargetPlatform.MNN_INT8`.
-- MODEL_TYPE choose `NetworkFramework.ONNX` or `NetworkFramework.CAFFE`.
+- MODEL_TYPE choose `NetworkFramework.ONNX`.
 - NETWORK_INPUTSHAPE fill in the shape of the data, e.g. `[1, 3, 224, 224]`.
 - CALIBRATION_BATCHSIZE is the batch during optimization, it is recommended to set it to 16 or 32 if your computing platform has enough computing power, otherwise, it can also be set to 1.
 - Other parameters are default.
 - Run script `python ProgramEntrance.py`
-- After the script is executed, you will get files in your working directory, `quantized.onnx`, `quant_cfg.json`(or `quantized.caffemodel`, `quantized.prototxt` and `quant_cfg.json`).
+- After the script is executed, you will get files in your working directory, `quantized.onnx`, `quant_cfg.json`.
 - `quant_cfg.json` contains quantization parameters.
 
 for example:
 ```python
 WORKING_DIRECTORY = 'working'                             # choose your working directory
 TARGET_PLATFORM   = TargetPlatform.MNN_INT8          # choose your target platform
-MODEL_TYPE        = NetworkFramework.ONNX                 # or NetworkFramework.CAFFE
+MODEL_TYPE        = NetworkFramework.ONNX                 # 
 INPUT_LAYOUT          = 'chw'                             # input data layout, chw or hwc
 NETWORK_INPUTSHAPE    = [1, 3, 224, 224]                  # input shape of your network
 CALIBRATION_BATCHSIZE = 1                                # batchsize of calibration dataset
@@ -53,11 +53,6 @@ Put the quantized quant_cfg.json and quantized.onnx under the /work path in the 
 for onnx:
 ```shell
 ./MNNConvert -f ONNX --modelFile quantized.onnx --MNNModel resnet18.mnn --bizCode mnn
-```
-
-for caffe:
-```shell
-./MNNConvert -f CAFFE --modelFile quantized.caffemodel --prototxt quantized.prototxt  --MNNModel resnet18.mnn --bizCode mnn
 ```
 
 ## Quant Your Model(take resnet18 as an example)

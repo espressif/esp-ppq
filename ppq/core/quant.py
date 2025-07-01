@@ -114,7 +114,6 @@ class TargetPlatform(Enum):
     BOUNDARY      = -3
     # just used for calling exporter
     ONNX          = -4
-    CAFFE         = -5
     NATIVE        = -6
     ONNXRUNTIME   = -7
     # THIS IS A DUUMY PLATFORM JUST FOR CREATING YOUR OWN EXTENSION.

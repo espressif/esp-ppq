@@ -61,20 +61,16 @@
 ### 2. PPQ.lib.common.Exporter
 
 在 PPQ 中，我们以 [量化控制信息](https://github.com/openppl-public/ppq/tree/master/ppq/core) 描述网络的量化情况，网络中与量化相关的参数均保存于算子的量化控制信息中。
-因此网络的导出也即将算子上绑定的量化控制信息导出到文件，你应当根据推理框架的需要导出相应的模型格式。截止 PPQ 0.6.6，目前共支持 19 种 [导出格式](https://github.com/openppl-public/ppq/tree/master/ppq/parser) ：
+因此网络的导出也即将算子上绑定的量化控制信息导出到文件，你应当根据推理框架的需要导出相应的模型格式。截止 PPQ 0.6.6，目前共支持 18 种 [导出格式](https://github.com/openppl-public/ppq/tree/master/ppq/parser) ：
 
 ```python
 {
-    TargetPlatform.PPL_DSP_INT8:  PPLDSPCaffeExporter,
-    TargetPlatform.PPL_DSP_TI_INT8: PPLDSPTICaffeExporter,
     TargetPlatform.QNN_DSP_INT8:  QNNDSPExporter,
     TargetPlatform.PPL_CUDA_INT8: PPLBackendExporter,
-    TargetPlatform.SNPE_INT8:     SNPECaffeExporter,
     TargetPlatform.NXP_INT8:      NxpExporter,
     TargetPlatform.ONNX:          OnnxExporter,
     TargetPlatform.ONNXRUNTIME:   ONNXRUNTIMExporter,
     TargetPlatform.OPENVINO_INT8: OpenvinoExporter,
-    TargetPlatform.CAFFE:         CaffeExporter,
     TargetPlatform.NATIVE:        NativeExporter,
     TargetPlatform.EXTENSION:     ExtensionExporter,
     TargetPlatform.RKNN_INT8:     OnnxExporter,
@@ -86,6 +82,15 @@
     TargetPlatform.NCNN_INT8:     NCNNExporter,
     TargetPlatform.TENGINE_INT8:  TengineExporter,
     TargetPlatform.MNN_INT8:      MNNExporter,
+    TargetPlatform.ESPDL_INT8:      EspdlExporter,
+    TargetPlatform.ESPDL_INT16:     EspdlExporter,
+    TargetPlatform.ESPDL_S3_INT8:  EspdlExporter,
+    TargetPlatform.ESPDL_S3_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_H_PRE_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_S3_H_PRE_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_C_INT8:  EspdlExporter,
+    TargetPlatform.ESPDL_C_INT16:  EspdlExporter,
+    TargetPlatform.ESPDL_C_H_PRE_INT16:  EspdlExporter,
 }
 ```
 

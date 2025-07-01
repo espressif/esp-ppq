@@ -3,7 +3,7 @@ This document describes the quantization deployment process of the SNPE DSP and 
  
 
 ## Environment setup
-Refer to [Qualcomm official documentation](https://developer.qualcomm.com/sites/default/files/docs/snpe/setup.html) to configure the Linux host environment. The SNPE model conversion and quantization are all done on the Linux host. SNPE supports reading Caffe and Onnx models. This document uses the ONNX model as an example.
+Refer to [Qualcomm official documentation](https://developer.qualcomm.com/sites/default/files/docs/snpe/setup.html) to configure the Linux host environment. The SNPE model conversion and quantization are all done on the Linux host. SNPE supports reading Onnx models. This document uses the ONNX model as an example.
 
 ## Quantize Your Network
 as we have specified in [how_to_use](./how_to_use.md), we should prepare our calibration dataloader, confirm

@@ -2,13 +2,6 @@ from ppq.core import NetworkFramework, TargetPlatform
 from ppq.IR import BaseGraph, GraphBuilder, GraphExporter
 
 from .ascend_export import AscendExporter
-from .caffe_exporter import (
-                             CaffeExporter,
-                             PPLDSPCaffeExporter,
-                             PPLDSPTICaffeExporter,
-                             SNPECaffeExporter,
-)
-from .caffe_parser import CaffeParser
 from .espdl_exporter import EspdlExporter
 from .extension import ExtensionExporter
 from .mnn_exporter import MNNExporter
