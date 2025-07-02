@@ -149,6 +149,8 @@ class GraphFormatSetting():
         # Fuse Conv and Batchnorm Layer. This pass is necessary and crucial.
         self.fuse_conv_bn       = True
 
+        self.fuse_swish   = True
+
         # 将所有的parameter variable进行分裂，使得每个variable具有至多一个输出算子
         # Split all parameter variables, making all variable has at most 1 output operation.
         # This pass is necessary and crucial.
