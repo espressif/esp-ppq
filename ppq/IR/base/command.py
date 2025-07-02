@@ -115,6 +115,9 @@ class GraphCommandType(Enum):
     # remove all identity ops from your graph
     REMOVE_IDENTITY = 35
 
+    # Fuse splited swish
+    FUSE_SWISH = 36
+
 class GraphCommand():
     def __init__(self, command_type: GraphCommandType, **kwargs) -> None:
         assert isinstance(command_type, GraphCommandType), \

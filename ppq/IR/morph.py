@@ -504,7 +504,8 @@ class GraphMerger(GraphCommandProcessor):
         return [
             # add more extensions in the future
             GraphCommandType.FUSE_BN,
-            GraphCommandType.FUSE_BIAS_ADD
+            GraphCommandType.FUSE_BIAS_ADD,
+            GraphCommandType.FUSE_SWISH,
         ]
 
     def process(self, command: GraphCommand) -> Any:
@@ -512,6 +513,8 @@ class GraphMerger(GraphCommandProcessor):
             return self.fuse_bn()
         if command.command_type == GraphCommandType.FUSE_BIAS_ADD:
             return self.fuse_bias_add()
+        if command.command_type == GraphCommandType.FUSE_SWISH:
+            return self.fuse_swish()
 
 
     def fuse_bn(self):
@@ -881,6 +884,32 @@ class GraphMerger(GraphCommandProcessor):
         # final check, if no valid pattern was found, we give a warning.
         if not fused:
             ppq_warning('No valid Gelu pattern was found, check your graph again.')
+
+
+    def fuse_swish(self):
+        """ 
+        Fuse Pattern like Sigmoid + Mul to Swish.
+        """
+        search_engine = SearchableGraph(graph=self.graph)
+        patterns = search_engine.pattern_matching(
+            patterns = [lambda x: x.is_computing_op, 'Sigmoid', 'Mul'],
+            edges = [[0, 1], [1, 2], [0, 2]],
+            exclusive = True)
+
+        for pattern in patterns:            
+            computing, sigmoid, mul = pattern
+
+            for var in sigmoid.outputs:
+                self.graph.remove_variable(var)
+            self.graph.remove_operation(sigmoid)
+
+            input_vars  = computing.outputs.copy()
+            output_vars = mul.outputs.copy()
+
+            self.graph.remove_operation(mul)
+            self.graph.create_operation(op_type='Swish', inputs=input_vars, outputs=output_vars, name=f'{computing.name}/Swish')
+            assert len(input_vars) == 1, 'Fusion failed, Pattern unrecognized.'
+
 
     def fuse_bias_add(self):
         """ 
