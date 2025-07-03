@@ -820,7 +820,7 @@ def printable_value_info(v: ValueInfo.ValueInfo) -> str:
     if v.ValueInfoType():
         s = f"{s}[{printable_type(v.ValueInfoType())}]"
     if v.ExponentsLength() > 0:
-        s += f", exponents: {repr(list(v.ExponentsAsNumpy()))}"
+        s += f", exponents: {repr(v.ExponentsAsNumpy().tolist())}"
     return s
 
 
@@ -838,21 +838,21 @@ def printable_tensor(t: Tensor.Tensor) -> str:
 def printable_tensor_value(t: Tensor.Tensor) -> str:
     s = f"%{_to_str(t.Name())}, "
     if not t.DimsIsNone():
-        s += f"shape: {repr(list(t.DimsAsNumpy()))}, "
+        s += f"shape: {repr(t.DimsAsNumpy().tolist())}, "
     if not t.ExponentsIsNone():
-        s += f"exponents: {repr(list(t.ExponentsAsNumpy()))}, "
+        s += f"exponents: {repr(t.ExponentsAsNumpy().tolist())}, "
     if t.DocString() is not None:
         s += f"docString: {t.DocString()}, "
 
     if not t.FloatDataIsNone():
-        s += f"value: {repr(list(t.FloatDataAsNumpy()))}"
+        s += f"value: {repr(t.FloatDataAsNumpy().tolist())}"
     elif not t.Int32DataIsNone():
-        s += f"value: {repr(list(t.Int32DataAsNumpy()))}"
+        s += f"value: {repr(t.Int32DataAsNumpy().tolist())}"
     elif not t.StringDataIsNone():
         string_list = [t.StringData(i) for i in range(t.StringDataLength())]
         s += f"value: {repr(string_list)}"
     elif not t.Int64DataIsNone():
-        s += f"value: {repr(list(t.Int64DataAsNumpy()))}"
+        s += f"value: {repr(t.Int64DataAsNumpy().tolist())}"
     elif not t.RawDataIsNone():
         np.set_printoptions(threshold=np.inf)
         chunks = []
@@ -862,9 +862,9 @@ def printable_tensor_value(t: Tensor.Tensor) -> str:
         chunks = np.array(chunks).flatten()
         s += f"\nvalue: {repr(chunks)}"
     elif not t.DoubleDataIsNone():
-        s += f"value: {repr(list(t.DoubleDataAsNumpy()))}"
+        s += f"value: {repr(t.DoubleDataAsNumpy().tolist())}"
     elif not t.Uint64DataIsNone():
-        s += f"value: {repr(list(t.Uint64DataAsNumpy()))}"
+        s += f"value: {repr(t.Uint64DataAsNumpy().tolist())}"
 
     return s
 
