@@ -6,14 +6,14 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from ppq.core import *
-from ppq.core import QuantizationStates
-from ppq.executor import BaseGraphExecutor, TorchExecutor
-from ppq.IR import BaseGraph, Operation, QuantableOperation, SearchableGraph
-from ppq.IR.quantize import QuantableVariable
-from ppq.IR.search import TraversalCommand
-from ppq.quantization.algorithm.training import *
-from ppq.quantization.measure import torch_mean_square_error
+from esp_ppq.core import *
+from esp_ppq.core import QuantizationStates
+from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, SearchableGraph
+from esp_ppq.IR.quantize import QuantableVariable
+from esp_ppq.IR.search import TraversalCommand
+from esp_ppq.quantization.algorithm.training import *
+from esp_ppq.quantization.measure import torch_mean_square_error
 
 from .base import QuantizationOptimizationPass
 from .training import TrainingBasedPass

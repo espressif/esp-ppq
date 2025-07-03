@@ -1,7 +1,7 @@
 import torch
-from ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
+from esp_ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
                       RoundingPolicy, TensorQuantizationConfig)
-from ppq.utils.round import ppq_tensor_round
+from esp_ppq.utils.round import ppq_tensor_round
 from torch.autograd import Function
 
 
@@ -33,7 +33,7 @@ class TensorwiseLinearQuantImpl(Function):
             return tensor
 
         else:
-            from ppq.core import CUDA
+            from esp_ppq.core import CUDA
 
             # quantization function, pure cuda implmentation
             quantized = CUDA.LinearQuantize_T(
@@ -115,7 +115,7 @@ class ChannelwiseLinearQuantImpl(Function):
             tensor = (tensor - offset) * scale
             return tensor
         else:
-            from ppq.core import CUDA
+            from esp_ppq.core import CUDA
             quantized = CUDA.LinearQuantize_C(
                 tensor=tensor,
                 scales=scales,
@@ -146,7 +146,7 @@ class TensorwiseDynamicLinearQuantImpl(Function):
     """
     @ staticmethod
     def forward(ctx, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
-        from ppq.quantization.observer.range import minmax_to_scale_offset
+        from esp_ppq.quantization.observer.range import minmax_to_scale_offset
         # solve scale and offset at first.
         scales, offsets = minmax_to_scale_offset(
             tensor.min().item(), tensor.max().item(), config=config)
@@ -177,7 +177,7 @@ class ChannelwiseDynamicLinearQuantImpl(Function):
     """
     @ staticmethod
     def forward(ctx, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
-        from ppq.quantization.observer.range import minmax_to_scale_offset
+        from esp_ppq.quantization.observer.range import minmax_to_scale_offset
         
         channelwise_view = tensor.transpose(dim0=0, dim1=config.channel_axis).unsqueeze(-1)
         channelwise_view = torch.flatten(channelwise_view, start_dim=1)

@@ -13,8 +13,8 @@ import torchvision.models
 from tqdm import tqdm
 
 import trt_infer
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 # Nvidia Nsight Performance Profile
 QUANT_PLATFROM   = TargetPlatform.TRT_INT8

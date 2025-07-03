@@ -2,13 +2,13 @@ from collections import defaultdict
 from typing import Callable, Dict, Iterable, List
 
 import torch
-from ppq.core import empty_ppq_cache
-from ppq.executor import BaseGraphExecutor
-from ppq.executor.torch import TorchExecutor
-from ppq.IR import (BaseGraph, Operation, QuantableOperation,
+from esp_ppq.core import empty_ppq_cache
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.executor.torch import TorchExecutor
+from esp_ppq.IR import (BaseGraph, Operation, QuantableOperation,
                     SearchableGraph, TraversalCommand)
-from ppq.IR.base.graph import BaseGraph
-from ppq.quantization.algorithm.equalization import EqualizationPair
+from esp_ppq.IR.base.graph import BaseGraph
+from esp_ppq.quantization.algorithm.equalization import EqualizationPair
 from tqdm import tqdm
 
 from .base import QuantizationOptimizationPass
@@ -356,7 +356,7 @@ class LayerwiseEqualizationPass(QuantizationOptimizationPass):
 
     You can manually create this optimization by:
 
-        from ppq import LayerwiseEqualizationPass
+        from esp_ppq import LayerwiseEqualizationPass
 
         optim = LayerwiseEqualizationPass()
 

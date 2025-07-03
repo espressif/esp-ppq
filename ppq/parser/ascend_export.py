@@ -2,9 +2,9 @@
 import os
 from typing import List
 
-from ppq.core import (DataType, NetworkFramework, QuantizationProperty,
+from esp_ppq.core import (DataType, NetworkFramework, QuantizationProperty,
                       QuantizationStates, ppq_warning)
-from ppq.IR import BaseGraph, GraphExporter
+from esp_ppq.IR import BaseGraph, GraphExporter
 
 from .onnx_exporter import OnnxExporter
 from .util import convert_value

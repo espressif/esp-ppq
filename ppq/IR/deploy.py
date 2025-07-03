@@ -1,7 +1,7 @@
 from typing import Any, List
 
 import torch
-from ppq.core import (TargetPlatform, convert_any_to_numpy,
+from esp_ppq.core import (TargetPlatform, convert_any_to_numpy,
                       convert_any_to_torch_tensor)
 
 from .base.command import GraphCommand, GraphCommandType, GraphDeployCommand

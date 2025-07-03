@@ -1,4 +1,4 @@
-from ppq import *
+from esp_ppq import *
 
 class PPQTestScheme():
     def __init__(

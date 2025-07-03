@@ -2,10 +2,10 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import TargetPlatform, graphwise_error_analyse
-from ppq.api.interface import (ENABLE_CUDA_KERNEL, dump_torch_to_onnx,
+from esp_ppq import TargetPlatform, graphwise_error_analyse
+from esp_ppq.api.interface import (ENABLE_CUDA_KERNEL, dump_torch_to_onnx,
                                load_onnx_graph, quantize_native_model)
-from ppq.api.setting import QuantizationSettingFactory
+from esp_ppq.api.setting import QuantizationSettingFactory
 
 # ------------------------------------------------------------
 # 在 PPQ 中我们提供许多校准方法，这些校准方法将计算出网络的量化参数

@@ -1,11 +1,11 @@
 import torch
 
-from ppq.IR import Variable
-from ppq.lib import LinearQuantizationConfig
-from ppq.quantization.observer import TorchIsotoneObserver, TorchMinMaxObserver
-from ppq.quantization.qfunction import PPQLinearQuantFunction
+from esp_ppq.IR import Variable
+from esp_ppq.lib import LinearQuantizationConfig
+from esp_ppq.quantization.observer import TorchIsotoneObserver, TorchMinMaxObserver
+from esp_ppq.quantization.qfunction import PPQLinearQuantFunction
 
-from ppq import QuantizationStates
+from esp_ppq import QuantizationStates
 
 TQC = LinearQuantizationConfig()
 v = Variable(name='TestVariable')

@@ -2,8 +2,8 @@
 # dynamic shape is only supported by onnx
 
 # first of all, load your model from anywhere
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 YOU_WANT_TO_QUANTIZE_IT = True
 

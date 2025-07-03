@@ -1,7 +1,7 @@
 from tmodel  import *
 from tscheme import *
-from ppq     import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 import sys
 
 DEVICE = 'cuda'

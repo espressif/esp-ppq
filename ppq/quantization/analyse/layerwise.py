@@ -2,11 +2,11 @@ from collections import defaultdict
 from typing import Callable, Dict, Iterable, List, Union
 
 import torch
-from ppq.core import convert_any_to_numpy
-from ppq.executor import TorchExecutor
-from ppq.IR import BaseGraph, QuantableOperation
-from ppq.IR.quantize import QuantableGraph
-from ppq.utils.fetch import tensor_random_fetch
+from esp_ppq.core import convert_any_to_numpy
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.IR import BaseGraph, QuantableOperation
+from esp_ppq.IR.quantize import QuantableGraph
+from esp_ppq.utils.fetch import tensor_random_fetch
 from tqdm import tqdm
 
 from .util import MeasurePrinter, MeasureRecorder

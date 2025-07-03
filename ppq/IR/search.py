@@ -2,7 +2,7 @@ from abc import ABCMeta, abstractmethod
 from collections import defaultdict, deque
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Set, Union
 
-from ppq.core import ppq_warning
+from esp_ppq.core import ppq_warning
 
 from .base.command import GraphCommand, GraphCommandType
 from .base.graph import BaseGraph, Operation

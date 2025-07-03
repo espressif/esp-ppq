@@ -6,14 +6,14 @@ from Utilities.Imagenet import *  # check ppq.samples.imagenet.Utilities
 from Utilities.Imagenet.imagenet_util import \
     load_imagenet_from_directory  # check ppq.samples.imagenet.Utilities
 
-import ppq.lib as PFL
-from ppq.api import ENABLE_CUDA_KERNEL, load_native_graph, load_torch_model
-from ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
+import esp_ppq.lib as PFL
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_native_graph, load_torch_model
+from esp_ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
                       QuantizationProperty, QuantizationStates,
                       QuantizationVisibility, RoundingPolicy, TargetPlatform)
-from ppq.executor import TorchExecutor
-from ppq.IR import Operation
-from ppq.quantization.optim import *
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.IR import Operation
+from esp_ppq.quantization.optim import *
 
 """
     使用这个脚本来尝试在 Imagenet 数据集上执行量化感知训练
@@ -44,7 +44,7 @@ graph = load_torch_model(model=model, sample=torch.zeros([1,3,224,224]).cuda())
 # 你需要参考 ppq.quantization.quantizer 文件夹里其他的 quantizer 定义来设计你的量化规则
 # Quantizer 负责为所有算子初始化量化信息，你需要实现它的所有接口函数
 # ------------------------------------------------------------
-from ppq.quantization.quantizer import BaseQuantizer
+from esp_ppq.quantization.quantizer import BaseQuantizer
 
 
 class MyQuantizer(BaseQuantizer):

@@ -1,12 +1,12 @@
 
-import ppq.lib as PFL
+import esp_ppq.lib as PFL
 import torch
 import torchvision
-from ppq.api import ENABLE_CUDA_KERNEL, load_native_graph, load_torch_model
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.quantization.optim import *
-from ppq.quantization.quantizer import TensorRTQuantizer
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_native_graph, load_torch_model
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.quantization.optim import *
+from esp_ppq.quantization.quantizer import TensorRTQuantizer
 from Utilities.Imagenet import *  # check ppq.samples.imagenet.Utilities
 from Utilities.Imagenet.imagenet_util import \
     load_imagenet_from_directory  # check ppq.samples.imagenet.Utilities

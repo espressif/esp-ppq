@@ -2,7 +2,7 @@ from typing import List, Union
 
 import torch
 
-from ppq.core import OperationQuantizationConfig, SingletonMeta
+from esp_ppq.core import OperationQuantizationConfig, SingletonMeta
 
 ACTIVATION_OP_SET = {
     "Relu",

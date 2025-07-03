@@ -1,9 +1,9 @@
 import torch
 
-from ppq.core import (OBSERVER_ISOTONE_OBSERVER_AXIS, QuantizationProperty,
+from esp_ppq.core import (OBSERVER_ISOTONE_OBSERVER_AXIS, QuantizationProperty,
                       QuantizationStates, TensorQuantizationConfig,
                       ppq_warning)
-from ppq.IR.base.graph import Variable
+from esp_ppq.IR.base.graph import Variable
 
 from .base import BaseTensorObserver
 from .range import minmax_to_scale_offset

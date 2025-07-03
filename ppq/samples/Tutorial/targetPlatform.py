@@ -2,14 +2,14 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import (BaseQuantizer, Operation, OperationQuantizationConfig,
+from esp_ppq import (BaseQuantizer, Operation, OperationQuantizationConfig,
                  TargetPlatform)
-from ppq.api import (ENABLE_CUDA_KERNEL, export_ppq_graph,
+from esp_ppq.api import (ENABLE_CUDA_KERNEL, export_ppq_graph,
                      quantize_torch_model, register_network_exporter,
                      register_network_quantizer)
-from ppq.core import (QuantizationPolicy, QuantizationProperty,
+from esp_ppq.core import (QuantizationPolicy, QuantizationProperty,
                       QuantizationStates, RoundingPolicy, convert_any_to_numpy)
-from ppq.IR import BaseGraph, Operation, QuantableOperation
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation
 
 # ------------------------------------------------------------
 # 在这个脚本中，我们将创建一个新的量化平台，定义我们自己的量化规则
@@ -117,7 +117,7 @@ import onnx
 #   2. 有些时候你使用 PPQ 训练过你的网络，你可能还需要导出训练后的网络权重
 # 我们这里向你展示如何导出量化信息到文本文档，而网络权重的导出则继承于 onnx
 # ------------------------------------------------------------
-from ppq.parser import OnnxExporter
+from esp_ppq.parser import OnnxExporter
 
 
 class MyExporter(OnnxExporter):

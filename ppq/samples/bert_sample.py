@@ -1,12 +1,12 @@
 import torch
 
-import ppq.lib as PFL
-from ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
-from ppq.api import ENABLE_CUDA_KERNEL
-from ppq.api.interface import load_onnx_graph
-from ppq.core.quant import (QuantizationPolicy, QuantizationProperty,
+import esp_ppq.lib as PFL
+from esp_ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
+from esp_ppq.api import ENABLE_CUDA_KERNEL
+from esp_ppq.api.interface import load_onnx_graph
+from esp_ppq.core.quant import (QuantizationPolicy, QuantizationProperty,
                             RoundingPolicy)
-from ppq.quantization.optim import (LearnedStepSizePass, ParameterBakingPass,
+from esp_ppq.quantization.optim import (LearnedStepSizePass, ParameterBakingPass,
                                     ParameterQuantizePass, QuantAlignmentPass,
                                     QuantizeFusionPass, QuantizeSimplifyPass,
                                     RuntimeCalibrationPass)
@@ -38,7 +38,7 @@ collate_fn  = lambda x: {'input_ids': x['input_ids'].cuda(), 'attention_mask': x
 # 这个结构体描述了我要如何去量化一个数据，其中包含了量化位宽、量化策略、
 # 量化 Scale, offset 等内容。
 # ------------------------------------------------------------
-from ppq import TensorQuantizationConfig as TQC
+from esp_ppq import TensorQuantizationConfig as TQC
 
 MyTQC = TQC(
     policy = QuantizationPolicy(

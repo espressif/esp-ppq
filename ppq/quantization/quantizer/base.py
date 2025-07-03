@@ -2,15 +2,15 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 from typing import Iterable, Union
 
 import torch
-from ppq.api.setting import *
-from ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
+from esp_ppq.api.setting import *
+from esp_ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
                       QuantizationStates, RoundingPolicy, TargetPlatform,
                       TensorQuantizationConfig, empty_ppq_cache)
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import (BaseGraph, GraphReplacer, Operation, QuantableGraph,
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import (BaseGraph, GraphReplacer, Operation, QuantableGraph,
                     QuantableOperation, QuantableVariable)
-from ppq.IR.base.command import QuantizeOperationCommand
-from ppq.quantization.optim import *
+from esp_ppq.IR.base.command import QuantizeOperationCommand
+from esp_ppq.quantization.optim import *
 
 
 class BaseQuantizer(metaclass = ABCMeta):

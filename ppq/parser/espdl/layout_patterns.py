@@ -1,14 +1,14 @@
 from typing import List
 import torch
 import numpy as np
-from ppq.core import (
+from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
 )
-from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
-from ppq.IR.quantize import QuantableOperation
-from ppq.log import NaiveLogger
-from ppq.parser.espdl.espdl_typedef import (
+from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.log import NaiveLogger
+from esp_ppq.parser.espdl.espdl_typedef import (
     ADD_LIKE_OP_SET,
     CONV_LAYOUT_OP_SET,
     OTHER_OP_SET,
@@ -16,7 +16,7 @@ from ppq.parser.espdl.espdl_typedef import (
     SOFTMAX_LIKE_OP_SET,
     ExporterPatternInfo,
 )
-from ppq.parser.espdl.espdl_graph_utils import(
+from esp_ppq.parser.espdl.espdl_graph_utils import(
     transpose_shape,
     get_inverse_transpose,
     get_default_perm,

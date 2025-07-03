@@ -2,10 +2,10 @@
 import numpy as np
 import torch
 
-import ppq.lib as PFL
-from ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
-from ppq.api import ENABLE_CUDA_KERNEL, export_ppq_graph, load_onnx_graph
-from ppq.quantization.optim import *
+import esp_ppq.lib as PFL
+from esp_ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
+from esp_ppq.api import ENABLE_CUDA_KERNEL, export_ppq_graph, load_onnx_graph
+from esp_ppq.quantization.optim import *
 
 calibration_dataloader = [torch.rand([1, 3, 640, 640]) for _ in range(32)]
 
@@ -23,7 +23,7 @@ with ENABLE_CUDA_KERNEL():
     # ------------------------------------------------------------
 
     # Concat_40 往前的所有算子不量化
-    from ppq.IR import SearchableGraph
+    from esp_ppq.IR import SearchableGraph
     search_engine = SearchableGraph(graph)
     for op in search_engine.opset_matching(
         sp_expr=lambda x: x.name == 'Concat_40',
@@ -83,7 +83,7 @@ with ENABLE_CUDA_KERNEL():
         graph_save_to='Output/quantized.onnx', 
         config_save_to='Output/quantized.json')
 
-from ppq.utils.TensorRTUtil import Benchmark, Profiling, build_engine
+from esp_ppq.utils.TensorRTUtil import Benchmark, Profiling, build_engine
 
 build_engine(
     onnx_file='Output/quantized.onnx', 

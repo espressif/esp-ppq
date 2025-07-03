@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from typing import Dict, List, Set
-from ppq.IR import BaseGraph, Operation
-from ppq.core import TargetPlatform
+from esp_ppq.IR import BaseGraph, Operation
+from esp_ppq.core import TargetPlatform
 
 class GraphDispatcher:
     """Graph Dispatcher cuts a graph into parts, each part of graph will

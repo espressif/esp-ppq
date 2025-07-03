@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import torchvision
 
-from ppq import TargetPlatform, graphwise_error_analyse, TorchExecutor
-from ppq.api import ENABLE_CUDA_KERNEL, export_ppq_graph, load_torch_model
-from ppq.core import convert_any_to_numpy
-from ppq.quantization.optim import *
-import ppq.lib as PFL
+from esp_ppq import TargetPlatform, graphwise_error_analyse, TorchExecutor
+from esp_ppq.api import ENABLE_CUDA_KERNEL, export_ppq_graph, load_torch_model
+from esp_ppq.core import convert_any_to_numpy
+from esp_ppq.quantization.optim import *
+import esp_ppq.lib as PFL
 
 calibration_dataloader = []
 for file in os.listdir('imagenet'):
@@ -71,7 +71,7 @@ with ENABLE_CUDA_KERNEL():
         arr = convert_any_to_numpy(executor(data.cuda())[0])
         arr.tofile(f'Output/Result/{idx}.bin')
 
-    from ppq.utils.TensorRTUtil import build_engine
+    from esp_ppq.utils.TensorRTUtil import build_engine
     build_engine(onnx_file='Output/quantized.onnx', int8_scale_file='Output/quantized.json', engine_file='Output/INT8.engine', int8=True, fp16=True)
     build_engine(onnx_file='Output/quantized.onnx', engine_file='Output/FP16.engine', int8=False, fp16=True)
     build_engine(onnx_file='Output/quantized.onnx', engine_file='Output/FP32.engine', int8=False, fp16=False)

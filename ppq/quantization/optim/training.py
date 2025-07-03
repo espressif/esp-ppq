@@ -2,14 +2,14 @@ from collections import defaultdict
 from typing import Callable, Dict, Iterable, List
 
 import torch
-from ppq.core import *
-from ppq.executor import BaseGraphExecutor, TorchExecutor
-from ppq.IR import (BaseGraph, BaseGraph, Operation,
+from esp_ppq.core import *
+from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
+from esp_ppq.IR import (BaseGraph, BaseGraph, Operation,
                     QuantableOperation)
-from ppq.IR.quantize import QuantableGraph
-from ppq.quantization.algorithm.training import *
-from ppq.quantization.measure import torch_mean_square_error, torch_snr_error
-from ppq.quantization.qfunction.linear import PPQLinearQuantFunction
+from esp_ppq.IR.quantize import QuantableGraph
+from esp_ppq.quantization.algorithm.training import *
+from esp_ppq.quantization.measure import torch_mean_square_error, torch_snr_error
+from esp_ppq.quantization.qfunction.linear import PPQLinearQuantFunction
 from tqdm import tqdm
 
 from .base import QuantizationOptimizationPass
@@ -409,7 +409,7 @@ class BiasCorrectionPass(TrainingBasedPass):
 
     You can manually create this optimization by:
 
-        from ppq import BiasCorrectionPass
+        from esp_ppq import BiasCorrectionPass
 
         optim = BiasCorrectionPass()
 
@@ -685,7 +685,7 @@ class LearnedStepSizePass(TrainingBasedPass):
 
     You can manually create this optimization by:
 
-        from ppq import LearnedStepSizePass
+        from esp_ppq import LearnedStepSizePass
 
         optim = LearnedStepSizePass()
 

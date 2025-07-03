@@ -1,8 +1,8 @@
-from ppq.core import NetworkFramework, TargetPlatform
-from ppq.executor import register_operation_handler
-from ppq.IR import GraphExporter, GraphBuilder
-from ppq.quantization.observer import OBSERVER_TABLE, OperationObserver
-from ppq.quantization.quantizer import BaseQuantizer
+from esp_ppq.core import NetworkFramework, TargetPlatform
+from esp_ppq.executor import register_operation_handler
+from esp_ppq.IR import GraphExporter, GraphBuilder
+from esp_ppq.quantization.observer import OBSERVER_TABLE, OperationObserver
+from esp_ppq.quantization.quantizer import BaseQuantizer
 
 from .common import __EXPORTERS__, __PARSERS__, __QUANTIZER_COLLECTION__
 

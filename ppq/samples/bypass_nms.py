@@ -12,8 +12,8 @@
 import torch
 from torch.utils.data import DataLoader
 
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 BATCHSIZE = 32
 INPUT_SHAPE = [3, 224, 224]

@@ -2,12 +2,12 @@ from typing import Callable, Iterable
 
 import torch
 import torchvision
-from ppq import QuantizationSettingFactory, TargetPlatform
-from ppq.api import (ENABLE_CUDA_KERNEL, QuantizationSettingFactory,
+from esp_ppq import QuantizationSettingFactory, TargetPlatform
+from esp_ppq.api import (ENABLE_CUDA_KERNEL, QuantizationSettingFactory,
                      quantize_torch_model)
-from ppq.core import QuantizationStates
-from ppq.executor.torch import TorchExecutor
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.core import QuantizationStates
+from esp_ppq.executor.torch import TorchExecutor
+from esp_ppq.IR.quantize import QuantableOperation
 
 # ------------------------------------------------------------
 # 在这个例子中，我们将向你介绍如何自定义量化优化过程，以及如何手动调用优化过程
@@ -47,7 +47,7 @@ QSetting.quantize_parameter_setting.baking_parameter = False
 # 在这个例子中，我们将图中所有卷积的输入 scale 变换为原来的两倍
 # 同时，我们解除最后一个 Gemm 的输入量化
 # ------------------------------------------------------------
-from ppq import BaseGraph, QuantizationOptimizationPass, TorchExecutor
+from esp_ppq import BaseGraph, QuantizationOptimizationPass, TorchExecutor
 class MyOptim(QuantizationOptimizationPass):
     def optimize(self, graph: BaseGraph, dataloader: Iterable, 
                  collate_fn: Callable, executor: TorchExecutor, **kwargs) -> None:

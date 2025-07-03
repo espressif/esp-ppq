@@ -1,11 +1,11 @@
 from typing import Iterable, List, Tuple
 
 import torch
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import (BaseGraph, BaseGraph, GraphFormatter,
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import (BaseGraph, BaseGraph, GraphFormatter,
                     Operation, QuantableOperation, Variable)
-from ppq.IR.morph import GraphDecomposer
-from ppq.log import NaiveLogger
+from esp_ppq.IR.morph import GraphDecomposer
+from esp_ppq.log import NaiveLogger
 
 from .base import QuantizationOptimizationPass
 
@@ -113,7 +113,7 @@ class HorizontalLayerSplitPass(QuantizationOptimizationPass):
 
     You can create this optimization manually:
 
-        from ppq import HorizontalLayerSplitPass
+        from esp_ppq import HorizontalLayerSplitPass
 
         optim = HorizontalLayerSplitPass()
     """

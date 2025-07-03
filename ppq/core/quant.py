@@ -481,11 +481,11 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
 用户可以手动创建量化控制结构体，使用 ppq.lib 中的接口：
 
     # 创建一个默认的线性量化控制结构体(对称, per-tensor)
-    from ppq.lib import LinearQuantizationConfig
+    from esp_ppq.lib import LinearQuantizationConfig
     TQC = LinearQuantizationConfig()
 
     # 创建一个默认的浮点量化控制结构体(FP8 E4M3)
-    from ppq.lib import FloatingQuantizationConfig
+    from esp_ppq.lib import FloatingQuantizationConfig
     TQC = FloatingQuantizationConfig()
 
 ### 6. 量化控制结构体的校准

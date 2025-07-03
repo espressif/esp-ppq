@@ -9,8 +9,8 @@
 
 import openvino.runtime
 import torch
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 from tqdm import tqdm
 
 QUANT_PLATFROM = TargetPlatform.OPENVINO_INT8

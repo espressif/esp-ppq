@@ -1,11 +1,11 @@
 from abc import ABCMeta, abstractmethod
 from typing import Callable, Dict, List, Union
 
-from ppq.core import TargetPlatform, TensorQuantizationConfig
-from ppq.executor.op import (DEFAULT_BACKEND_TABLE, EXTENSION_BACKEND_TABLE,
+from esp_ppq.core import TargetPlatform, TensorQuantizationConfig
+from esp_ppq.executor.op import (DEFAULT_BACKEND_TABLE, EXTENSION_BACKEND_TABLE,
                              NXP_BACKEND_TABLE, PPL_DSP_BACKEND_TABLE,
                              PPL_GPU_BACKEND_TABLE)
-from ppq.IR import BaseGraph, Operation, QuantableOperation
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation
 
 import torch
 

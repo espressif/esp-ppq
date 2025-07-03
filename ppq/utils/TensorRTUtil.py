@@ -28,10 +28,10 @@ import tensorrt as trt
 import torch
 from tqdm import tqdm
 
-from ppq.api import ENABLE_CUDA_KERNEL
-from ppq import convert_any_to_numpy, convert_any_to_torch_tensor, TorchExecutor, torch_snr_error
-from ppq.IR import BaseGraph
-from ppq.quantization.analyse.util import MeasurePrinter
+from esp_ppq.api import ENABLE_CUDA_KERNEL
+from esp_ppq import convert_any_to_numpy, convert_any_to_torch_tensor, TorchExecutor, torch_snr_error
+from esp_ppq.IR import BaseGraph
+from esp_ppq.quantization.analyse.util import MeasurePrinter
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("EngineBuilder").setLevel(logging.INFO)

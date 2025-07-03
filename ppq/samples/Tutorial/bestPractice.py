@@ -2,8 +2,8 @@
 # PPQ 最佳实践示例工程，在这个工程中，我们将向你展示如何充分调动 PPQ 的各项功能
 # ------------------------------------------------------------
 import torch
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 import torchvision
 # ------------------------------------------------------------
 # Step - 1. 加载校准集与模型

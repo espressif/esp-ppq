@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from ppq.core import TensorQuantizationConfig
+from esp_ppq.core import TensorQuantizationConfig
 from typing import Any, Callable
 
 

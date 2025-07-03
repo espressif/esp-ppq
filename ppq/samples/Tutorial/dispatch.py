@@ -1,7 +1,7 @@
 import torch
 import torchvision
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 # ------------------------------------------------------------
 # 在这个脚本中，我们将向你展示如何自由调度算子，并实现混合精度推理

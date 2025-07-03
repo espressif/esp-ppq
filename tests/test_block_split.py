@@ -1,6 +1,6 @@
 import torch
 
-from ppq.core.quant import TargetPlatform
+from esp_ppq.core.quant import TargetPlatform
 
 class MyModel(torch.nn.Module):
     def __init__(self) -> None:
@@ -45,9 +45,9 @@ class MyModel(torch.nn.Module):
 model = MyModel().cuda()
 model.forward(torch.zeros(size=[10, 10]).cuda())
 
-from ppq.api import load_torch_model
-from ppq.api import quantize_native_model
-from ppq.api import QuantizationSettingFactory
+from esp_ppq.api import load_torch_model
+from esp_ppq.api import quantize_native_model
+from esp_ppq.api import QuantizationSettingFactory
 
 graph = load_torch_model(model=model, sample=torch.zeros(size=[10, 10]).cuda())
 s = QuantizationSettingFactory.default_setting()

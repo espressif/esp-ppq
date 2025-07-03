@@ -1,6 +1,6 @@
-from ppq.core import CUDA
-from ppq.core.ffi import CUDA_COMPLIER
-from ppq import ppq_tensor_round, RoundingPolicy, ppq_numerical_round, torch_snr_error
+from esp_ppq.core import CUDA
+from esp_ppq.core.ffi import CUDA_COMPLIER
+from esp_ppq import ppq_tensor_round, RoundingPolicy, ppq_numerical_round, torch_snr_error
 from typing import List
 import torch
 from math import sqrt

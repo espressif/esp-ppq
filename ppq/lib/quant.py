@@ -1,17 +1,17 @@
 from typing import Callable, List
 
 import torch
-from ppq.core import (NetworkFramework, QuantizationPolicy,
+from esp_ppq.core import (NetworkFramework, QuantizationPolicy,
                       QuantizationProperty, RoundingPolicy, TargetPlatform,
                       TensorQuantizationConfig)
-from ppq.executor.torch import OPERATION_FORWARD_TABLE
-from ppq.IR import BaseGraph, GraphExporter, Variable
-from ppq.quantization.observer import BaseTensorObserver, TensorObserverFactroy
-from ppq.quantization.optim import (QuantizationOptimizationPass,
+from esp_ppq.executor.torch import OPERATION_FORWARD_TABLE
+from esp_ppq.IR import BaseGraph, GraphExporter, Variable
+from esp_ppq.quantization.observer import BaseTensorObserver, TensorObserverFactroy
+from esp_ppq.quantization.optim import (QuantizationOptimizationPass,
                                     QuantizationOptimizationPipeline)
-from ppq.quantization.qfunction import PPQuantFunction as QuantFunction
-from ppq.quantization.quantizer import BaseQuantizer
-from ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
+from esp_ppq.quantization.qfunction import PPQuantFunction as QuantFunction
+from esp_ppq.quantization.quantizer import BaseQuantizer
+from esp_ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
 
 from .common import __EXPORTERS__, __PARSERS__, __QUANTIZER_COLLECTION__
 

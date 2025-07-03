@@ -1,6 +1,6 @@
-from ppq import *
-from ppq.IR.morph import GraphFormatter
-from ppq.api.interface import export_ppq_graph
+from esp_ppq import *
+from esp_ppq.IR.morph import GraphFormatter
+from esp_ppq.api.interface import export_ppq_graph
 
 # TEST CASE 1
 graph = BaseGraph(name='Graph', built_from=NetworkFramework.ONNX)

@@ -1,4 +1,4 @@
-from ppq import BaseGraph, TorchExecutor
+from esp_ppq import BaseGraph, TorchExecutor
 import torch
 graph = BaseGraph(name='TestBed')
 
@@ -31,7 +31,7 @@ sample = torch.rand(size=[8, 32]).cuda()
 executor = TorchExecutor(graph=graph)
 ref_out = executor.forward(inputs=sample)[0]
 
-from ppq.IR import GraphMerger
+from esp_ppq.IR import GraphMerger
 GraphMerger(graph).fuse_bias_add()
 executor = TorchExecutor(graph=graph)
 out = executor.forward(inputs=sample)[0]
@@ -70,7 +70,7 @@ sample = torch.rand(size=[8, 32]).cuda()
 executor = TorchExecutor(graph=graph)
 ref_out = executor.forward(inputs=sample)[0]
 
-from ppq.IR import GraphMerger
+from esp_ppq.IR import GraphMerger
 GraphMerger(graph).fuse_bias_add()
 executor = TorchExecutor(graph=graph)
 out = executor.forward(inputs=sample)[0]
@@ -115,7 +115,7 @@ sample = torch.rand(size=[1, 3, 32, 32]).cuda()
 executor = TorchExecutor(graph=graph)
 ref_out = executor.forward(inputs=sample)[0]
 
-from ppq.IR import GraphMerger
+from esp_ppq.IR import GraphMerger
 GraphMerger(graph).fuse_bias_add()
 executor = TorchExecutor(graph=graph)
 out = executor.forward(inputs=sample)[0]

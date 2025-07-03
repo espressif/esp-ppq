@@ -22,14 +22,14 @@ import numpy as np
 import torch
 import torchvision
 
-import ppq.lib as PFL
-from ppq import (BaseGraph, BaseQuantizer, GraphExporter, Operation,
+import esp_ppq.lib as PFL
+from esp_ppq import (BaseGraph, BaseQuantizer, GraphExporter, Operation,
                  OperationQuantizationConfig, QuantableOperation,
                  QuantableVariable, QuantizationOptimizationPass, SearchableGraph,
                  QuantizationPolicy, QuantizationProperty, QuantizationStates,
                  TargetPlatform, TorchExecutor, graphwise_error_analyse)
-from ppq.api import ENABLE_CUDA_KERNEL, load_torch_model
-from ppq.quantization.optim import *
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_torch_model
+from esp_ppq.quantization.optim import *
 
 
 class MyExporter(GraphExporter):

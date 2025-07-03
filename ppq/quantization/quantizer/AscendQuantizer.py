@@ -1,13 +1,13 @@
 from typing import Union
 
 import torch
-from ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
+from esp_ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
                       QuantizationPolicy, QuantizationProperty,
                       QuantizationStates, RoundingPolicy, TargetPlatform)
-from ppq.IR import BaseGraph, Operation
+from esp_ppq.IR import BaseGraph, Operation
 from .base import BaseQuantizer
 
-from ppq.executor.op.torch.base import GET_ATTRIBUTE_FROM_OPERATION
+from esp_ppq.executor.op.torch.base import GET_ATTRIBUTE_FROM_OPERATION
 
 def ASSERT_CONV_AND_DECONV(op: Operation):
     if op.type == "Conv":

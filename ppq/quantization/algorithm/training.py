@@ -3,14 +3,14 @@ from random import randint
 from typing import Iterable, List, Tuple
 
 import torch
-from ppq.core import (NUM_OF_CHECKPOINT_FETCHS, PPQ_CONFIG,
+from esp_ppq.core import (NUM_OF_CHECKPOINT_FETCHS, PPQ_CONFIG,
                       QuantizationProperty, QuantizationStates, RoundingPolicy,
                       TensorQuantizationConfig)
-from ppq.executor import TorchQuantizeDelegator
-from ppq.IR import BaseGraph, Operation, SearchableGraph, Variable
-from ppq.quantization.qfunction import PPQuantFunction
-from ppq.utils.fetch import batch_random_fetch
-from ppq.utils.round import ppq_tensor_round
+from esp_ppq.executor import TorchQuantizeDelegator
+from esp_ppq.IR import BaseGraph, Operation, SearchableGraph, Variable
+from esp_ppq.quantization.qfunction import PPQuantFunction
+from esp_ppq.utils.fetch import batch_random_fetch
+from esp_ppq.utils.round import ppq_tensor_round
 from torch.autograd import Function
 
 
@@ -21,7 +21,7 @@ class CuLSQ_LT(Function):
                 rounding: RoundingPolicy) -> torch.Tensor:
         if not PPQ_CONFIG.USING_CUDA_KERNEL:
             raise PermissionError('Can not invoke CuLSQ, Cuda kernel is not compiled.')
-        from ppq.core import CUDA
+        from esp_ppq.core import CUDA
 
         # quantization function, pure cuda implmentation
         quantized = CUDA.LinearQuantize_T(
@@ -41,7 +41,7 @@ class CuLSQ_LT(Function):
     def backward(ctx, dy: torch.Tensor):
         if not PPQ_CONFIG.USING_CUDA_KERNEL:
             raise PermissionError('Can not invoke CuLSQ, Cuda kernel is not compiled.')
-        from ppq.core import CUDA
+        from esp_ppq.core import CUDA
 
         dy = dy.contiguous()
         tensor, scales, offsets = ctx.saved_tensors
@@ -60,7 +60,7 @@ class CuLSQ_LC(Function):
                 rounding: RoundingPolicy) -> torch.Tensor:
         if not PPQ_CONFIG.USING_CUDA_KERNEL:
             raise PermissionError('Can not invoke CuLSQ, PPQ_CONFIG.USING_CUDA_KERNEL = False.')
-        from ppq.core import CUDA
+        from esp_ppq.core import CUDA
         quantized = CUDA.LinearQuantize_C(
             tensor=tensor,
             scales=scales,
@@ -79,7 +79,7 @@ class CuLSQ_LC(Function):
     def backward(ctx, dy: torch.Tensor):
         if not PPQ_CONFIG.USING_CUDA_KERNEL:
             raise PermissionError('Can not invoke CuLSQ, PPQ_CONFIG.USING_CUDA_KERNEL = False.')
-        from ppq.core import CUDA
+        from esp_ppq.core import CUDA
         
         dy = dy.contiguous()
         tensor, scales, offsets = ctx.saved_tensors

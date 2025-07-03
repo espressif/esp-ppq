@@ -1,10 +1,10 @@
 from typing import Union
 
 import torch
-from ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
+from esp_ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
                       QuantizationPolicy, QuantizationProperty,
                       QuantizationStates, RoundingPolicy, TargetPlatform)
-from ppq.IR import BaseGraph, Operation
+from esp_ppq.IR import BaseGraph, Operation
 
 from .base import BaseQuantizer
 

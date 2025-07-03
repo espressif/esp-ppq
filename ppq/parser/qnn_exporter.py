@@ -2,10 +2,10 @@ import json
 import torch
 from typing import List
 
-from ppq.core import (DataType, QuantizationStates,
+from esp_ppq.core import (DataType, QuantizationStates,
                       QuantizationVisibility, NetworkFramework, ppq_warning)
-from ppq.IR import BaseGraph, GraphExporter
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.IR import BaseGraph, GraphExporter
+from esp_ppq.IR.quantize import QuantableOperation
 
 from .onnx_exporter import OnnxExporter
 from .util import convert_value

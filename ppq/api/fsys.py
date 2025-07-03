@@ -4,13 +4,13 @@ from typing import Iterable, List, Union
 
 import numpy as np
 import torch
-from ppq.core import *
-from ppq.executor import TorchExecutor
-from ppq.IR import BaseGraph, QuantableVariable
-from ppq.quantization.analyse.util import MeasurePrinter, MeasureRecorder
-from ppq.utils.fetch import tensor_random_fetch
+from esp_ppq.core import *
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.IR import BaseGraph, QuantableVariable
+from esp_ppq.quantization.analyse.util import MeasurePrinter, MeasureRecorder
+from esp_ppq.utils.fetch import tensor_random_fetch
 from tqdm import tqdm
-from ppq.core import ppq_warning
+from esp_ppq.core import ppq_warning
 
 
 def load_calibration_dataset(

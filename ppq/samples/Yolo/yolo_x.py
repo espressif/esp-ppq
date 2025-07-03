@@ -4,8 +4,8 @@ import torch
 from tqdm import tqdm
 import time
 
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 QUANT_PLATFROM    = TargetPlatform.OPENVINO_INT8
 BATCHSIZE         = 1
@@ -34,6 +34,6 @@ with ENABLE_CUDA_KERNEL():
         graph=quantized, platform=TargetPlatform.OPENVINO_INT8,
         graph_save_to='INT8.onnx')
 
-from ppq.utils.OpenvinoUtil import Benchmark
+from esp_ppq.utils.OpenvinoUtil import Benchmark
 Benchmark(ir_or_onnx_file='FP32.onnx', samples=500, jobs=4)
 Benchmark(ir_or_onnx_file='INT8.onnx', samples=500, jobs=4)

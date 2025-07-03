@@ -77,12 +77,12 @@ import os
 
 import torch
 
-import ppq.lib as PFL
-from ppq import convert_any_to_torch_tensor
-from ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.quantization.optim import (LayerwiseEqualizationPass,
+import esp_ppq.lib as PFL
+from esp_ppq import convert_any_to_torch_tensor
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.quantization.optim import (LayerwiseEqualizationPass,
                                     LearnedStepSizePass, ParameterQuantizePass,
                                     RuntimeCalibrationPass)
 from QuantZoo.Data.IC15.Data import IC15_PaddleOCR

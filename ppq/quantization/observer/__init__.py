@@ -1,10 +1,10 @@
 from abc import ABCMeta
 from typing import Dict, List
 
-from ppq.core import (QuantizationStates, TensorQuantizationConfig,
+from esp_ppq.core import (QuantizationStates, TensorQuantizationConfig,
                       ppq_debug_function)
-from ppq.executor import QuantOPRuntimeHook
-from ppq.IR import QuantableOperation, Variable
+from esp_ppq.executor import QuantOPRuntimeHook
+from esp_ppq.IR import QuantableOperation, Variable
 
 from .base import BaseTensorObserver
 from .order import TorchIsotoneObserver

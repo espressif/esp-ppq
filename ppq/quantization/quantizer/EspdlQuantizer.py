@@ -3,8 +3,8 @@ from typing import Union
 
 import torch
 
-from ppq.api.setting import QuantizationSetting
-from ppq.core import (
+from esp_ppq.api.setting import QuantizationSetting
+from esp_ppq.core import (
     OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE,
     PASSIVE_OPERATIONS,
     OperationQuantizationConfig,
@@ -15,8 +15,8 @@ from ppq.core import (
     TargetPlatform,
     ppq_warning,
 )
-from ppq.IR import BaseGraph, Operation
-from ppq.quantization.optim import QuantizationOptimizationPipeline
+from esp_ppq.IR import BaseGraph, Operation
+from esp_ppq.quantization.optim import QuantizationOptimizationPipeline
 
 from .base import BaseQuantizer
 

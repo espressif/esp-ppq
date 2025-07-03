@@ -2,9 +2,9 @@ from typing import Any, List
 
 import torch
 
-from ppq.core import (DataType, convert_any_to_python_primary_type,
+from esp_ppq.core import (DataType, convert_any_to_python_primary_type,
                       convert_any_to_torch_tensor, ppq_warning)
-from ppq.IR.search import SearchableGraph
+from esp_ppq.IR.search import SearchableGraph
 
 from .base.command import (GraphCommand, GraphCommandType,
                            ReplaceOperationCommand, ReplaceVariableCommand,

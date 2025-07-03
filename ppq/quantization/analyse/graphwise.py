@@ -2,11 +2,11 @@
 from typing import Callable, Dict, Iterator, List
 
 import torch
-from ppq.core import PASSIVE_OPERATIONS, ppq_warning
-from ppq.executor import RuntimeHook, TorchExecutor
-from ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
-from ppq.quantization.measure.norm import torch_snr_error
-from ppq.utils.fetch import batch_random_fetch, tensor_random_fetch
+from esp_ppq.core import PASSIVE_OPERATIONS, ppq_warning
+from esp_ppq.executor import RuntimeHook, TorchExecutor
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
+from esp_ppq.quantization.measure.norm import torch_snr_error
+from esp_ppq.utils.fetch import batch_random_fetch, tensor_random_fetch
 from tqdm import tqdm
 
 from .util import MeasurePrinter, MeasureRecorder

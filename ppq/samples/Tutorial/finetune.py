@@ -3,11 +3,11 @@ from typing import Iterable
 import torch
 import torchvision
 
-from ppq import (QuantizationSettingFactory, TargetPlatform,
+from esp_ppq import (QuantizationSettingFactory, TargetPlatform,
                  graphwise_error_analyse)
-from ppq.api import QuantizationSettingFactory, quantize_torch_model
-from ppq.api.interface import ENABLE_CUDA_KERNEL
-from ppq.executor.torch import TorchExecutor
+from esp_ppq.api import QuantizationSettingFactory, quantize_torch_model
+from esp_ppq.api.interface import ENABLE_CUDA_KERNEL
+from esp_ppq.executor.torch import TorchExecutor
 
 # ------------------------------------------------------------
 # 在 PPQ 中我们目前提供两种不同的算法帮助你微调网络

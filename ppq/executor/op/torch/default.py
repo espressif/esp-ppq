@@ -6,16 +6,16 @@ import torch
 import torch.nn.functional as F
 from torch import _VF
 
-from ppq.core import (
+from esp_ppq.core import (
     GRU_FLATTEN_WEIGHT_ATTRIB,
     LSTM_FLATTEN_WEIGHT_ATTRIB,
     DataType,
     TargetPlatform,
     convert_any_to_python_primary_type,
 )
-from ppq.IR import Operation
-from ppq.log import NaiveLogger
-from ppq.utils import process_attribute
+from esp_ppq.IR import Operation
+from esp_ppq.log import NaiveLogger
+from esp_ppq.utils import process_attribute
 
 from .base import *
 

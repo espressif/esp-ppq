@@ -1,9 +1,9 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any
 
-from ppq.core import (QuantizationStates, TensorQuantizationConfig,
+from esp_ppq.core import (QuantizationStates, TensorQuantizationConfig,
                       ppq_debug_function)
-from ppq.IR import Variable
+from esp_ppq.IR import Variable
 
 
 class BaseTensorObserver(metaclass=ABCMeta):

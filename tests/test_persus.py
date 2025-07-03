@@ -1,7 +1,7 @@
-from ppq import BaseGraph
-from ppq.core.quant import NetworkFramework
-from ppq.scheduler.core.opsocket import OType
-from ppq.scheduler.perseus import Perseus
+from esp_ppq import BaseGraph
+from esp_ppq.core.quant import NetworkFramework
+from esp_ppq.scheduler.core.opsocket import OType
+from esp_ppq.scheduler.perseus import Perseus
 
 graph = BaseGraph(name='TestCase1', built_from=NetworkFramework.ONNX)
 gemm = graph.create_operation(op_type='Gemm', name='FirstGemm')

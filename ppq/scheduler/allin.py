@@ -1,7 +1,7 @@
 from typing import Dict, Set
 
-from ppq.core import TargetPlatform
-from ppq.IR import BaseGraph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.IR import BaseGraph
 from .base import GraphDispatcher
 
 

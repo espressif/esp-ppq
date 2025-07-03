@@ -16,8 +16,8 @@
 # If you want to use real data, just rewrite the defination of SAMPLES
 import onnxruntime
 import torch
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 from tqdm import tqdm
 
 QUANT_PLATFROM = TargetPlatform.ONNXRUNTIME

@@ -1,5 +1,5 @@
-from ppq.core import NetworkFramework, TargetPlatform
-from ppq.IR import BaseGraph, GraphBuilder, GraphExporter
+from esp_ppq.core import NetworkFramework, TargetPlatform
+from esp_ppq.IR import BaseGraph, GraphBuilder, GraphExporter
 
 from .ascend_export import AscendExporter
 from .espdl_exporter import EspdlExporter

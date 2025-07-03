@@ -1,7 +1,7 @@
 import torch
 
-from ppq import BaseGraph, TorchExecutor
-from ppq.IR import GraphFormatter, GraphMerger, GraphReplacer
+from esp_ppq import BaseGraph, TorchExecutor
+from esp_ppq.IR import GraphFormatter, GraphMerger, GraphReplacer
 
 graph = BaseGraph(name='TestBed')
 

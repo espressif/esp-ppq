@@ -1,11 +1,11 @@
 from .onnxruntime_exporter import ONNXRUNTIMExporter
 import torch
-from ppq.core import (QuantizationProperty,
+from esp_ppq.core import (QuantizationProperty,
                       TensorQuantizationConfig, 
                       convert_any_to_torch_tensor)
-from ppq.IR import (BaseGraph, Operation,
+from esp_ppq.IR import (BaseGraph, Operation,
                     Variable)
-from ppq.utils.round import ppq_tensor_round
+from esp_ppq.utils.round import ppq_tensor_round
 
 
 class OpenvinoExporter(ONNXRUNTIMExporter):

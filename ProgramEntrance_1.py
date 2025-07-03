@@ -13,8 +13,8 @@ This file will show you how to quantize your network with PPQ
 
 quantized model will be generated at: ~/working/quantized.onnx
 """
-from ppq import *                                       
-from ppq.api import *
+from esp_ppq import *                                       
+from esp_ppq.api import *
 import os
 
 # modify configuration below:

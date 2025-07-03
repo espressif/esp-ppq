@@ -19,10 +19,10 @@ import os
 import struct
 from typing import List
 
-from ppq.core import (NetworkFramework, QuantizationPolicy,
+from esp_ppq.core import (NetworkFramework, QuantizationPolicy,
                       QuantizationProperty, ppq_info, ppq_warning)
-from ppq.IR import BaseGraph, GraphExporter
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.IR import BaseGraph, GraphExporter
+from esp_ppq.IR.quantize import QuantableOperation
 
 from .onnxruntime_exporter import OnnxExporter, ONNXRUNTIMExporter
 

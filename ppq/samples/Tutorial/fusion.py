@@ -3,19 +3,19 @@ from typing import Callable, Iterable
 import torch
 import torchvision
 
-from ppq import (BaseGraph, QuantizationOptimizationPass,
+from esp_ppq import (BaseGraph, QuantizationOptimizationPass,
                  QuantizationOptimizationPipeline, QuantizationSetting,
                  TargetPlatform, TorchExecutor)
-from ppq.api import ENABLE_CUDA_KERNEL
-from ppq.executor.torch import TorchExecutor
-from ppq.IR.quantize import QuantableOperation
-from ppq.IR.search import SearchableGraph
-from ppq.quantization.optim import (ParameterQuantizePass,
+from esp_ppq.api import ENABLE_CUDA_KERNEL
+from esp_ppq.executor.torch import TorchExecutor
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.IR.search import SearchableGraph
+from esp_ppq.quantization.optim import (ParameterQuantizePass,
                                     PassiveParameterQuantizePass,
                                     QuantAlignmentPass,
                                     QuantizeSimplifyPass,
                                     RuntimeCalibrationPass)
-from ppq.quantization.quantizer import TensorRTQuantizer
+from esp_ppq.quantization.quantizer import TensorRTQuantizer
 
 # ------------------------------------------------------------
 # 在这个例子中，我们将向你介绍如何自定义量化优化过程，以及如何手动调用优化过程
@@ -88,7 +88,7 @@ class MyQuantizer(TensorRTQuantizer):
             QuantAlignmentPass(),
             PassiveParameterQuantizePass()])
 
-from ppq.api import quantize_torch_model, register_network_quantizer
+from esp_ppq.api import quantize_torch_model, register_network_quantizer
 register_network_quantizer(quantizer=MyQuantizer, platform=TargetPlatform.EXTENSION)
 
 # ------------------------------------------------------------

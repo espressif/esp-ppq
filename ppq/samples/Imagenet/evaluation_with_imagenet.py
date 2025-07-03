@@ -1,6 +1,6 @@
 import torchvision
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 from Utilities.Imagenet import (evaluate_mmlab_module_with_imagenet,
                                 evaluate_onnx_module_with_imagenet,
                                 evaluate_ppq_module_with_imagenet,

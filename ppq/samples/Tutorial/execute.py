@@ -3,9 +3,9 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import (BaseGraph, QuantableOperation, QuantizationSettingFactory,
+from esp_ppq import (BaseGraph, QuantableOperation, QuantizationSettingFactory,
                  TargetPlatform, TorchExecutor)
-from ppq.api import quantize_torch_model
+from esp_ppq.api import quantize_torch_model
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 

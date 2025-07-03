@@ -2,8 +2,8 @@ import os
 from typing import List
 import json
 
-from ppq.core import NetworkFramework
-from ppq.IR import BaseGraph,GraphExporter
+from esp_ppq.core import NetworkFramework
+from esp_ppq.IR import BaseGraph,GraphExporter
 from .onnx_exporter import OnnxExporter
 
 

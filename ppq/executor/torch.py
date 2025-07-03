@@ -2,11 +2,11 @@ from typing import Callable, Dict, List, Union
 
 import torch
 
-from ppq.core import (QuantizationStates, TargetPlatform, DataType,
+from esp_ppq.core import (QuantizationStates, TargetPlatform, DataType,
                       TensorQuantizationConfig, empty_ppq_cache, ppq_warning)
-from ppq.IR import BaseGraph, Operation, QuantableOperation, RunnableGraph
-from ppq.IR.base.command import GraphDeployCommand
-from ppq.quantization.qfunction import PPQuantFunction
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, RunnableGraph
+from esp_ppq.IR.base.command import GraphDeployCommand
+from esp_ppq.quantization.qfunction import PPQuantFunction
 
 from .base import (OPERATION_FORWARD_TABLE, BaseGraphExecutor,
                    QuantOPRuntimeHook, RuntimeHook)

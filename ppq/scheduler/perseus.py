@@ -1,7 +1,7 @@
 from typing import Dict, List, Set
 
-from ppq.core import TargetPlatform
-from ppq.IR import BaseGraph, Operation, OpSocket, SearchableGraph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.IR import BaseGraph, Operation, OpSocket, SearchableGraph
 
 from .base import GraphDispatcher
 

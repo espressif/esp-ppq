@@ -88,14 +88,14 @@ import os
 
 import torch
 
-import ppq.lib as PFL
-from ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.quantization.optim import (LayerwiseEqualizationPass,
+import esp_ppq.lib as PFL
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.quantization.optim import (LayerwiseEqualizationPass,
                                     LearnedStepSizePass, ParameterQuantizePass,
                                     RuntimeCalibrationPass)
-from ppq.IR import GraphFormatter
+from esp_ppq.IR import GraphFormatter
 
 from QuantZoo.Data.Coco.Data import load_coco_detection_dataset
 from QuantZoo.Data.Coco.Eval import evaluate_ppq_module_with_coco

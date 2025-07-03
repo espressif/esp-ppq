@@ -1,4 +1,4 @@
-from ppq.utils.TensorRTUtil import Benchmark, Profiling
+from esp_ppq.utils.TensorRTUtil import Benchmark, Profiling
 
 print('Profiling with Int8 Model')
 Profiling(engine_file='Output/INT8.engine')

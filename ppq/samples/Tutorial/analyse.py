@@ -2,11 +2,11 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import TargetPlatform, graphwise_error_analyse
-from ppq.api import quantize_torch_model
-from ppq.api.interface import ENABLE_CUDA_KERNEL
-from ppq.quantization.analyse.graphwise import statistical_analyse
-from ppq.quantization.analyse.layerwise import layerwise_error_analyse
+from esp_ppq import TargetPlatform, graphwise_error_analyse
+from esp_ppq.api import quantize_torch_model
+from esp_ppq.api.interface import ENABLE_CUDA_KERNEL
+from esp_ppq.quantization.analyse.graphwise import statistical_analyse
+from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
 
 # ------------------------------------------------------------
 # 在 PPQ 中我们提供许多方法帮助你进行误差分析，误差分析是量化网络的第一步

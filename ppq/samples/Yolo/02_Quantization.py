@@ -5,8 +5,8 @@
 import os
 import torchvision.transforms as transforms
 from PIL import Image
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 
 ONNX_PATH        = 'models/yolov5s6.onnx'      # 你的模型位置
 OUTPUT_PATH      = 'Output'                    # 生成的量化模型的位置
@@ -50,7 +50,7 @@ with ENABLE_CUDA_KERNEL():
         graph_save_to=OUTPUT_PATH.join('/INT8.onnx'), 
         config_save_to=OUTPUT_PATH.join('/INT8.json'))
     
-    from ppq.utils.TensorRTUtil import build_engine, Benchmark, Profiling
+    from esp_ppq.utils.TensorRTUtil import build_engine, Benchmark, Profiling
     build_engine(
         onnx_file=OUTPUT_PATH.join('/INT8.onnx'), 
         engine_file=OUTPUT_PATH.join('/INT8.engine'), int8=True, 

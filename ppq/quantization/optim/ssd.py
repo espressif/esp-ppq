@@ -3,16 +3,16 @@ from typing import Callable, Dict, Iterable, List, Tuple
 
 import torch
 import torch.nn.functional as F
-from ppq.core import QuantizationProperty, QuantizationStates
-from ppq.executor import BaseGraphExecutor
-from ppq.executor.base import OPERATION_FORWARD_TABLE
-from ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
-from ppq.IR.search import Path, SearchableGraph, TraversalCommand
-from ppq.log import NaiveLogger
-from ppq.quantization.measure import torch_mean_square_error
-from ppq.quantization.observer import CalibrationHook, OperationObserver
-from ppq.quantization.observer.range import TorchHistObserver
-from ppq.quantization.qfunction import (BaseQuantFunction,
+from esp_ppq.core import QuantizationProperty, QuantizationStates
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.executor.base import OPERATION_FORWARD_TABLE
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
+from esp_ppq.IR.search import Path, SearchableGraph, TraversalCommand
+from esp_ppq.log import NaiveLogger
+from esp_ppq.quantization.measure import torch_mean_square_error
+from esp_ppq.quantization.observer import CalibrationHook, OperationObserver
+from esp_ppq.quantization.observer.range import TorchHistObserver
+from esp_ppq.quantization.qfunction import (BaseQuantFunction,
                                         PPQLinearQuantFunction)
 from tqdm import tqdm
 

@@ -1,5 +1,5 @@
-from ppq.core import NetworkFramework, TargetPlatform
-from ppq.parser import (
+from esp_ppq.core import NetworkFramework, TargetPlatform
+from esp_ppq.parser import (
                         AscendExporter,
                         EspdlExporter,
                         ExtensionExporter,
@@ -17,7 +17,7 @@ from ppq.parser import (
                         TengineExporter,
                         TensorRTExporter_JSON,
 )
-from ppq.quantization.quantizer import (
+from esp_ppq.quantization.quantizer import (
                         AscendQuantizer,
                         EspdlInt16Quantizer,
                         EspdlHPreInt16Quantizer,

@@ -2,9 +2,9 @@ from functools import partial
 from typing import Dict
 import math
 import torch
-from ppq.core.defs import ppq_warning
-from ppq.quantization.measure.cosine import torch_cosine_similarity
-from ppq.quantization.measure.norm import (torch_mean_square_error,
+from esp_ppq.core.defs import ppq_warning
+from esp_ppq.quantization.measure.cosine import torch_cosine_similarity
+from esp_ppq.quantization.measure.norm import (torch_mean_square_error,
                                            torch_snr_error)
 
 

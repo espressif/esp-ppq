@@ -1,8 +1,8 @@
 from pickle import dump, load
 
-from ppq.core import PPQ_CONFIG
-from ppq.IR import BaseGraph, GraphExporter
-from ppq.IR.base.graph import GraphBuilder
+from esp_ppq.core import PPQ_CONFIG
+from esp_ppq.IR import BaseGraph, GraphExporter
+from esp_ppq.IR.base.graph import GraphBuilder
 
 
 class NativeExporter(GraphExporter):

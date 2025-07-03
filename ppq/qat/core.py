@@ -2,13 +2,13 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import torch
 import torch.nn as nn
-from ppq import PPQuantFunction, SingletonMeta
-from ppq.core import (OperationQuantizationConfig, TargetPlatform,
+from esp_ppq import PPQuantFunction, SingletonMeta
+from esp_ppq.core import (OperationQuantizationConfig, TargetPlatform,
                       TensorQuantizationConfig, ppq_warning)
-from ppq.IR import Operation, Variable
-from ppq.lib import (FloatingQuantizationConfig, LinearQuantizationConfig,
+from esp_ppq.IR import Operation, Variable
+from esp_ppq.lib import (FloatingQuantizationConfig, LinearQuantizationConfig,
                      ParameterQuant, TensorQuant)
-from ppq.quantization.quantizer import BaseQuantizer
+from esp_ppq.quantization.quantizer import BaseQuantizer
 
 
 class QuantLayer():

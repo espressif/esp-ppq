@@ -1,6 +1,6 @@
-from ppq.core import QuantizationStates
-from ppq.IR import BaseGraph, GraphExporter
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.core import QuantizationStates
+from esp_ppq.IR import BaseGraph, GraphExporter
+from esp_ppq.IR.quantize import QuantableOperation
 
 
 class ExtensionExporter(GraphExporter):

@@ -1,4 +1,4 @@
-from ppq.lib import (
+from esp_ppq.lib import (
                      register_calibration_observer,
                      register_network_exporter,
                      register_network_parser,

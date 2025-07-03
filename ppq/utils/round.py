@@ -3,7 +3,7 @@ from math import ceil, floor, log2
 from typing import Union
 
 import torch
-from ppq.core import RoundingPolicy
+from esp_ppq.core import RoundingPolicy
 from torch.autograd import Function
 
 class PPQTensorRoundImpl(Function):

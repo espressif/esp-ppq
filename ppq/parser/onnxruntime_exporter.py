@@ -4,14 +4,14 @@ import onnx
 import torch
 from onnx import helper
 
-from ppq.core import (GRAPH_OPSET_ATTRIB, PPQ_CONFIG,
+from esp_ppq.core import (GRAPH_OPSET_ATTRIB, PPQ_CONFIG,
                       QuantizationProperty, QuantizationStates,
                       QuantizationVisibility, TensorQuantizationConfig, 
                       convert_any_to_torch_tensor, ppq_warning)
-from ppq.IR import (BaseGraph, Operation, QuantableOperation,
+from esp_ppq.IR import (BaseGraph, Operation, QuantableOperation,
                     QuantableVariable, Variable)
-from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
-from ppq.utils.round import ppq_tensor_round
+from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
+from esp_ppq.utils.round import ppq_tensor_round
 
 from .onnx_exporter import OnnxExporter, OP_CONVERTERS, OperationExporter
 

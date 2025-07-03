@@ -1,15 +1,15 @@
 from typing import Iterable, List, Set
 
 import torch
-from ppq.core import (ALIGNMENT_MANUL_OVERRIDE, TYPES_FOR_ALIGNMENT, PASSIVE_OPERATIONS,
+from esp_ppq.core import (ALIGNMENT_MANUL_OVERRIDE, TYPES_FOR_ALIGNMENT, PASSIVE_OPERATIONS,
                       QuantizationProperty, QuantizationStates, RoundingPolicy,
                       TargetPlatform, TensorQuantizationConfig,
                       empty_ppq_cache, ppq_warning)
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
-from ppq.IR.quantize import QuantableVariable
-from ppq.IR.search import SearchableGraph
-from ppq.quantization.observer.range import minmax_to_scale_offset
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, Variable
+from esp_ppq.IR.quantize import QuantableVariable
+from esp_ppq.IR.search import SearchableGraph
+from esp_ppq.quantization.observer.range import minmax_to_scale_offset
 
 from .base import QuantizationOptimizationPass
 

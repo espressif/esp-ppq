@@ -2,12 +2,12 @@ from math import ceil
 from typing import Callable, Dict, Iterable, List
 
 import torch
-from ppq.core import (QuantizationPolicy, QuantizationProperty,
+from esp_ppq.core import (QuantizationPolicy, QuantizationProperty,
                       QuantizationStates, TensorQuantizationConfig,
                       empty_ppq_cache, OBSERVER_ISOTONE_OBSERVER_AXIS)
-from ppq.executor import BaseGraphExecutor, RuntimeHook
-from ppq.IR import BaseGraph, QuantableOperation, QuantableVariable
-from ppq.quantization.observer import (CalibrationHook, OperationObserver,
+from esp_ppq.executor import BaseGraphExecutor, RuntimeHook
+from esp_ppq.IR import BaseGraph, QuantableOperation, QuantableVariable
+from esp_ppq.quantization.observer import (CalibrationHook, OperationObserver,
                                        TensorObserverFactroy,
                                        TorchHistObserver, TorchMinMaxObserver,
                                        TorchMSEObserver)
@@ -85,7 +85,7 @@ class RuntimeCalibrationPass(QuantizationOptimizationPass):
 
     You can manually create this optimization by:
 
-        from ppq import RuntimeCalibrationPass
+        from esp_ppq import RuntimeCalibrationPass
 
         optim = RuntimeCalibrationPass()
 

@@ -1,5 +1,5 @@
 import torch
-from ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
+from esp_ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
                       RoundingPolicy, TensorQuantizationConfig)
 from torch.autograd import Function
 
@@ -29,7 +29,7 @@ class TensorwiseFloatingQuantImpl(Function):
             raise NotImplementedError('This Feature must run with PPQ Cuda Kernel.')
         
         else:
-            from ppq.core import CUDA
+            from esp_ppq.core import CUDA
 
             # quantization function, pure cuda implementation
             quantized = CUDA.FloatingQuantize_T(
@@ -74,7 +74,7 @@ class ChannelwiseFloatingQuantImpl(Function):
             # generate a shape that likes [1, 1, -1, 1], the only -1 is at channel axe.
             raise NotImplementedError('This Feature must run with PPQ Cuda Kernel.')
         else:
-            from ppq.core import CUDA
+            from esp_ppq.core import CUDA
             quantized = CUDA.FloatingQuantize_C(
                 tensor=tensor,
                 scales=scales,

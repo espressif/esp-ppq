@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Callable, List
 
 import torch
-from ppq.core import TargetPlatform
+from esp_ppq.core import TargetPlatform
 
 
 class ModelType(Enum):

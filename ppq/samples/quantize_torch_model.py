@@ -4,8 +4,8 @@ import torch
 import torchvision
 from torch.utils.data import DataLoader
 
-from ppq import BaseGraph, QuantizationSettingFactory, TargetPlatform
-from ppq.api import export_ppq_graph, quantize_torch_model
+from esp_ppq import BaseGraph, QuantizationSettingFactory, TargetPlatform
+from esp_ppq.api import export_ppq_graph, quantize_torch_model
 
 BATCHSIZE = 32
 INPUT_SHAPE = [3, 224, 224]

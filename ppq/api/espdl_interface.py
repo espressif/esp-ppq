@@ -16,16 +16,16 @@ import torch
 from onnxsim import simplify
 from torch.utils.data import DataLoader
 
-import ppq.lib as PFL
-from ppq.api.interface import load_onnx_graph, quantize_onnx_model
-from ppq.api.setting import QuantizationSetting, QuantizationSettingFactory
-from ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache
-from ppq.executor import BaseGraphExecutor, TorchExecutor
-from ppq.IR import BaseGraph
-from ppq.log import NaiveLogger
-from ppq.quantization.analyse import graphwise_error_analyse
-from ppq.quantization.analyse.layerwise import layerwise_error_analyse
-from ppq.quantization.optim import *
+import esp_ppq.lib as PFL
+from esp_ppq.api.interface import load_onnx_graph, quantize_onnx_model
+from esp_ppq.api.setting import QuantizationSetting, QuantizationSettingFactory
+from esp_ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache
+from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
+from esp_ppq.IR import BaseGraph
+from esp_ppq.log import NaiveLogger
+from esp_ppq.quantization.analyse import graphwise_error_analyse
+from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
+from esp_ppq.quantization.optim import *
 
 logger = NaiveLogger.get_logger('ESPDL')
 

@@ -1,11 +1,11 @@
 from typing import Iterable
 
 import torch
-from ppq.core import (QuantizationProperty, QuantizationStates,
+from esp_ppq.core import (QuantizationProperty, QuantizationStates,
                       QuantizationVisibility, ppq_warning)
-from ppq.executor import BaseGraphExecutor, TorchExecutor
-from ppq.IR import BaseGraph, QuantableOperation
-from ppq.quantization.observer import OperationObserver
+from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
+from esp_ppq.IR import BaseGraph, QuantableOperation
+from esp_ppq.quantization.observer import OperationObserver
 
 from .base import QuantizationOptimizationPass
 

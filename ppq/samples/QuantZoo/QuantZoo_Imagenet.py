@@ -98,11 +98,11 @@ import os
 
 import torch
 
-import ppq.lib as PFL
-from ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.quantization.optim import (LayerwiseEqualizationPass,
+import esp_ppq.lib as PFL
+from esp_ppq.api import ENABLE_CUDA_KERNEL, load_onnx_graph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.quantization.optim import (LayerwiseEqualizationPass,
                                     LearnedStepSizePass, ParameterQuantizePass,
                                     RuntimeCalibrationPass)
 from QuantZoo.Data.Imagenet.Eval import (evaluate_ppq_module_with_imagenet,
@@ -134,7 +134,7 @@ with ENABLE_CUDA_KERNEL():
         if model == 'vit_b_16':
             if BATCHSIZE == 32:
                 raise Exception('To Evaluate vit_b_16, change batchsize to 1, change calibration method to minmax.')
-            from ppq.IR import GraphMerger
+            from esp_ppq.IR import GraphMerger
             processor = GraphMerger(graph)
             processor.fuse_matmul_add()
             processor.fuse_layernorm()

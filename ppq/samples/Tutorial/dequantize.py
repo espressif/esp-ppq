@@ -5,9 +5,9 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import QuantableOperation, QuantizationSettingFactory, TargetPlatform
-from ppq.api import quantize_torch_model
-from ppq.core.quant import QuantizationStates
+from esp_ppq import QuantableOperation, QuantizationSettingFactory, TargetPlatform
+from esp_ppq.api import quantize_torch_model
+from esp_ppq.core.quant import QuantizationStates
 from torch.utils.data import DataLoader
 
 BATCHSIZE = 32

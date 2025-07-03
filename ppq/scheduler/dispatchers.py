@@ -6,9 +6,9 @@ Refer to ppq.scheduler.perseus for updated implemenation.
 
 from typing import Dict, Set
 
-from ppq.core import TargetPlatform
-from ppq.IR import BaseGraph
-from ppq.IR.search import SearchableGraph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.IR import BaseGraph
+from esp_ppq.IR.search import SearchableGraph
 
 from .base import (GraphDispatcher, SOI_generators, SOI_receivers,
                    reverse_tracing_pattern, value_tracing_pattern)

@@ -1,9 +1,9 @@
 from typing import Iterable
 
-from ppq.core import empty_ppq_cache
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import BaseGraph, QuantableOperation
-from ppq.quantization.qfunction import PPQuantFunction
+from esp_ppq.core import empty_ppq_cache
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import BaseGraph, QuantableOperation
+from esp_ppq.quantization.qfunction import PPQuantFunction
 
 from .base import QuantizationOptimizationPass
 

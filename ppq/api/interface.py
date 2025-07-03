@@ -5,24 +5,24 @@ from typing import Any, Callable, Iterable, List, Union
 import torch
 from torch.utils.data import DataLoader
 
-import ppq.lib as PFL
-from ppq.api.setting import (DispatchingTable, QuantizationSetting,
+import esp_ppq.lib as PFL
+from esp_ppq.api.setting import (DispatchingTable, QuantizationSetting,
                              QuantizationSettingFactory)
-from ppq.core import (PPQ_CONFIG, NetworkFramework, TargetPlatform,
+from esp_ppq.core import (PPQ_CONFIG, NetworkFramework, TargetPlatform,
                       empty_ppq_cache, ppq_warning)
-from ppq.core.common import (FORMATTER_FORMAT_CONSTANT_INPUT,
+from esp_ppq.core.common import (FORMATTER_FORMAT_CONSTANT_INPUT,
                              FORMATTER_FUSE_BIAS_ADD, FORMATTER_FUSE_BN,
                              FORMATTER_REPLACE_BN_TO_CONV,
                              FORMATTER_REMOVE_IDENTITY,
                              FORMATTER_REMOVE_ISOLATED)
-from ppq.executor import TorchExecutor
-from ppq.executor.base import BaseGraphExecutor
-from ppq.IR import (BaseGraph, GraphBuilder, GraphCommand, GraphCommandType,
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.executor.base import BaseGraphExecutor
+from esp_ppq.IR import (BaseGraph, GraphBuilder, GraphCommand, GraphCommandType,
                     GraphFormatter, GraphMerger, GraphReplacer)
-from ppq.IR.quantize import QuantableOperation
-from ppq.quantization.optim.base import QuantizationOptimizationPass
-from ppq.quantization.quantizer import BaseQuantizer
-from ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.quantization.optim.base import QuantizationOptimizationPass
+from esp_ppq.quantization.quantizer import BaseQuantizer
+from esp_ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
 
 
 def load_graph(file_path: str, from_framework: NetworkFramework=NetworkFramework.ONNX, **kwargs) -> BaseGraph:
@@ -789,7 +789,7 @@ class ENABLE_CUDA_KERNEL:
     memory cost.
     """
     def __init__(self) -> None:
-        from ppq.core.ffi import CUDA_COMPLIER
+        from esp_ppq.core.ffi import CUDA_COMPLIER
         CUDA_COMPLIER.complie()
         self._state = False
 

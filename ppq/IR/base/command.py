@@ -1,6 +1,6 @@
 from enum import Enum
 
-from ppq.core import OperationQuantizationConfig, TargetPlatform
+from esp_ppq.core import OperationQuantizationConfig, TargetPlatform
 
 from .graph import Operation, Variable
 

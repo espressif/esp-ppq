@@ -1,7 +1,7 @@
 import json
 import copy
 from typing import Union
-from ppq.core import *
+from esp_ppq.core import *
 
 # ----------------------------------
 # Legacy Settings, Following Settings are not used in PPQ 0.6.5

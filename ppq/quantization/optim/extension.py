@@ -1,8 +1,8 @@
 from typing import Iterable
-from ppq.IR.base.graph import BaseGraph
+from esp_ppq.IR.base.graph import BaseGraph
 
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import BaseGraph
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import BaseGraph
 
 from .base import QuantizationOptimizationPass
 

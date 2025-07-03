@@ -3,7 +3,7 @@ from math import sqrt
 from typing import List
 
 import torch
-from ppq.IR import Operation
+from esp_ppq.IR import Operation
 
 
 class EqualizationMethod(Enum):

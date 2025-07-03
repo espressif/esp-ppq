@@ -1,8 +1,8 @@
 from typing import Any, List
 
-from ppq.core import TargetPlatform
-from ppq.IR import Operation
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.core import TargetPlatform
+from esp_ppq.IR import Operation
+from esp_ppq.IR.quantize import QuantableOperation
 
 import torch
 

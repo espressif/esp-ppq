@@ -1,5 +1,5 @@
-from ppq import *
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.api import *
 import torch
 
 # 创建计算图
@@ -33,12 +33,12 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=1000, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7
 
 import torch
@@ -76,12 +76,12 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=10, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7
 
 
@@ -114,12 +114,12 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=10, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7
 
 
@@ -152,12 +152,12 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=10, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7
 
 
@@ -190,12 +190,12 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=10, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7
 
 class MyModel(torch.nn.Module):
@@ -227,10 +227,10 @@ executor = TorchExecutor(graph=graph)
 b_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 b_outputs = torch.cat(b_outputs)
 
-from ppq.quantization.optim import LayerwiseEqualizationPass
+from esp_ppq.quantization.optim import LayerwiseEqualizationPass
 LayerwiseEqualizationPass(iterations=10, including_bias=True, including_act=True).optimize(
     graph=graph, dataloader=inputs, executor=executor, collate_fn=lambda x: x.cuda())
 p_outputs = [executor.forward(inputs=t.cuda())[0].unsqueeze(0) for t in inputs]
 p_outputs = torch.cat(p_outputs)
-from ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.measure import torch_snr_error
 assert torch_snr_error(b_outputs, p_outputs).item() < 1e-7

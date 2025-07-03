@@ -12,8 +12,8 @@
 
 import torchvision
 import torch
-import ppq
-import ppq.api as API
+import esp_ppq
+import esp_ppq.api as API
 
 calibration_dataloader = [torch.rand(size=[1, 3, 224, 224]).cuda()]
 model = torchvision.models.shufflenet_v2_x1_0().cuda()
@@ -31,7 +31,7 @@ API.export_ppq_graph(
     quantized, platform=ppq.TargetPlatform.ONNX, 
     graph_save_to='FP32.onnx')
 
-from ppq.utils.OnnxruntimeUtil import Benchmark, Profile
+from esp_ppq.utils.OnnxruntimeUtil import Benchmark, Profile
 
 Benchmark('FP32.onnx', providers=['CPUExecutionProvider'])
 Benchmark('Quantized.onnx', providers=['CPUExecutionProvider'])

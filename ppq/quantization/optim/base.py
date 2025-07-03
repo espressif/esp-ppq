@@ -2,8 +2,8 @@ import time
 from abc import ABCMeta, abstractmethod
 from typing import Container, Iterable, Iterator, List
 
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import BaseGraph, BaseGraph
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import BaseGraph, BaseGraph
 
 class QuantizationOptimizationPass(metaclass = ABCMeta):
     """QuantizationOptimizationPass is a basic building block of PPQ

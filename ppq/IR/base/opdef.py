@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractproperty
 from typing import Any, Dict, List
 
-from ppq.core import (
+from esp_ppq.core import (
     CAFFE_DOMAIN,
     COMPUTING_OP,
     DEFAULT_OPSET_DOMAIN,

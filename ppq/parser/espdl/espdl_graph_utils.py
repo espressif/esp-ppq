@@ -5,7 +5,7 @@ from typing import List
 import numpy as np
 import torch
 
-from ppq.core import (
+from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
     QuantizationProperty,
@@ -15,11 +15,11 @@ from ppq.core import (
     convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
-from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
-from ppq.IR.quantize import QuantableOperation
-from ppq.log import NaiveLogger
-from ppq.parser.espdl.espdl_typedef import ExporterPatternInfo
-from ppq.utils.round import ppq_tensor_round
+from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.log import NaiveLogger
+from esp_ppq.parser.espdl.espdl_typedef import ExporterPatternInfo
+from esp_ppq.utils.round import ppq_tensor_round
 
 logger = NaiveLogger.get_logger("ESPDL")
 

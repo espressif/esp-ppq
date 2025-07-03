@@ -2,8 +2,8 @@ from typing import Iterable
 
 import torch
 import torchvision
-from ppq import BaseGraph, QuantizationSettingFactory, TargetPlatform
-from ppq.api import export_ppq_graph, quantize_torch_model
+from esp_ppq import BaseGraph, QuantizationSettingFactory, TargetPlatform
+from esp_ppq.api import export_ppq_graph, quantize_torch_model
 from torch.utils.data import DataLoader
 
 BATCHSIZE = 32

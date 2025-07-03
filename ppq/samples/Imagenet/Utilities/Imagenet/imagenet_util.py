@@ -9,8 +9,8 @@ import torch.utils.data
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
-from ppq.executor.torch import TorchExecutor
-from ppq.IR import BaseGraph
+from esp_ppq.executor.torch import TorchExecutor
+from esp_ppq.IR import BaseGraph
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Subset
 from tqdm import tqdm

@@ -1,9 +1,9 @@
 """这个脚本将教会你如何使用 PPQ 量化自定义算子"""
 
 import torch
-from ppq import *
-from ppq.api import *
-from ppq.quantization.quantizer import TensorRTQuantizer
+from esp_ppq import *
+from esp_ppq.api import *
+from esp_ppq.quantization.quantizer import TensorRTQuantizer
 
 B = 1
 T = 64

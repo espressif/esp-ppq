@@ -2,13 +2,13 @@ from typing import Iterable, Tuple
 
 import torch
 
-from ppq import (BaseGraph, QuantizationSettingFactory, TargetPlatform,
+from esp_ppq import (BaseGraph, QuantizationSettingFactory, TargetPlatform,
                  convert_any_to_numpy, torch_snr_error)
-from ppq.api import (dispatch_graph, export_ppq_graph, load_onnx_graph,
+from esp_ppq.api import (dispatch_graph, export_ppq_graph, load_onnx_graph,
                      quantize_onnx_model)
-from ppq.core.data import convert_any_to_torch_tensor
-from ppq.executor.torch import TorchExecutor
-from ppq.quantization.analyse.graphwise import graphwise_error_analyse
+from esp_ppq.core.data import convert_any_to_torch_tensor
+from esp_ppq.executor.torch import TorchExecutor
+from esp_ppq.quantization.analyse.graphwise import graphwise_error_analyse
 
 INPUT_SHAPES     = {'input.1': [1, 3, 224, 224]}
 DEVICE           = 'cuda'

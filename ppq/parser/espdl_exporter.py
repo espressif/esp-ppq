@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Sequence, Tuple, Union
 import numpy as np
 import torch
 
-from ppq.core import (
+from esp_ppq.core import (
     ONNX_VERSION,
     PPQ_CONFIG,
     DataType,
@@ -14,10 +14,10 @@ from ppq.core import (
     convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
-from ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
-from ppq.IR.quantize import QuantableOperation
-from ppq.log import NaiveLogger
-from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
+from esp_ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.log import NaiveLogger
+from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 from .espdl import helper
 from .espdl.espdl_typedef import ExporterPatternInfo, LayoutAnnotation

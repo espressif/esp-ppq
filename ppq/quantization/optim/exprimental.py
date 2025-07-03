@@ -1,14 +1,14 @@
 from typing import Callable, Iterable, List
 
 import torch
-from ppq.core import *
-from ppq.executor import BaseGraphExecutor, TorchExecutor
-from ppq.IR import BaseGraph, QuantableOperation
-from ppq.quantization.algorithm.training import *
-from ppq.quantization.algorithm.exprimental import BanditDelegator
-from ppq.quantization.measure import torch_snr_error
-from ppq.quantization.optim.base import QuantizationOptimizationPass
-from ppq.utils.ema import EMARecorder
+from esp_ppq.core import *
+from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
+from esp_ppq.IR import BaseGraph, QuantableOperation
+from esp_ppq.quantization.algorithm.training import *
+from esp_ppq.quantization.algorithm.exprimental import BanditDelegator
+from esp_ppq.quantization.measure import torch_snr_error
+from esp_ppq.quantization.optim.base import QuantizationOptimizationPass
+from esp_ppq.utils.ema import EMARecorder
 from torch.cuda import empty_cache
 from tqdm import tqdm
 

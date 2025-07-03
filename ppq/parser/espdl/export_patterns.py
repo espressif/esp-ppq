@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import torch
 
-from ppq.core import (
+from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
     QuantizationProperty,
@@ -14,11 +14,11 @@ from ppq.core import (
     TensorQuantizationConfig,
     convert_any_to_numpy,
 )
-from ppq.executor.base import OPERATION_FORWARD_TABLE
-from ppq.IR import BaseGraph, Operation, OperationExporter, Variable
-from ppq.IR.quantize import QuantableOperation
-from ppq.log import NaiveLogger
-from ppq.parser.espdl.espdl_graph_utils import (
+from esp_ppq.executor.base import OPERATION_FORWARD_TABLE
+from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.log import NaiveLogger
+from esp_ppq.parser.espdl.espdl_graph_utils import (
     fuse_downstream_operation,
     insert_concat_node,
     insert_dequantize_node,
@@ -28,7 +28,7 @@ from ppq.parser.espdl.espdl_graph_utils import (
     insert_slice_node,
     insert_transpose_node,
 )
-from ppq.parser.espdl.espdl_typedef import (
+from esp_ppq.parser.espdl.espdl_typedef import (
     ACTIVATION_OP_SET,
     MATH_OP_SET,
     QUANT_EXCLUDE_OP_SET,
@@ -37,7 +37,7 @@ from ppq.parser.espdl.espdl_typedef import (
     ExporterPatternInfo,
     LayoutAnnotation,
 )
-from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
+from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 

@@ -1,5 +1,5 @@
-from ppq.log import NaiveLogger
-from ppq.core.defs import ppq_legacy
+from esp_ppq.log import NaiveLogger
+from esp_ppq.core.defs import ppq_legacy
 
 logger = NaiveLogger.get_logger('PPQ')
 

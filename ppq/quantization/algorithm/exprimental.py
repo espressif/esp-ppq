@@ -3,10 +3,10 @@ from typing import List
 
 import numpy as np
 import torch
-from ppq.core import TensorQuantizationConfig
-from ppq.executor import TorchQuantizeDelegator
-from ppq.quantization.qfunction import PPQLinearQuantFunction
-from ppq.utils.ema import EMARecorder
+from esp_ppq.core import TensorQuantizationConfig
+from esp_ppq.executor import TorchQuantizeDelegator
+from esp_ppq.quantization.qfunction import PPQLinearQuantFunction
+from esp_ppq.utils.ema import EMARecorder
 
 
 class BanditDelegator(TorchQuantizeDelegator):

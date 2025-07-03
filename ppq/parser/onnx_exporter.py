@@ -5,12 +5,12 @@ import numpy as np
 import onnx
 import torch
 from onnx import helper, numpy_helper
-from ppq.core import (GRAPH_OPSET_ATTRIB, ONNX_EXPORT_OPSET, ONNX_VERSION,
+from esp_ppq.core import (GRAPH_OPSET_ATTRIB, ONNX_EXPORT_OPSET, ONNX_VERSION,
                       PPQ_CONFIG, DataType, QuantizationStates,
                       convert_any_to_numpy, ppq_warning)
-from ppq.IR import (BaseGraph, GraphExporter, Operation, OperationExporter,
+from esp_ppq.IR import (BaseGraph, GraphExporter, Operation, OperationExporter,
                     Variable)
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.IR.quantize import QuantableOperation
 
 
 class ConstantOfShapeExporter(OperationExporter):

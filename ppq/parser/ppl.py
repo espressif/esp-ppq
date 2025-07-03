@@ -1,9 +1,9 @@
 import json
 
-from ppq.core import (DataType, QuantizationProperty, QuantizationStates,
+from esp_ppq.core import (DataType, QuantizationProperty, QuantizationStates,
                       TargetPlatform, TensorQuantizationConfig)
-from ppq.IR import BaseGraph
-from ppq.IR.quantize import QuantableOperation
+from esp_ppq.IR import BaseGraph
+from esp_ppq.IR.quantize import QuantableOperation
 
 from .onnx_exporter import OnnxExporter
 from .util import convert_value

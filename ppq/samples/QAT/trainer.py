@@ -1,8 +1,8 @@
 from typing import Iterable, Tuple
 
 import torch
-from ppq.executor import TorchExecutor
-from ppq.IR import BaseGraph, TrainableGraph
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.IR import BaseGraph, TrainableGraph
 from tqdm import tqdm
 
 
@@ -135,7 +135,7 @@ class ImageNetTrainer():
         """ Save model to given path.
         Saved model can be read by ppq.api.load_native_model function.
         """
-        from ppq.parser import NativeExporter
+        from esp_ppq.parser import NativeExporter
         exporter = NativeExporter()
         exporter.export(file_path=file_path, graph=self.graph)
 

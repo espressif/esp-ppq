@@ -1,10 +1,10 @@
 import onnxruntime
-from ppq.IR.morph import GraphFormatter
+from esp_ppq.IR.morph import GraphFormatter
 from tests.tmodel  import *
 from tests.tscheme import *
-from ppq     import *
-from ppq.api import *
-from ppq import layerwise_error_analyse
+from esp_ppq import *
+from esp_ppq.api import *
+from esp_ppq import layerwise_error_analyse
 import sys
 
 DEVICE = 'cuda'

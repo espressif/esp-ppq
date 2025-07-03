@@ -1,5 +1,5 @@
 import torch
-from ppq.core import QuantizationProperty, TensorQuantizationConfig
+from esp_ppq.core import QuantizationProperty, TensorQuantizationConfig
 
 from .base import BaseQuantFunction
 from .floating import PPQFloatingQuantFunction

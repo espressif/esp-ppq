@@ -1,7 +1,7 @@
 import onnx
 from onnx import helper, numpy_helper
-from ppq.core import NetworkFramework, QuantizationStates, convert_any_to_numpy
-from ppq.IR import (BaseGraph, GraphExporter, Operation, QuantableVariable,
+from esp_ppq.core import NetworkFramework, QuantizationStates, convert_any_to_numpy
+from esp_ppq.IR import (BaseGraph, GraphExporter, Operation, QuantableVariable,
                     Variable)
 
 MIN_SUFFIX = '_min'

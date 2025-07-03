@@ -1,9 +1,9 @@
 from typing import Any, List, Tuple
 
-from ppq.core import (OperationQuantizationConfig, QuantizationStates,
+from esp_ppq.core import (OperationQuantizationConfig, QuantizationStates,
                       TargetPlatform, TensorQuantizationConfig,
                       convert_any_to_torch_tensor)
-from ppq.quantization.qfunction import BaseQuantFunction
+from esp_ppq.quantization.qfunction import BaseQuantFunction
 
 from .base.command import (GraphCommand, GraphCommandType,
                            QuantizeOperationCommand, ReplaceOperationCommand,

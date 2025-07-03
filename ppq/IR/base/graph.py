@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Text, Union
 
 import torch
 import numpy as np
-from ppq.core import (LINEAR_ACTIVATIONS, DataType, NetworkFramework,
+from esp_ppq.core import (LINEAR_ACTIVATIONS, DataType, NetworkFramework,
                       Serializable, SingletonMeta, TargetPlatform, TensorMeta,
                       convert_any_to_torch_tensor, ppq_warning)
 
@@ -853,7 +853,7 @@ class BaseGraph(Serializable):
         Deep Copy: Deep repetition truly clones the underlying data.
         It is not shared between the first and therefore the copy.
         """
-        from ppq.IR.quantize import QuantableOperation
+        from esp_ppq.IR.quantize import QuantableOperation
         cloned = BaseGraph(name=self._name, built_from=self._built_from)
         for op in self.operations.values(): cloned.append_operation(op.copy())
         for var in self.variables.values(): cloned.append_variable(var.copy(copy_value=copy_value))

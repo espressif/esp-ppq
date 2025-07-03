@@ -1,6 +1,6 @@
-from ppq import *
-from ppq.IR.morph import GraphDecomposer
-from ppq.api import *
+from esp_ppq import *
+from esp_ppq.IR.morph import GraphDecomposer
+from esp_ppq.api import *
 import torch
 
 graph = BaseGraph(name='test', built_from=NetworkFramework.ONNX)

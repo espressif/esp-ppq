@@ -1,13 +1,13 @@
 from typing import Union
 
 import torch
-from ppq.api.setting import QuantizationSetting
-from ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
+from esp_ppq.api.setting import QuantizationSetting
+from esp_ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
                       QuantizationProperty, QuantizationStates, RoundingPolicy,
                       TargetPlatform)
-from ppq.executor import BaseGraphExecutor
-from ppq.IR import BaseGraph, Operation
-from ppq.quantization.optim import (NCNNFormatGemmPass,
+from esp_ppq.executor import BaseGraphExecutor
+from esp_ppq.IR import BaseGraph, Operation
+from esp_ppq.quantization.optim import (NCNNFormatGemmPass,
                                     QuantizationOptimizationPipeline)
 
 from .base import BaseQuantizer

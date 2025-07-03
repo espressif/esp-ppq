@@ -2,7 +2,7 @@ from typing import Union
 
 import numpy as np
 import torch
-from ppq.core import DataType, convert_any_to_numpy
+from esp_ppq.core import DataType, convert_any_to_numpy
 
 
 def convert_value(

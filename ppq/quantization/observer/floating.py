@@ -1,11 +1,11 @@
 import torch
-from ppq.core import (QuantizationProperty, QuantizationStates,
+from esp_ppq.core import (QuantizationProperty, QuantizationStates,
                       TensorQuantizationConfig, OBSERVER_FLOATING_MSE_FETCHES)
-from ppq.IR import Variable
+from esp_ppq.IR import Variable
 
 from .base import BaseTensorObserver
-from ppq.utils.fetch import channel_random_fetch, tensor_random_fetch
-from ppq.quantization.qfunction import PPQuantFunction
+from esp_ppq.utils.fetch import channel_random_fetch, tensor_random_fetch
+from esp_ppq.quantization.qfunction import PPQuantFunction
 
 
 class ConstantObserver(BaseTensorObserver):

@@ -2,7 +2,7 @@
 from typing import Tuple
 
 import torch
-from ppq.core import (CUDA, OBSERVER_KL_COMPUTING_DEVICE,
+from esp_ppq.core import (CUDA, OBSERVER_KL_COMPUTING_DEVICE,
                       OBSERVER_KL_HIST_BINS,
                       OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE, OBSERVER_MIN_SCALE,
                       OBSERVER_MIN_SCALE_MANUL_OVERRIDE,
@@ -12,9 +12,9 @@ from ppq.core import (CUDA, OBSERVER_KL_COMPUTING_DEVICE,
                       QuantizationStates, RoundingPolicy,
                       TensorQuantizationConfig, convert_any_to_numpy,
                       ppq_quant_param_computing_function, ppq_warning)
-from ppq.IR import Variable
-from ppq.quantization.measure import torch_KL_divergence
-from ppq.utils.round import ppq_numerical_round, ppq_round_to_power_of_2
+from esp_ppq.IR import Variable
+from esp_ppq.quantization.measure import torch_KL_divergence
+from esp_ppq.utils.round import ppq_numerical_round, ppq_round_to_power_of_2
 
 from .base import BaseTensorObserver
 
@@ -421,7 +421,7 @@ class TorchMSEObserver(TorchHistObserver):
 
     def compute_mse_loss(self, histogram: list, start: int, step: int, end: int):
         if PPQ_CONFIG.USING_CUDA_KERNEL:
-            from ppq.core import CUDA
+            from esp_ppq.core import CUDA
             return CUDA.compute_mse_loss(histogram=histogram, start=start, step=step, end=end)
         else:
             # 如果你觉得 mse 太慢，想办法加速这段代码就可以了

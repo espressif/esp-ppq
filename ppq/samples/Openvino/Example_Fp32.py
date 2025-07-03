@@ -1,6 +1,6 @@
 import openvino.runtime
 import torch
-from ppq import *
+from esp_ppq import *
 from tqdm import tqdm
 
 MODEL          = 'models\\resnet18.onnx'

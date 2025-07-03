@@ -1,6 +1,6 @@
 from typing import List
 
-from ppq.IR import Operation
+from esp_ppq.IR import Operation
 
 import torch
 
