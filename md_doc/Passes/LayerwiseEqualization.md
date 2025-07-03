@@ -131,6 +131,6 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
 You can manually create this optimization by:
 
-    from ppq import LayerwiseEqualizationPass
+    from esp_ppq import LayerwiseEqualizationPass
 
     optim = LayerwiseEqualizationPass()

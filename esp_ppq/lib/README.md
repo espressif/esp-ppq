@@ -37,10 +37,10 @@
 
 ```python
     # 示例代码
-    from ppq.IR import Operation
-    from ppq.core import OperationQuantizationConfig
-    from ppq.quantization.quantizer import BaseQuantizer
-    from ppq.core import TargetPlatform
+    from esp_ppq.IR import Operation
+    from esp_ppq.core import OperationQuantizationConfig
+    from esp_ppq.quantization.quantizer import BaseQuantizer
+    from esp_ppq.core import TargetPlatform
 
     class MyQuantizer(BaseQuantizer):
         def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
@@ -98,8 +98,8 @@
 
 ```python
     # 示例代码
-    from ppq.IR import BaseGraph
-    from ppq.core import TargetPlatform
+    from esp_ppq.IR import BaseGraph
+    from esp_ppq.core import TargetPlatform
 
     class MyExporter(GraphExporter):
         def export(self, file_path: str, graph: BaseGraph, config_path: str = None, **kwargs):

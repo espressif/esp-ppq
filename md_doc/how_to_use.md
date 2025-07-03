@@ -10,7 +10,7 @@ these kernels can accelerate the process of graph execution in quantization mode
 on heavy graph execution may gain speedup when you turn on cuda kernel option ahead of all the following
 steps
 ```python
-from ppq.core.config import PPQ_CONFIG
+from esp_ppq.core.config import PPQ_CONFIG
 
 PPQ_CONFIG.USING_CUDA_KERNEL = True
 ```
@@ -64,7 +64,7 @@ dataloader = [{'input_1': torch.randn(16, 3, 224, 224), 'input_2': torch.randn(1
 PPQ needs to load your model into PPQ IR graph before anything could go further, and only onnx
 models are supported
 ```python
-from ppq.api import load_onnx_graph
+from esp_ppq.api import load_onnx_graph
 
 ppq_graph_ir = load_onnx_graph(model_path) # for onnx
 ```
@@ -73,7 +73,7 @@ ppq_graph_ir = load_onnx_graph(model_path) # for onnx
 You have to choose your target platform before quantization, i.e., the backend you want to deploy your
 quantized model on. For example, if you want to deploy your model on TensorRT, you just need to specify
 ```python
-from ppq.core import TargetPlatform
+from esp_ppq.core import TargetPlatform
 
 target_platform = TargetPlatform.TRT_INT8
 ```
@@ -86,7 +86,7 @@ different quantization schemes and exported file formats.
 Quantization setting acts as a guider which conducts the quantization process. PPQ has provided default 
 settings for some backend platforms, see [ppq.api.setting](../ppq/api/setting.py) for more details
 ```python
-from ppq import QuantizationSettingFactory
+from esp_ppq import QuantizationSettingFactory
 
 setting = QuantizationSettingFactory.pplcuda_setting() # for OpenPPL CUDA
 setting = QuantizationSettingFactory.dsp_setting()     # for DSP/SNPE
@@ -121,7 +121,7 @@ non-quantable operations will be dispatched to *TargetPlatform.FP32*, which mean
 fp32 mode and no quantization is applied ever
 
 ```python
-from ppq.api.interface import dispatch_graph
+from esp_ppq.api.interface import dispatch_graph
 
 ppq_graph_ir = dispatch_graph(ppq_graph_ir, target_platform, setting)
 ```
@@ -132,7 +132,7 @@ All operations are exectuted by *TorchExecutor* instances in PPQ, and as you can
 [default.py](../ppq/executor/torch/default.py), the inner operation executing logic
 is implemented using pytorch
 ```python
-from ppq.executor import TorchExecutor
+from esp_ppq.executor import TorchExecutor
 
 executor = TorchExecutor(ppq_graph_ir, device='cuda') # for cuda execution
 executor = TorchExecutor(ppq_graph_ir, device='cpu')  # for cpu execution
@@ -149,7 +149,7 @@ conventions to actually run the quantization
 
 ```python
 
-from ppq.api.interface import QUANTIZER_COLLECTION
+from esp_ppq.api.interface import QUANTIZER_COLLECTION
 
 quantizer = QUANTIZER_COLLECTION[target_platform](graph=ppq_graph_ir)
 quantizer.quantize(
@@ -192,7 +192,7 @@ of quantized graph by analysing the signal noise ratio of fp32 outputs and quant
 
 ```python
 
-from ppq.quantization.analyse import layerwise_error_analyse, graphwise_error_analyse
+from esp_ppq.quantization.analyse import layerwise_error_analyse, graphwise_error_analyse
 
 graphwise_error_analyse(
     graph=quantized, # ppq ir graph
@@ -231,7 +231,7 @@ Usually the chozen target platform determines the exact exporting format of the 
 you might want to export in a different format, say if you want to deploy your model on *PPL_CUDA_INT8*
 
 ```python
-from ppq.api.interface import export_ppq_graph
+from esp_ppq.api.interface import export_ppq_graph
 
 export_platform = TargetPlatform.PPL_CUDA_INT8  # could be other platforms in TargetPlatform class
 export_ppq_graph(graph=ppq_ir_graph, platform=export_platform, graph_save_to='quantized', config_save_to='quantized.json')

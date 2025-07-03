@@ -65,7 +65,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
 You can manually create this optimization by:
 
-    from ppq import RuntimeCalibrationPass
+    from esp_ppq import RuntimeCalibrationPass
 
     optim = RuntimeCalibrationPass()
 

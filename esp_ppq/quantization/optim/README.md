@@ -53,8 +53,8 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
 
         # this file shows how to create new optim pass
 
-        from ppq import BaseGraph
-        from ppq import QuantizationOptimizationPass # base class
+        from esp_ppq import BaseGraph
+        from esp_ppq import QuantizationOptimizationPass # base class
 
         class MyOptimPass(QuantizationOptimizationPass): # inherit this
             # 1. realize __init__ function, name your optim pass
@@ -91,8 +91,8 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
 上述属性: graph, dataloader, executor 均可被优化过程的 optimize 函数访问，用户可以使用传入的数据展开后续的工作。定义实例如下：
 
     from typing import Iterable
-    from ppq import BaseGraph, TorchExecutor
-    from ppq import QuantizationOptimizationPass # base class
+    from esp_ppq import BaseGraph, TorchExecutor
+    from esp_ppq import QuantizationOptimizationPass # base class
 
     class MyOptimPass(QuantizationOptimizationPass): # inherit this
         # 1. realize __init__ function, name your optim pass
@@ -109,12 +109,12 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
     import torch
     from torchvision import models
 
-    import ppq.lib as PFL
-    from ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
-    from ppq.api import ENABLE_CUDA_KERNEL, load_torch_model
-    from ppq.core.quant import (QuantizationPolicy, QuantizationProperty,
+    import esp_ppq.lib as PFL
+    from esp_ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
+    from esp_ppq.api import ENABLE_CUDA_KERNEL, load_torch_model
+    from esp_ppq.core.quant import (QuantizationPolicy, QuantizationProperty,
                                 RoundingPolicy)
-    from ppq.quantization.optim import (LearnedStepSizePass, ParameterBakingPass,
+    from esp_ppq.quantization.optim import (LearnedStepSizePass, ParameterBakingPass,
                                         ParameterQuantizePass,
                                         RuntimeCalibrationPass)
 

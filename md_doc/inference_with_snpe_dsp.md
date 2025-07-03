@@ -15,11 +15,11 @@ import os
 import numpy as np
 import torch
 
-from ppq import QuantizationSettingFactory
-from ppq.api import dispatch_graph, export_ppq_graph, load_onnx_graph
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.lib import Quantizer
+from esp_ppq import QuantizationSettingFactory
+from esp_ppq.api import dispatch_graph, export_ppq_graph, load_onnx_graph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.lib import Quantizer
 
 model_path = '/models/shufflenet-v2-sim.onnx' # onnx simplified model
 data_path  = '/data/ImageNet/calibration' # calibration data folder

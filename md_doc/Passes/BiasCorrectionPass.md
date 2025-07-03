@@ -64,7 +64,7 @@
 
   You can manully create this optimization by:
 
-    from ppq import BiasCorrectionPass
+    from esp_ppq import BiasCorrectionPass
 
     optim = BiasCorrectionPass()
 

@@ -9,11 +9,11 @@ the target platform on which we want to deploy our model(*TargetPlatform.PPL_CUD
 ready-to-quantize model, initialize quantizer and executor, and then run the quantization process
 ```python
 import torch
-from ppq.api import load_onnx_graph, export_ppq_graph
-from ppq.api.interface import dispatch_graph, QUANTIZER_COLLECTION
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq import QuantizationSettingFactory
+from esp_ppq.api import load_onnx_graph, export_ppq_graph
+from esp_ppq.api.interface import dispatch_graph, QUANTIZER_COLLECTION
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq import QuantizationSettingFactory
 
 model_path = '/models/shufflenet-v2.onnx'
 data_path  = '/data/ImageNet/calibration'

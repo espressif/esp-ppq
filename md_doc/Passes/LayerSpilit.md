@@ -60,6 +60,6 @@ Thus horizontal splitting is somehow a trade-off between speed and accuracy.
 
 You can create this optimization manually:
 
-    from ppq import HorizontalLayerSplitPass
+    from esp_ppq import HorizontalLayerSplitPass
 
     optim = HorizontalLayerSplitPass()

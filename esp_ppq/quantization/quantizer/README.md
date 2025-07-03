@@ -165,10 +165,10 @@ Now that you have created your platform and corresponding quantizer, then you ne
 
 ```python
     # 示例代码
-    from ppq.IR import Operation
-    from ppq.core import OperationQuantizationConfig
-    from ppq.quantization.quantizer import BaseQuantizer
-    from ppq.core import TargetPlatform
+    from esp_ppq.IR import Operation
+    from esp_ppq.core import OperationQuantizationConfig
+    from esp_ppq.quantization.quantizer import BaseQuantizer
+    from esp_ppq.core import TargetPlatform
 
     class MyQuantizer(BaseQuantizer):
         def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
@@ -186,10 +186,10 @@ After that you can invoke your quantizer via ppq.api functions:
 
 ```python
 
-from ppq.lib import Quantizer
-from ppq.executor import TorchExecutor
-from ppq.api import load_onnx_graph
-from ppq.api.interface import dispatch_graph
+from esp_ppq.lib import Quantizer
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.api import load_onnx_graph
+from esp_ppq.api.interface import dispatch_graph
 
 target_platform = TargetPlatform.ACADEMIC_INT8 # your created platform
 EXECUTING_DEVICE = 'cuda' # run on gpu

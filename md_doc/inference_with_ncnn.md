@@ -19,12 +19,12 @@ simplified model, initialize quantizer and executor, and then run the quantizati
 import os
 import numpy as np
 import torch
-from ppq.api import load_onnx_graph, export_ppq_graph
-from ppq.api.interface import dispatch_graph
-from ppq.lib import Quantizer
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq import QuantizationSettingFactory
+from esp_ppq.api import load_onnx_graph, export_ppq_graph
+from esp_ppq.api.interface import dispatch_graph
+from esp_ppq.lib import Quantizer
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq import QuantizationSettingFactory
 
 model_path = '/models/shufflenet-v2-sim.onnx' # onnx simplified model
 data_path  = '/data/ImageNet/calibration' # calibration data folder

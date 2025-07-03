@@ -66,15 +66,15 @@ Gradient is necessary in PTQ, it enables us to finetuning your network for a bet
 
 Now is time to play with PPQ Qlinear functions, let's start with import them from PPQ libraries:
 
-    from ppq import TensorQuantizationConfig
-    from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
+    from esp_ppq import TensorQuantizationConfig
+    from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
 
 PPQLinearQuantFunction and PPQLinearQuant_toInt are quant(dequant) functions used in PPQ executor: PPQLinearQuant_toInt will quantize a fp32 tensor to int8, PPQLinearQuantFunction will quantize and dequantize a fp32 tensor. TensorQuantizationConfig is the data structure to describe quantization parameter(scale, offset, and etc.). In other words, TensorQuantizationConfig tells how to quantize your tensor.
 
     import torch
-    from ppq import TensorQuantizationConfig
-    from ppq.core import *
-    from ppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
+    from esp_ppq import TensorQuantizationConfig
+    from esp_ppq.core import *
+    from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt, PPQLinearQuantFunction
 
     v_fp32 = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     tqc = TensorQuantizationConfig(

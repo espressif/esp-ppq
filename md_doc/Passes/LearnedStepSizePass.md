@@ -109,7 +109,7 @@ This pass is inclueded in PPQ Quantization Setting, you can calling this optimiz
 
 You can manually create this optimization by:
 
-    from ppq import LearnedStepSizePass
+    from esp_ppq import LearnedStepSizePass
 
     optim = LearnedStepSizePass()
 
