@@ -65,7 +65,7 @@ url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
 [tool.hatch.build.targets.sdist]
-include = ["ppq"]
+include = ["esp_ppq"]
 
 [tool.hatch.build.targets.wheel]
-include = ["ppq"]
+include = ["esp_ppq"]
