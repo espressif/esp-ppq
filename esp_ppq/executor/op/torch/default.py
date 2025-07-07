@@ -3721,6 +3721,13 @@ def PPQBiasFusedMatMul_forward(op: Operation, values: List[torch.Tensor], ctx: T
     return output
 
 
+def Swish_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None,
+                      **kwargs) -> torch.Tensor:
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=1)
+    [input_value] = values
+    return F.silu(input_value)
+
+
 DEFAULT_BACKEND_TABLE = {
     'Abs': Abs_forward,
     'AdaptiveAvgPool2d': AdaptiveAvgPool2d_forward,
@@ -3825,4 +3832,5 @@ DEFAULT_BACKEND_TABLE = {
     'Sum': Sum_forward,
     'Elu': Elu_forward,
     'Erf': Erf_forward,
+    'Swish': Swish_forward,
 }

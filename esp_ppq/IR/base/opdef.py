@@ -989,5 +989,6 @@ DEFAULT_SOCKET_TABLE = {
     'Or': Logical_Socket,
     'And': Logical_Socket,
     'Erf': DEFAULT_SOCKET_CREATOR,
-    'ReverseSequence': ReverseSequence_Socket
+    'ReverseSequence': ReverseSequence_Socket,
+    'Swish': DEFAULT_SOCKET_CREATOR,
 }

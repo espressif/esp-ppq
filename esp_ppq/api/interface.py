@@ -14,7 +14,8 @@ from esp_ppq.core.common import (FORMATTER_FORMAT_CONSTANT_INPUT,
                              FORMATTER_FUSE_BIAS_ADD, FORMATTER_FUSE_BN,
                              FORMATTER_REPLACE_BN_TO_CONV,
                              FORMATTER_REMOVE_IDENTITY,
-                             FORMATTER_REMOVE_ISOLATED)
+                             FORMATTER_REMOVE_ISOLATED,
+                             FORMATTER_FUSE_SWISH)
 from esp_ppq.executor import TorchExecutor
 from esp_ppq.executor.base import BaseGraphExecutor
 from esp_ppq.IR import (BaseGraph, GraphBuilder, GraphCommand, GraphCommandType,
@@ -502,6 +503,9 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     
     if FORMATTER_REPLACE_BN_TO_CONV:
         formatter(GraphCommand(GraphCommandType.REPLACE_BATCHNORM_TO_CONV))
+
+    if FORMATTER_FUSE_SWISH:
+        formatter(GraphCommand(GraphCommandType.FUSE_SWISH))
 
     formatter(GraphCommand(GraphCommandType.FORMAT_CAST))
     formatter(GraphCommand(GraphCommandType.FORMAT_SLICE))

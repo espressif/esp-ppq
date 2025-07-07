@@ -440,3 +440,10 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
     
     在一些情况下，Onnx 导出的计算图会出现 Conv bias 形成独立算子的情况，即 Conv 之后存在单独的 Add 算子。
     该函数用于合并上述情况。
+
+* **fuse_swish(self):**
+
+    合并图中的 swish 激活函数
+    
+    Onnx 标准中不包含 Swish 算子，因此它们将被拆分成 'Sigmoid', 'Mul'2个算子。
+    该函数将它们进行合并

@@ -18,7 +18,8 @@ ACTIVATION_OP_SET = {
     "Cast",
     "LeakyRelu",
     "Softplus",
-    "Identity"
+    "Identity",
+    "Swish",
 }
 
 MATH_OP_SET = {
