@@ -93,7 +93,7 @@ https://openaccess.thecvf.com/content_ICCV_2019/papers/Nagel_Data-Free_Quantizat
         level - 2 optimization will trace another input from Add, and then PPQ will take all the input operations of Add
         as the upstream layers in equalization.
 
-        PPQ use graph search engine for pasring graph structure, check ppq.IR.search.py for more information.
+        PPQ use graph search engine for pasring graph structure, check esp_ppq.IR.search.py for more information.
 
 * interested_layers(List[str])
 
@@ -123,7 +123,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
     setting.equalization = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
     platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

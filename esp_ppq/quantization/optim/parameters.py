@@ -59,7 +59,7 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
         setting = QuantizationSettingFactory.default_setting()
 
         setting.parameter_setting.quantize_passive_parameter = True = True
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

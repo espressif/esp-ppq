@@ -67,7 +67,7 @@ MyTQC = TQC(
 # PPQ 中实现了一堆不同的量化器，它们分别适配不同的情形
 # 在这个例子中，我们分别创建了 TRT_INT8, GRAPHCORE_FP8, TRT_FP8 三种不同的量化器
 # 由它们所生成的量化信息是不同的，为此你可以访问它们的源代码
-# 位于 ppq.quantization.quantizer 中，查看它们初始化量化信息的逻辑。
+# 位于 esp_ppq.quantization.quantizer 中，查看它们初始化量化信息的逻辑。
 # ------------------------------------------------------------
 _ = PFL.Quantizer(platform=TargetPlatform.TRT_INT8, graph=graph)      # 取得 TRT_INT8 所对应的量化器
 _ = PFL.Quantizer(platform=TargetPlatform.GRAPHCORE_FP8, graph=graph) # 取得 GRAPHCORE_FP8 所对应的量化器

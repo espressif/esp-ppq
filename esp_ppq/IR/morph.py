@@ -315,7 +315,7 @@ class GraphFormatter(GraphCommandProcessor):
                 operation.attributes.pop('indices')
 
     def format_cast(self) -> None:
-        """cast op 的参数 to 默认为 int，使用该函数将其封装为 ppq.core.DataType."""
+        """cast op 的参数 to 默认为 int，使用该函数将其封装为 esp_ppq.core.DataType."""
         interested_ops = []
         for _, operation in self.graph.operations.items():
             assert isinstance(operation, Operation)

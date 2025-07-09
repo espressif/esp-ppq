@@ -24,11 +24,11 @@ This Pass is designed for 2 types fusion:
         for complex activation functions like mish, swish, 
         will be represented as mish = tanh + mul + softplus, swish = sigmoid + mul in onnx,
         cause onnx does not have a op defination for them.
-        Identifying those complex patterns requires pattern matching, which is implemented in ppq.IR.search.py
+        Identifying those complex patterns requires pattern matching, which is implemented in esp_ppq.IR.search.py
 
     Complex quantization fusions must be invoked manually, PPQ implemented softplus & swish fusion functions in
-        ppq.quantization.optim.refine.MishFusionPass
-        ppq.quantization.optim.refine.SwishFusionPass
+        esp_ppq.quantization.optim.refine.MishFusionPass
+        esp_ppq.quantization.optim.refine.SwishFusionPass
 
 * passive operation fusion
 
@@ -66,7 +66,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
     setting.fusion = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
     platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

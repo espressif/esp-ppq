@@ -11,7 +11,7 @@ class TensorwiseFloatingQuantImpl(Function):
     will greatly affects system behaviour.
 
     This is a torch implementation of quantization itself.
-    Notice that if ppq.config.USING_CUDA_KERNAL = True,
+    Notice that if esp_ppq.config.USING_CUDA_KERNAL = True,
         then all quantization will use ffi.CUDA instead.
 
     Notice this function will always clone your tensor value first.
@@ -56,7 +56,7 @@ class ChannelwiseFloatingQuantImpl(Function):
     will greatly affects system behaviour.
 
     This is a torch implementation of quantization itself.
-    Notice that if ppq.config.USING_CUDA_KERNAL = True,
+    Notice that if esp_ppq.config.USING_CUDA_KERNAL = True,
         then all quantization will bypass this function by using ffi.CUDA instead.
 
     Notice this function will always clone your tensor value first.

@@ -81,17 +81,17 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         ## PPQ Graph Executor(PPQ 执行引擎)
 
         为了量化并优化神经网络模型，PPQ 实现了基于 Pytorch 的执行引擎，该执行引擎能够执行 Onnx 的模型文件，目前支持 90 余种常见 Onnx 算子，涵盖 1d, 2d, 3d 视觉、语音、文本模型。
-        PPQ 的执行引擎位于 ppq.executor 目录下，由两个主要部分组成： ppq.executor.torch.py 文件中包含了执行引擎自身； ppq.executor.op 文件夹中则包含了不同后端的算子库。
+        PPQ 的执行引擎位于 esp_ppq.executor 目录下，由两个主要部分组成： esp_ppq.executor.torch.py 文件中包含了执行引擎自身； esp_ppq.executor.op 文件夹中则包含了不同后端的算子库。
 
         在开始阅理解执行引擎之前，我们先介绍算子库的相关内容
 
         ### PPQ Backend Functions(PPQ 算子库)
 
-        核心算子库位于 ppq.executor.op.torch.default 文件中，该文件中包含了所有算子默认的执行逻辑。
+        核心算子库位于 esp_ppq.executor.op.torch.default 文件中，该文件中包含了所有算子默认的执行逻辑。
 
         我们知道，对于一个量化算子而言，由于硬件的不同其执行逻辑也可能发生变化。例如 LeakyRelu 算子的负数部分在 GPU 上会采用 x * alpha 的方式完成计算，
         而在 FPGA 则会采用 x = x >> 3 完成计算。正因为这种差异的存在， PPQ 允许相同的算子在不同平台(TargetPlatform)上拥有不同的执行逻辑。
-        这也意味着针对每一个平台，我们都将实现一个平台独特的算子库文件，这些算子库都继承于 ppq.executor.op.torch.default。
+        这也意味着针对每一个平台，我们都将实现一个平台独特的算子库文件，这些算子库都继承于 esp_ppq.executor.op.torch.default。
 
             def Mul_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
                 ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=2, max_num_of_input=2)
@@ -99,7 +99,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 multiplicand, multiplier = values
                 return multiplicand * multiplier
 
-        上文中的内容即 ppq.executor.op.torch.default 中 Mul 算子的执行逻辑，在 PPQ 中，所有算子在执行时都将接受一系列 torch.Tensor 作为输入，而后我们调用 pytorch 完成算子的计算逻辑。
+        上文中的内容即 esp_ppq.executor.op.torch.default 中 Mul 算子的执行逻辑，在 PPQ 中，所有算子在执行时都将接受一系列 torch.Tensor 作为输入，而后我们调用 pytorch 完成算子的计算逻辑。
         你可以打开 PPQ 的算子库文件查看其他算子的执行逻辑，并且 PPQ 也提供了 register_operation_handler 函数，借助该函数你可以注册自定义算子的执行逻辑；或是覆盖现有算子的执行逻辑。
 
             def register_operation_handler(handler: Callable, operation_type: str, platform: TargetPlatform):
@@ -107,7 +107,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                     raise ValueError('Unknown Platform detected, Please check your platform setting.')
                 GLOBAL_DISPATCHING_TABLE[platform][operation_type] = handler
                 
-        该函数位于 ppq.api, 你可以使用语句 from ppq.api import register_operation_handler 来引入它。
+        该函数位于 esp_ppq.api, 你可以使用语句 from esp_ppq.api import register_operation_handler 来引入它。
         
         ### PPQ Executor(PPQ 执行引擎)
         接下来我们向你介绍 PPQ 执行引擎 TorchExecutor，你可以使用语句 from ppq import TorchExecutor 导入执行引擎。初始化执行引擎则需要传入一个 PPQ 计算图实例对象，
@@ -384,7 +384,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             hooks (Dict[str, RuntimeHook], optional):
                 A hook table for customizing operation behaviour and collate data during executing.
                 All hooks should inherit from class RuntimeHook, with all necessary methods implemented.
-                    See also: ppq.executor.base.RuntimeHook
+                    See also: esp_ppq.executor.base.RuntimeHook
 
                 Executor calls hook.pre_forward_hook(operation, input_data) before dispatching operation,
                 by using this feature, you can dynamically dispatch operation during executing,
@@ -394,8 +394,8 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 you are supposed to  gather all necessary data from execution via this feature.
 
                 For Quantable Operation, a much more powerful class:
-                    ppq.executor.base.QuantOpRuntimeHook is provided.
-                see also: ppq.executor.base.QuantOpRuntimeHook
+                    esp_ppq.executor.base.QuantOpRuntimeHook is provided.
+                see also: esp_ppq.executor.base.QuantOpRuntimeHook
 
                 Defaults to None.
 
@@ -429,7 +429,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             hooks (Dict[str, RuntimeHook], optional):
                 A hook table for customizing operation behaviour and collate data during executing.
                 All hooks should inherit from class RuntimeHook, with all necessary methods implemented.
-                    See also: ppq.executor.base.RuntimeHook
+                    See also: esp_ppq.executor.base.RuntimeHook
 
                 Executor calls hook.pre_forward_hook(operation, input_data) before dispatching operation,
                 by using this feature, you can dynamically dispatch operation during executing,
@@ -439,8 +439,8 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 you are supposed to  gather all necessary data from execution via this feature.
 
                 For Quantable Operation, a much more powerful class:
-                    ppq.executor.base.QuantOpRuntimeHook is provided.
-                see also: ppq.executor.base.QuantOpRuntimeHook
+                    esp_ppq.executor.base.QuantOpRuntimeHook is provided.
+                see also: esp_ppq.executor.base.QuantOpRuntimeHook
 
                 Defaults to None.
 
@@ -501,13 +501,13 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 assert isinstance(operation, Operation), 'Oops, seems you got something weird in your graph'
                 assert isinstance(operation.platform, TargetPlatform), (
                     f'Operation {operation.name} has an invalid platform setting, '
-                    f'only PPQ.core.TargetPlatform is expected here, while {type(operation.platform)} was given')
+                    f'only esp_ppq.core.TargetPlatform is expected here, while {type(operation.platform)} was given')
                 platform_dispatching_table = OPERATION_FORWARD_TABLE[operation.platform]
                 if operation.type not in platform_dispatching_table:
                     raise NotImplementedError(
                         f'Graph op: {operation.name}({operation.type}) '
                         f'has no backend implementation on target platform {operation.platform}. '
-                        'Register this op to ppq.executor.base.py and ppq.executor.op first')
+                        'Register this op to esp_ppq.executor.base.py and esp_ppq.executor.op first')
                 operation_forward_func = platform_dispatching_table[operation.type]
                 operation_runtime_hook = hooks[operation.name] if (hooks is not None) and (operation.name in hooks) else None
                 inputs = [var.value for var in operation.inputs]
@@ -633,7 +633,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
     def dummy_forward(self, hooks: Dict[str, RuntimeHook] = None) -> None:
         """This function allows you to execute entire graph without feeding any
         data. This feature is required for operation parameter quantization.
-        See also: ppq.quantization.optim.ParameterQuantizePass.
+        See also: esp_ppq.quantization.optim.ParameterQuantizePass.
 
         This function fakes some input tensors via operation metadata.
             ATTENTION: operation must have metadata before invoking this function.
@@ -642,7 +642,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             hooks (Dict[str, RuntimeHook], optional):
                 A hook table for customizing operation behaviour and collate data during executing.
                 All hooks should inherit from class RuntimeHook, with all necessary methods implemented.
-                    See also: ppq.executor.base.RuntimeHook
+                    See also: esp_ppq.executor.base.RuntimeHook
 
                 Executor calls hook.pre_forward_hook(operation, input_data) before dispatching operation,
                 by using this feature, you can dynamically dispatch operation during executing,
@@ -652,8 +652,8 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 you are supposed to  gather all necessary data from execution via this feature.
 
                 For Quantable Operation, a much more powerful class:
-                    ppq.executor.base.QuantOpRuntimeHook is provided.
-                see also: ppq.executor.base.QuantOpRuntimeHook
+                    esp_ppq.executor.base.QuantOpRuntimeHook is provided.
+                see also: esp_ppq.executor.base.QuantOpRuntimeHook
 
                 Defaults to None.
         """

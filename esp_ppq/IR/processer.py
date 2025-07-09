@@ -136,7 +136,7 @@ class GraphCommandProcessor(Callable, metaclass=ABCMeta):
             raise ValueError(
                 f'Command Type {command.command_type} is not acceptable in this graph, ' \
                 'please make sure you have added proper command processor into processing chain.\n'\
-                'For more information, you may refer to ppq.IR.graph.GraphCommandType'
+                'For more information, you may refer to esp_ppq.IR.graph.GraphCommandType'
             )
 
     def acceptable_command_types(self) -> List[GraphCommandType]:

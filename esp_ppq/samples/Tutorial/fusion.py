@@ -48,7 +48,7 @@ model = model.to(DEVICE)
 # ------------------------------------------------------------
 # 定义我们自己的图融合过程，在这里我们将尝试进行 Conv - Clip 的融合
 # 但与平常不同的是，我们将关闭 Clip 之后的量化点，保留 Conv - Clip 中间的量化
-# 对于更为复杂的模式匹配，你可以参考 ppq.quantization.optim.refine.SwishFusionPass
+# 对于更为复杂的模式匹配，你可以参考 esp_ppq.quantization.optim.refine.SwishFusionPass
 # ------------------------------------------------------------
 class MyFusion(QuantizationOptimizationPass):
     def optimize(self, graph: BaseGraph, dataloader: Iterable,

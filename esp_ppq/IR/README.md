@@ -49,7 +49,7 @@ Onnx 参考: https://github.com/onnx/onnx/blob/main/docs/IR.md
     返回当前变量的形状信息
 
     当 variable.value 不为空时，该函数直接返回 variable.value.shape，当 variable.value 为空时，该函数返回自身的 self._shape 属性。
-    非参数变量的形状信息将在执行时由 ppq.executor.TorchExecutor.tracing_operation_meta 方法创建，
+    非参数变量的形状信息将在执行时由 esp_ppq.executor.TorchExecutor.tracing_operation_meta 方法创建，
     若用户没有调用此函数，则图中所有非参数变量的形状信息均为空值。该属性会在导出时写入 Onnx 文件。
 
     用户可以通过直接赋值的方式修改非参数变量的形状信息，PPQ 接受 int, Text, None 三种类型指定的形状
@@ -61,7 +61,7 @@ Onnx 参考: https://github.com/onnx/onnx/blob/main/docs/IR.md
     返回当前变量的数据类型。
 
     当 variable.value 不为空时，该函数直接返回 variable.value.dtype，当 variable.value 为空时，该函数返回自身的 self._dtype_ 属性。
-    非参数变量的数据类型信息将在执行时由 ppq.executor.TorchExecutor.tracing_operation_meta 方法创建，
+    非参数变量的数据类型信息将在执行时由 esp_ppq.executor.TorchExecutor.tracing_operation_meta 方法创建，
     若用户没有调用此函数，则图中所有非参数变量的数据类型默认为 FP32。该属性会在导出时写入 Onnx 文件。
 
     用户可以通过直接赋值的方式修改非参数变量的数据类型。

@@ -2,9 +2,9 @@
 import torch
 import torchvision
 from trainer import ImageNetTrainer
-from Utilities.Imagenet import *  # check ppq.samples.imagenet.Utilities
+from Utilities.Imagenet import *  # check esp_ppq.samples.imagenet.Utilities
 from Utilities.Imagenet.imagenet_util import \
-    load_imagenet_from_directory  # check ppq.samples.imagenet.Utilities
+    load_imagenet_from_directory  # check esp_ppq.samples.imagenet.Utilities
 
 import esp_ppq.lib as PFL
 from esp_ppq.api import ENABLE_CUDA_KERNEL, load_native_graph, load_torch_model
@@ -41,7 +41,7 @@ graph = load_torch_model(model=model, sample=torch.zeros([1,3,224,224]).cuda())
 
 # ------------------------------------------------------------
 # 创建自定义的 Quantizer, 并完成量化
-# 你需要参考 ppq.quantization.quantizer 文件夹里其他的 quantizer 定义来设计你的量化规则
+# 你需要参考 esp_ppq.quantization.quantizer 文件夹里其他的 quantizer 定义来设计你的量化规则
 # Quantizer 负责为所有算子初始化量化信息，你需要实现它的所有接口函数
 # ------------------------------------------------------------
 from esp_ppq.quantization.quantizer import BaseQuantizer

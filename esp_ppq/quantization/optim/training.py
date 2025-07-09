@@ -28,7 +28,7 @@ class TrainingBasedPass(QuantizationOptimizationPass):
     Choose interested_outputs carefully, cause we compare loss only with those output variables.
         If interested_outputs is None, all graph output variables will be chosen.
 
-    YOUR SHOULD NOTICE THAT SNR REFERS TO: POWER OF NOISE / POWER OF SIGNAL IN PPQ.
+    YOUR SHOULD NOTICE THAT SNR REFERS TO: POWER OF NOISE / POWER OF SIGNAL IN esp_ppq.
 
     Args:
         QuantizationOptimizationPass ([type]): [description]
@@ -188,7 +188,7 @@ class TrainingBasedPass(QuantizationOptimizationPass):
         interested_layers: List[str] = None) -> List[TrainableBlock]:
         """block construction function for training-based algorithms, if
         `block_limit` is not specified, block grandularity will be controlled by
-        the default value OPTIM_ADVOPT_GRAPH_MAXSIZE specified in ppq.core.common.
+        the default value OPTIM_ADVOPT_GRAPH_MAXSIZE specified in esp_ppq.core.common.
 
         Args:
             graph (BaseGraph): ppq ir graph
@@ -249,7 +249,7 @@ class TrainingBasedPass(QuantizationOptimizationPass):
             _type_: _description_
         """
         def cache_fn(data: torch.Tensor):
-            # TODO move this function to ppq.core.IO
+            # TODO move this function to esp_ppq.core.IO
             if not isinstance(data, torch.Tensor):
                 raise TypeError('Unexpected Type of value, Except network output to be torch.Tensor, '
                                 f'however {type(data)} was given.')
@@ -401,7 +401,7 @@ class BiasCorrectionPass(TrainingBasedPass):
 
         setting.bias_correct = True
 
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
@@ -677,7 +677,7 @@ class LearnedStepSizePass(TrainingBasedPass):
 
         setting.lsq_optimization = True
 
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

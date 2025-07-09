@@ -69,7 +69,7 @@ with ENABLE_CUDA_KERNEL():
     builder.create_network('model_fp32.onnx')
     builder.create_engine(engine_path='model_fp32.engine', precision="fp16")
 
-    # quantize model with ppq.
+    # quantize model with esp_ppq.
     quantized = quantize_onnx_model(
         onnx_import_file=MODEL_PATH, calib_dataloader=SAMPLES, 
         collate_fn=lambda x: x.to(DEVICE),

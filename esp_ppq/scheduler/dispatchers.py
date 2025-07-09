@@ -1,6 +1,6 @@
 """
 This File Contains Legacy Dispatchers.
-Refer to ppq.scheduler.perseus for updated implemenation.
+Refer to esp_ppq.scheduler.perseus for updated implemenation.
 """
 
 

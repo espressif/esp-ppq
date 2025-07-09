@@ -3,11 +3,11 @@ This is a highly flexible PPQ quantization entry script,
     and you will witness the power of PPQ as an offline neural network quantization tool.
 
 PPQ abstracts neural network quantization into several parts, such as 
-    Quantizer,                  (ppq.quantization.quantizers) 
-    Optimization Pass,          (ppq.quantization.optim)
-    Optimization Pipeline,      (ppq.quantization.optim)
-    Exporter,                   (ppq.parser)
-    Tensor Quantization Config, (ppq.core)
+    Quantizer,                  (esp_ppq.quantization.quantizers) 
+    Optimization Pass,          (esp_ppq.quantization.optim)
+    Optimization Pipeline,      (esp_ppq.quantization.optim)
+    Exporter,                   (esp_ppq.parser)
+    Tensor Quantization Config, (esp_ppq.core)
     etc.
 
 In this example, we will create them one by one to customize the entire quantization logic. 
@@ -100,7 +100,7 @@ class MyInt8Quantizer(BaseQuantizer):
         When implementing a custom quantizer, you need to initialize the quantization 
         information structure(TQC) for each type of operators.
         
-        Check Predefined Quantizers within ppq.quantization.quantizer folder, see how to implements a
+        Check Predefined Quantizers within esp_ppq.quantization.quantizer folder, see how to implements a
         customized quantizer.
         
         TQC is made up of input_quantization_config and output_quantization_config.

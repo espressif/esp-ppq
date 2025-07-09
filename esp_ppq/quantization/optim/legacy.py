@@ -148,7 +148,7 @@ class AdaroundPass(TrainingBasedPass):
     have no idea which layers should be selected as interested_layers, simply
     leave it as blank and all blocks will be tuned. Note that you could control
     the maximum number of operations in a block by setting
-    OPTIM_ADVOPT_GRAPH_MAXSIZE in ppq.core.common, and by default every block
+    OPTIM_ADVOPT_GRAPH_MAXSIZE in esp_ppq.core.common, and by default every block
     will be trained for 300 epochs, which takes certain long time. The
     optimization goal of every block is.
                 Loss = LpNormLoss(y, y^) + lambda * rounding_loss(v)

@@ -138,7 +138,7 @@ class OnnxExporter(GraphExporter):
         This export will only convert PPQ Op and var to onnx, all quantization configs will be skipped.
         
         This function will try to keep the opset version of your graph unchanged. 
-        However if the opset is not given, ppq will convert it to with the global parameter ppq.core.ONNX_EXPORT_OPSET.
+        However if the opset is not given, ppq will convert it to with the global parameter esp_ppq.core.ONNX_EXPORT_OPSET.
         """
         name = graph._name
         if not name: name = f'{PPQ_CONFIG.NAME} - v({PPQ_CONFIG.VERSION})'

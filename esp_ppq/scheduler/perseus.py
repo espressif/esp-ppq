@@ -40,7 +40,7 @@ class Perseus(GraphDispatcher):
         一旦算子接线器初始化完毕，你将不能对图结构进行进一步修改，否则调度将会失败
         
         在这一过程中，英仙座将为 onnx 算子生成预定义的 onnx 算子接线器，
-        所有被列举在 ppq/scheduler/core/default.py 中的算子均有预定义的算子接线器实现
+        所有被列举在 esp_ppq/scheduler/core/default.py 中的算子均有预定义的算子接线器实现
         支持 opset 1 ~ 18
         
         如果你的网络具有自定义算子，或存在未在 default.py 列举的 onnx 算子
@@ -102,7 +102,7 @@ class Perseus(GraphDispatcher):
         如果从 TopK 节点 出发求传递闭包，只会寻找到其第一个输出分支上的节点。
         
         节点上的链接关系由算子接线器进行定义；算子接线器是一种 PPQ 内置的抽象数据结构，
-        参考：ppq.IR.base.opdef.py
+        参考：esp_ppq.IR.base.opdef.py
         """
         if isinstance(sources, Operation): sources = [sources]
 

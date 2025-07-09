@@ -136,7 +136,7 @@ def evaluate_ppq_module_with_imagenet(
     ) -> pd.DataFrame:
     """
         一套用来测试 ppq 模块的逻辑，
-        直接送入 ppq.IR.BaseGraph 就好了
+        直接送入 esp_ppq.IR.BaseGraph 就好了
     """
 
     executor = TorchExecutor(graph=model, device=device)

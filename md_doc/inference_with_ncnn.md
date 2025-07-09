@@ -60,7 +60,7 @@ ppq_graph_ir = quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.NCNN_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-ppq.table')
+export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.NCNN_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-esp_ppq.table')
 ```
 note that your dataloader should provide batch data which is in the same shape of the input of simplified model, because simplified model can't take dynamic-shape inputs.
 
@@ -68,7 +68,7 @@ note that your dataloader should provide batch data which is in the same shape o
 if you have compiled ncnn correctly, there should be executables in the installation binary folder which can convert onnx model
 to ncnn binary format
 ```shell
-/path/to/your/ncnn/build/install/bin/onnx2ncnn shufflenet-v2-sim-ppq.onnx shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin
+/path/to/your/ncnn/build/install/bin/onnx2ncnn shufflenet-v2-sim-esp_ppq.onnx shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin
 ```
 nothing would print if everything goes right, then we may use ncnn optimize tool to optimize the converted model
 ```shell
@@ -76,7 +76,7 @@ nothing would print if everything goes right, then we may use ncnn optimize tool
 ```
 then along with ppq generated quantization table, we may convert the ncnn optimized model into the final int8 version 
 ```shell
-/path/to/your/ncnn/build/install/bin/ncnn2int8 shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin shufflenet-v2-ncnn-int8.param shufflenet-v2-ncnn-int8.bin shufflenet-v2-sim-ppq.table
+/path/to/your/ncnn/build/install/bin/ncnn2int8 shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin shufflenet-v2-ncnn-int8.param shufflenet-v2-ncnn-int8.bin shufflenet-v2-sim-esp_ppq.table
 ```
 there should be final files generated in your current folder
 ```

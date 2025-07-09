@@ -302,10 +302,10 @@ class LSQSetting():
 
 class TemplateSetting():
     """TemplateSetting 只是为了向你展示如何创建一个新的 Setting 并传递给相对应的 pass 传递的过程在
-    ppq.quantization.quantizer.base.py 里面.
+    esp_ppq.quantization.quantizer.base.py 里面.
 
     TemplateSetting just shows you how to create a setting class.
-        parameter passing is inside ppq.quantization.quantizer.base.py
+        parameter passing is inside esp_ppq.quantization.quantizer.base.py
 
     Raises:
         TypeError: [description]
@@ -398,7 +398,7 @@ class QuantizationSetting():
 
         # extension setting 只是一个空白的占位符，用来向你展示如何创建一个自定义的 setting 并传递参数。
         # extension setting shows you how to create a setting and pass parameter to passes.
-        # see ppq.quantization.quantizer.base.py
+        # see esp_ppq.quantization.quantizer.base.py
         self.extension                       = False
         self.extension_setting               = TemplateSetting()
 

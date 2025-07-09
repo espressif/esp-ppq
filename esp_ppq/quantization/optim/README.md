@@ -45,11 +45,11 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
 
       为当前管线添加一个新的优化过程
 
-用户应当使用语句 from ppq.quantization.optim import xxx 来引入 PPQ 提供的量化过程。
+用户应当使用语句 from esp_ppq.quantization.optim import xxx 来引入 PPQ 提供的量化过程。
 
 ### 3. 定义新的优化过程
 
-用户可以声明子类，继承于 ppq.QuantizationOptimizationPass 基类，并实现相关接口函数，参考代码如下：
+用户可以声明子类，继承于 esp_ppq.QuantizationOptimizationPass 基类，并实现相关接口函数，参考代码如下：
 
         # this file shows how to create new optim pass
 

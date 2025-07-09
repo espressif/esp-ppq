@@ -55,7 +55,7 @@ ppq_graph_ir = quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.QNN_DSP_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-ppq.table')```
+export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.QNN_DSP_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-esp_ppq.table')```
 ```
 
 ## Convert Your Model

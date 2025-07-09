@@ -72,7 +72,7 @@ for calib_algo in {'minmax', 'percentile', 'kl', 'mse'}:
             graph=quantized, running_device=DEVICE, 
             collate_fn=collate_fn, dataloader=CALIBRATION)
 
-# 在确定了一种校准算法之后，你还可以修改 ppq.core.common 中的相关属性来取得更优结果
+# 在确定了一种校准算法之后，你还可以修改 esp_ppq.core.common 中的相关属性来取得更优结果
 # 下列参数将影响校准效果：
     # Observer 中 hist 箱子的个数
     # OBSERVER_KL_HIST_BINS = 4096

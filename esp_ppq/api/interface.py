@@ -178,7 +178,7 @@ def quantize_onnx_model(
     verbose: int = 0,
     do_quantize: bool = True,
 ) -> BaseGraph:
-    """量化一个 onnx 原生的模型 输入一个 onnx 模型的文件路径 返回一个量化后的 PPQ.IR.BaseGraph quantize
+    """量化一个 onnx 原生的模型 输入一个 onnx 模型的文件路径 返回一个量化后的 esp_ppq.IR.BaseGraph quantize
     onnx model, input onnx model and return quantized ppq IR graph.
 
     Args:
@@ -273,7 +273,7 @@ def quantize_torch_model(
     device: str = 'cuda',
     verbose: int = 0,
     ) -> BaseGraph:
-    """量化一个 Pytorch 原生的模型 输入一个 torch.nn.Module 返回一个量化后的 PPQ.IR.BaseGraph.
+    """量化一个 Pytorch 原生的模型 输入一个 torch.nn.Module 返回一个量化后的 esp_ppq.IR.BaseGraph.
 
         quantize a pytorch model, input pytorch model and return quantized ppq IR graph
     Args:
@@ -342,7 +342,7 @@ def quantize_native_model(
     verbose: int = 0,
     do_quantize: bool = True,
 ) -> BaseGraph:
-    """量化一个已经在内存中的 ppq 模型 输入一个量化前的 PPQ.IR.BaseGraph 返回一个量化后的 PPQ.IR.BaseGraph
+    """量化一个已经在内存中的 ppq 模型 输入一个量化前的 esp_ppq.IR.BaseGraph 返回一个量化后的 esp_ppq.IR.BaseGraph
     quantize ppq model, input ppq graph and return quantized ppq graph.
 
     Args:
@@ -432,8 +432,8 @@ def export_ppq_graph(
     func dumps ppq IR to file, and exports quantization setting information
     simultaneously.
 
-    详细的支持情况请参考: ppq.parser.__ini__.py
-    for details please refer to ppq.parser.__ini__.py
+    详细的支持情况请参考: esp_ppq.parser.__ini__.py
+    for details please refer to esp_ppq.parser.__ini__.py
 
     Args:
         graph (BaseGraph): 被保存的 ir
@@ -478,7 +478,7 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     在 PPQ 中，我们不希望出现孤立算子，所有孤立算子将被移除
 
     This function takes pre-processing procedure with your graph.
-    This function will convert operations like cast, slice, parameter, constant to the format that supported by ppq.
+    This function will convert operations like cast, slice, parameter, constant to the format that supported by esp_ppq.
     This function will merge batchnorm when possible.
 
     During quantization logic, we do not expect there is any constant operation in your network, so
@@ -546,7 +546,7 @@ def dispatch_graph(
         dispatcher = DISPATCHER_TABLE[dispatcher](graph)
     else:
         if not isinstance(dispatcher, GraphDispatcher):
-            raise TypeError('Parameter "dispachter" of function ppq.api.dispatch_graph must be String or GraphDispatcher, '
+            raise TypeError('Parameter "dispachter" of function esp_ppq.api.dispatch_graph must be String or GraphDispatcher, '
                             f'however {type(dispatcher)} was given.')
         dispatcher = dispatcher
 
@@ -562,7 +562,7 @@ def dispatch_graph(
     # override dispatching result
     if dispatching_override is not None:
         if not isinstance(dispatching_override, DispatchingTable):
-            raise TypeError('Parameter "dispatching_table" of function ppq.api.dispatch_graph must be DispatchingTable, '
+            raise TypeError('Parameter "dispatching_table" of function esp_ppq.api.dispatch_graph must be DispatchingTable, '
                             f'however {type(dispatching_override)} was given.')
 
         for opname, platform in dispatching_override.dispatchings.items():
@@ -688,7 +688,7 @@ def quantize(working_directory: str, setting: QuantizationSetting, model_type: N
              dataloader: DataLoader, calib_steps: int = 32) -> BaseGraph:
     """Helper function for quantize your model within working directory, This
     function will do some check and redirect your requirement to:
-    ppq.api.quantize_onnx_model.
+    esp_ppq.api.quantize_onnx_model.
 
     see them for more information.
 

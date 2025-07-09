@@ -1,14 +1,14 @@
 # Customize Your Quantization Platform
 
-PPQ has supported many backends, you can check [quant.py](../ppq/core/quant.py) for details about all supported
-platforms, this tutorial illustrates how to add your quantization backend support in PPQ. For simplicity,
+PPQ has supported many backends, you can check [quant.py](../esp_ppq/core/quant.py) for details about all supported
+platforms, this tutorial illustrates how to add your quantization backend support in esp_ppq. For simplicity,
 the *TargetPlatform.ACADEMIC_INT8* platform will be given as an example here.
 
 Executable Example are provided here: [MyQuantizer.py](https://github.com/openppl-public/ppq/blob/master/ppq/quantization/quantizer/MyQuantizer.py).
 
 ## Create Your Platform
 
-First, you need to name and create your platform in [TargetPlatform](../ppq/core/quant.py), there are
+First, you need to name and create your platform in [TargetPlatform](../esp_ppq/core/quant.py), there are
 all PPQ supported platforms. Don't forget to add your created platform in the *is_quantized_platform* collection
 ```python
 @ classmethod
@@ -22,7 +22,7 @@ def is_quantized_platform(cls, platform) -> bool:
 
 ## Inherit BaseQuantizer 
 
-As you can see in [quantizer](../ppq/quantization/quantizer), there are many quantizers, each corresponding with
+As you can see in [quantizer](../esp_ppq/quantization/quantizer), there are many quantizers, each corresponding with
 a backend platform, and they all inherit from the basic class *BaseQuantizer*, the basic quantizer class regulates
 the basic quantization workflow and the process of applying quantization passes, which are guided by the quantization
 setting designated by the user in advance. So your quantizer should inherit the basic class as well. Take *ACADEMICQuantizer*
@@ -161,7 +161,7 @@ which means PPQ will skip the quantization of output activation of every quantab
 
 ## Register Your Quantizer And Platform
 
-Now that you have created your platform and corresponding quantizer, then you need to register your with [ppq.lib.common](https://github.com/openppl-public/ppq/blob/master/ppq/lib/common.py) :
+Now that you have created your platform and corresponding quantizer, then you need to register your with [esp_ppq.lib.common](https://github.com/openppl-public/ppq/blob/master/ppq/lib/common.py) :
 
 ```python
     # 示例代码
@@ -182,7 +182,7 @@ Now that you have created your platform and corresponding quantizer, then you ne
     register_network_quantizer(quantizer=MyQuantizer, platform=TargetPlatform.PPL_CUDA_INT8)
 ```
 
-After that you can invoke your quantizer via ppq.api functions:
+After that you can invoke your quantizer via esp_ppq.api functions:
 
 ```python
 

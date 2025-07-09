@@ -241,7 +241,7 @@ class BaseGraph(Serializable):
         So to say it is a computational graph designed for quantization.
 
     All quantization related infos are stored within graph and its operations.
-        See ppq.IR.quantize for more information.
+        See esp_ppq.IR.quantize for more information.
 
     Args:
         Serializable ([type]): [description]

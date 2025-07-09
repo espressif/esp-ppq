@@ -49,7 +49,7 @@ quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=target_platform, graph_save_to='shufflenet-v2-ppq', config_save_to='shufflenet-v2-ppq.json')
+export_ppq_graph(graph=ppq_graph_ir, platform=target_platform, graph_save_to='shufflenet-v2-ppq', config_save_to='shufflenet-v2-esp_ppq.json')
 ```
 
 ## Write Script and Inference
@@ -57,8 +57,8 @@ suppose we have a sample image in our working space, and we have quantization pa
 PPQ, now we are going to run quantization inference on the OpenPPL GPU INT8 backend
 ```
 |--workspace
-      |-- shufflenet-v2-ppq.onnx
-      |-- shufflenet-v2-ppq.json
+      |-- shufflenet-v2-esp_ppq.onnx
+      |-- shufflenet-v2-esp_ppq.json
       |-- sample.jpg
 ```
 we need to preprocess the sample image, here is an opencv example
@@ -111,7 +111,7 @@ then we need to register a cuda engine for execution, providing options such as 
 and we need to load the quantization file, if you want to run in fp16 mode, you can skip this part
 ```c++
 {
-    const char* quantization_file = "/workspace/shufflenet-v2-ppq.json";
+    const char* quantization_file = "/workspace/shufflenet-v2-esp_ppq.json";
     string file_content;
     ifstream ifile;
     ifile.open(quantization_file, ios_base::in);
@@ -144,7 +144,7 @@ of course we also need to load the onnx model
 ```c++
 {
     //create onnx runtime && load onnx model
-    const char* onnx_model = "/workspace/shufflenet-v2-ppq.onnx";
+    const char* onnx_model = "/workspace/shufflenet-v2-esp_ppq.onnx";
     //create onnx runtime builder
     auto builder = unique_ptr<onnx::RuntimeBuilder>(onnx::RuntimeBuilderFactory::Create());
     builder->LoadModel(onnx_model);

@@ -9,7 +9,7 @@ if os.path.dirname(os.path.realpath(__file__)) == os.path.join(
     )
     warnings.warn(message.format(os.getcwd()))
 
-# This file defines export functions & class of PPQ.
+# This file defines export functions & class of esp_ppq.
 from esp_ppq.api.setting import (ActivationQuantizationSetting, DispatchingTable,
                              EqualizationSetting, GraphFormatSetting,
                              LSQSetting, ParameterQuantizationSetting,

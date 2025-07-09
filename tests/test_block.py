@@ -1,7 +1,7 @@
 from tests.tmodel  import *
 from tests.tscheme import *
 from ..ppq     import *
-from ..ppq.api import *
+from ..esp_ppq.api import *
 
 DEVICE = 'cuda'
 

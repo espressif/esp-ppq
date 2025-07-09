@@ -116,7 +116,7 @@ class TensorRTExporter_JSON(GraphExporter):
         ppq_info(
             'You are exporting PPQ Graph to TensorRT(Onnx + Json). \n'
             'Please Compile the TensorRT INT8 engine manually: \n\n'
-            'from ppq.utils.TensorRTUtil import build_engine \n'
+            'from esp_ppq.utils.TensorRTUtil import build_engine \n'
             "build_engine(onnx_file='Quantized.onnx', int8_scale_file='Quantized.json', engine_file='Quantized.engine', int8=True)\n")
         if config_path is not None:
             self.export_quantization_config(config_path, graph)

@@ -47,7 +47,7 @@ class GraphCommandType(Enum):
     # 格式化 GATHER 算子，将 index 参数（由input输入）植入算子属性
     # regularize gather operator
     FORMAT_GATHER = 11
-    # 格式化 CAST 算子，统一 CAST 参数到 PPQ.core.DataType
+    # 格式化 CAST 算子，统一 CAST 参数到 esp_ppq.core.DataType
     # regularize Cast operator
     FORMAT_CAST = 12
     # 格式化所有常量输入，尝试将他们转换为int32的

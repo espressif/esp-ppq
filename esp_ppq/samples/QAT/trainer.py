@@ -133,7 +133,7 @@ class ImageNetTrainer():
 
     def save(self, file_path: str):
         """ Save model to given path.
-        Saved model can be read by ppq.api.load_native_model function.
+        Saved model can be read by esp_ppq.api.load_native_model function.
         """
         from esp_ppq.parser import NativeExporter
         exporter = NativeExporter()

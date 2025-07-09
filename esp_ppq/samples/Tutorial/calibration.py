@@ -46,7 +46,7 @@ QSetting = QuantizationSettingFactory.default_setting()
 QSetting.quantize_activation_setting.calib_algorithm = 'kl'
 QSetting.quantize_parameter_setting.calib_algorithm  = 'minmax'
 # ------------------------------------------------------------
-# 更进一步地，当你选择了某种校准方法，你可以进入 ppq.core.common
+# 更进一步地，当你选择了某种校准方法，你可以进入 esp_ppq.core.common
 # OBSERVER_KL_HIST_BINS, OBSERVER_PERCENTILE, OBSERVER_MSE_HIST_BINS 皆是与校准方法相关的可调整参数
 # OBSERVER_KL_HIST_BINS - KL 算法相关的箱子个数，你可以试试将其调整为 512, 1024, 2048, 4096, 8192 ...
 # OBSERVER_PERCENTILE - Percentile 算法相关的百分比，你可以试试将其调整为 0.9999, 0.9995, 0.99999, 0.99995 ...

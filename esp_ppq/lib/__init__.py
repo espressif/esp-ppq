@@ -27,7 +27,7 @@ PFL is a collection of basic classes and functions that provides fundamental fun
     
     - QuantFunction: Get PPQ Default Quantize Function.
     
-PFL also provides a set of functions to register Quantizer, Parser, Exporter to PPQ.
+PFL also provides a set of functions to register Quantizer, Parser, Exporter to esp_ppq.
 
     - register_network_quantizer
     

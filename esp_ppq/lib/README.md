@@ -1,7 +1,7 @@
-## PPQ.lib(PPQ 接口函数库)
+## esp_ppq.lib(PPQ 接口函数库)
 你正浏览 PPQ 的接口函数库定义，于此文件中定义的内容使你可以在任何 Python 程序中嵌入 PPQ 的执行逻辑。
 
-### 1. PPQ.lib.common.Quantizer
+### 1. esp_ppq.lib.common.Quantizer
 
 截止 PPQ 0.6.6，软件内共提供 20 种不同的量化器，分别对应不同的部署平台。在 PPQ 中 [量化器](https://github.com/openppl-public/ppq/tree/master/ppq/quantization/quantizer) 负责为算子初始化量化信息，对于不同的硬件平台，其量化策略是不同的，因此量化器也有不一样的实现逻辑。
 量化器必须实现 init_quant_config 函数，用于根据算子类别为算子初始化量化配置信息。量化器还必须告知所有可量化的算子类型，用于协助调度器确定调度方案。
@@ -33,7 +33,7 @@
 
 #### 注册新的量化器
 
-用户可以使用接口函数 ppq.lib.register_network_quantizer 注册自定义的量化器，须知被注册的量化器必须继承 ppq.quantization.quantizer.BaseQuantizer 基类，并实现相应接口：
+用户可以使用接口函数 esp_ppq.lib.register_network_quantizer 注册自定义的量化器，须知被注册的量化器必须继承 esp_ppq.quantization.quantizer.BaseQuantizer 基类，并实现相应接口：
 
 ```python
     # 示例代码
@@ -56,9 +56,9 @@
 
 #### 获取一个量化器示例
 
-用户可以通过接口函数 ppq.lib.quant.Quantizer 获取一个与平台对应的量化器，亦可 from ppq.quantization.quantizer import ... 导入所需的量化器。
+用户可以通过接口函数 esp_ppq.lib.quant.Quantizer 获取一个与平台对应的量化器，亦可 from esp_ppq.quantization.quantizer import ... 导入所需的量化器。
 
-### 2. PPQ.lib.common.Exporter
+### 2. esp_ppq.lib.common.Exporter
 
 在 PPQ 中，我们以 [量化控制信息](https://github.com/openppl-public/ppq/tree/master/ppq/core) 描述网络的量化情况，网络中与量化相关的参数均保存于算子的量化控制信息中。
 因此网络的导出也即将算子上绑定的量化控制信息导出到文件，你应当根据推理框架的需要导出相应的模型格式。截止 PPQ 0.6.6，目前共支持 18 种 [导出格式](https://github.com/openppl-public/ppq/tree/master/ppq/parser) ：
@@ -94,7 +94,7 @@
 }
 ```
 
-用户可以使用接口函数 ppq.lib.register_network_quantizer 注册自定义的导出逻辑，须知被注册的量化器必须继承 ppq.parser.GraphExporter 基类，并实现相应接口：
+用户可以使用接口函数 esp_ppq.lib.register_network_quantizer 注册自定义的导出逻辑，须知被注册的量化器必须继承 esp_ppq.parser.GraphExporter 基类，并实现相应接口：
 
 ```python
     # 示例代码
@@ -111,9 +111,9 @@
 
 #### 获取一个量化器示例
 
-用户可以通过接口函数 ppq.lib.quant.Exporter 获取一个与平台对应的导出器，亦可 from ppq.parser import ... 导入所需的导出器。
+用户可以通过接口函数 esp_ppq.lib.quant.Exporter 获取一个与平台对应的导出器，亦可 from esp_ppq.parser import ... 导入所需的导出器。
 
-### 3. PPQ.lib.quant 函数库
+### 3. esp_ppq.lib.quant 函数库
 
 1. Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer: 
 
@@ -123,7 +123,7 @@
 
     根据目标平台获取一个系统预定义的量化器。在 PPQ 中，量化器是一个用于为算子初始化量化信息 Tensor Quantization Config 的对象。
     量化器决定了你的算子是如何被量化的，你也可以设计新的量化器来适配不同的后端推理框架。
-    在 PPQ 中我们为不同的推理后端设计好了一些预定义的量化器，你可以通过 ppq.lib.Quantizer 来访问它们。
+    在 PPQ 中我们为不同的推理后端设计好了一些预定义的量化器，你可以通过 esp_ppq.lib.Quantizer 来访问它们。
 
 2. Pipeline(optims: List[QuantizationOptimizationPass]) -> QuantizationOptimizationPipeline:
 
@@ -193,7 +193,7 @@
 
     获取一个网络解析器。
 
-### 3. PPQ.lib.extension 函数库
+### 3. esp_ppq.lib.extension 函数库
 
 1. register_network_quantizer(quantizer: type, platform: TargetPlatform):
     

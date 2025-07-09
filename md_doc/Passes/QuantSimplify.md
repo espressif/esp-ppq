@@ -1,6 +1,6 @@
 ## PPQ Quantize Simplify Pass(通用量化精简过程)
 
-PPQ use Tensor Quantization Configuration(A data structure defined in ppq.core) to
+PPQ use Tensor Quantization Configuration(A data structure defined in esp_ppq.core) to
 control quantization. Each quantable op will have a list of TQC as its quantization config,
 which contains necessary quantization parameter(scale, offset), in order to quantize its input(s) and output(s).
 
@@ -33,7 +33,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     setting.fusion = True
     setting.fusion_setting.remove_useless_quantization = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
     platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

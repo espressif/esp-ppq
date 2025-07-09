@@ -162,7 +162,7 @@ class BaseQuantizer(metaclass = ABCMeta):
         After the default OQC got created, you can overwrite its state in quantizer.
         """
         assert isinstance(op, Operation), (
-            f'Can only initialize OQC for PPQ.IR.Operation, however {type(op)} was given.')
+            f'Can only initialize OQC for esp_ppq.IR.Operation, however {type(op)} was given.')
         assert isinstance(policy, QuantizationPolicy), (
             f'Can not create quantization config - Quantization Policy Type Error.')
         assert isinstance(rounding, RoundingPolicy), (

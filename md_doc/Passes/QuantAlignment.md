@@ -15,7 +15,7 @@ Those restrictions, can be concluded as some quantization should share
     the same quantization parameter with others. PPQ Quant Alignment Pass is designed
     for dealing with problems like this.
 
-PPQ uses Tensor Quantization Config (A data structure defined in ppq.core) to control the
+PPQ uses Tensor Quantization Config (A data structure defined in esp_ppq.core) to control the
     quantization logic, so to say if we want to align quantization parameters, we align
     their TQC in fact.
 
@@ -34,19 +34,19 @@ That is tqc1 and tqc2 are bonuded with statement "tqc1.set_master(master=tqc2)".
 
         Alignment method for elementwise ops.
 
-        All elementwise ops are listed in ppq.core.common.py
+        All elementwise ops are listed in esp_ppq.core.common.py
 
 * concat_merge_method(bool)
 
         Alignment method for concat-like ops.
 
-        All concat-like ops are listed in ppq.core.common.py
+        All concat-like ops are listed in esp_ppq.core.common.py
 
 * averagepool_method(bool)
 
         Alignment method for pooling-like ops.
 
-        All pooling-like ops are listed in ppq.core.common.py
+        All pooling-like ops are listed in esp_ppq.core.common.py
 
 * force_overlap(bool)
 
@@ -76,7 +76,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     setting.fusion = True
     setting.fusion_setting.force_alignment_overlap = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
     platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

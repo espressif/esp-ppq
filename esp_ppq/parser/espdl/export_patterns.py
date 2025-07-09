@@ -688,7 +688,7 @@ class AddLUTPattern(OperationExporter):
             raise NotImplementedError(
                 f"Graph op: {op.name}({op.type}) "
                 f"has no backend implementation on target platform {op.platform}. "
-                "Register this op to ppq.executor.base.py and ppq.executor.op first"
+                "Register this op to esp_ppq.executor.base.py and esp_ppq.executor.op first"
             )
         operation_forward_func = platform_dispatching_table[op.type]
 

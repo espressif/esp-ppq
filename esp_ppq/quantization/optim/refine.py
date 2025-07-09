@@ -18,7 +18,7 @@ class QuantizeSimplifyPass(QuantizationOptimizationPass):
     """
     ## PPQ Quantize Simplify Pass(通用量化精简过程)
 
-    PPQ use Tensor Quantization Configuration(A data structure defined in ppq.core) to
+    PPQ use Tensor Quantization Configuration(A data structure defined in esp_ppq.core) to
     control quantization. Each quantable op will have a list of TQC as its quantization config,
     which contains necessary quantization parameter(scale, offset), in order to quantize its input(s) and output(s).
 
@@ -51,7 +51,7 @@ class QuantizeSimplifyPass(QuantizationOptimizationPass):
         setting.fusion = True
         setting.fusion_setting.remove_useless_quantization = True
 
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
@@ -116,11 +116,11 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
         for complex activation functions like mish, swish, 
         will be represented as mish = tanh + mul + softplus, swish = sigmoid + mul in onnx,
         cause onnx does not have a op defination for them.
-        Identifying those complex patterns requires pattern matching, which is implemented in ppq.IR.search.py
+        Identifying those complex patterns requires pattern matching, which is implemented in esp_ppq.IR.search.py
 
     Complex quantization fusions must be invoked manually, PPQ implemented softplus & swish fusion functions in
-        ppq.quantization.optim.refine.MishFusionPass
-        ppq.quantization.optim.refine.SwishFusionPass
+        esp_ppq.quantization.optim.refine.MishFusionPass
+        esp_ppq.quantization.optim.refine.SwishFusionPass
 
     For passive operation fusion, PPQ will keep the input and the output variable share a same scale for passive operations.
         An operation is identified as passive op only if its attribute "is_active_quant_op" = False, this
@@ -160,7 +160,7 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
 
         setting.fusion = True
 
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
@@ -325,7 +325,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         the same quantization parameter with others. PPQ Quant Alignment Pass is designed
         for dealing with problems like this.
 
-    PPQ uses Tensor Quantization Config (A data structure defined in ppq.core) to control the
+    PPQ uses Tensor Quantization Config (A data structure defined in esp_ppq.core) to control the
         quantization logic, so to say if we want to align quantization parameters, we align
         their TQC in fact.
 
@@ -347,7 +347,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             PPQ Supports 4 alignment methods:
                 namely 'Align to Input', 'Align to Large', 'Align to Output', 'None'.
             
-            All elementwise ops are listed in ppq.core.common.py
+            All elementwise ops are listed in esp_ppq.core.common.py
 
     * concat_alignment(Set[str])
 
@@ -356,7 +356,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             PPQ Supports 4 alignment methods:
                 namely 'Align to Input', 'Align to Large', 'Align to Output', 'None'.
             
-            All concat-like ops are listed in ppq.core.common.py
+            All concat-like ops are listed in esp_ppq.core.common.py
 
     * averagepool_alignment(Set[str])
 
@@ -365,7 +365,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
             PPQ Supports 4 alignment methods:
                 namely 'Align to Input', 'Align to Large', 'Align to Output', 'None'.
             
-            All pooling-like ops are listed in ppq.core.common.py
+            All pooling-like ops are listed in esp_ppq.core.common.py
 
     * resize_alignment(Set[str])
 
@@ -402,7 +402,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         setting.fusion = True
         setting.fusion_setting.force_alignment_overlap = True
 
-        # calling ppq.api.quantize_onnx_model function with this setting.
+        # calling esp_ppq.api.quantize_onnx_model function with this setting.
         ir = quantize_torch_model(
         model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
         platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 

@@ -28,7 +28,7 @@ def Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer:
     在 PPQ 中，量化器是一个用于为算子初始化量化信息 Tensor Quantization Config 的对象
         - 量化器决定了你的算子是如何被量化的，你也可以设计新的量化器来适配不同的后端推理框架
     
-    在 PPQ 中我们为不同的推理后端设计好了一些预定义的量化器，你可以通过 ppq.lib.Quantizer 来访问它们
+    在 PPQ 中我们为不同的推理后端设计好了一些预定义的量化器，你可以通过 esp_ppq.lib.Quantizer 来访问它们
     """
     if platform not in __QUANTIZER_COLLECTION__:
         raise KeyError(f'Target Platform {platform} has no related quantizer for now.')

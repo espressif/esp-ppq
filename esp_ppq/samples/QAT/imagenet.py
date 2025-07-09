@@ -7,9 +7,9 @@ from esp_ppq.core import TargetPlatform
 from esp_ppq.executor import TorchExecutor
 from esp_ppq.quantization.optim import *
 from esp_ppq.quantization.quantizer import TensorRTQuantizer
-from Utilities.Imagenet import *  # check ppq.samples.imagenet.Utilities
+from Utilities.Imagenet import *  # check esp_ppq.samples.imagenet.Utilities
 from Utilities.Imagenet.imagenet_util import \
-    load_imagenet_from_directory  # check ppq.samples.imagenet.Utilities
+    load_imagenet_from_directory  # check esp_ppq.samples.imagenet.Utilities
 
 from trainer import ImageNetTrainer
 

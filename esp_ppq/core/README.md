@@ -1,22 +1,22 @@
-## PPQ.Core(PPQ 核心定义)
+## esp_ppq.Core(PPQ 核心定义)
 你正浏览 PPQ 的核心数据结构定义，本目录中的文件描述了 PPQ 软件的底层逻辑：
 
-1. ppq.core.common: ppq 预定义常量，用户可以修改该文件从而配置软件的相应功能。
+1. esp_ppq.core.common: ppq 预定义常量，用户可以修改该文件从而配置软件的相应功能。
 
-2. ppq.core.config: ppq 基础定义，包括版本号，软件名等内容。
+2. esp_ppq.core.config: ppq 基础定义，包括版本号，软件名等内容。
 
-3. ppq.core.data: ppq 基础数据类型，包含 pytorch.Tensor, numpy.ndarray 的数据类型转换。
+3. esp_ppq.core.data: ppq 基础数据类型，包含 pytorch.Tensor, numpy.ndarray 的数据类型转换。
 
-4. ppq.core.defs: ppq 元类型及全局工具函数定义。
+4. esp_ppq.core.defs: ppq 元类型及全局工具函数定义。
 
-5. ppq.core.ffi: ppq 应用程序编程接口，包含调用 c/c++, cuda 代码的相关逻辑。
+5. esp_ppq.core.ffi: ppq 应用程序编程接口，包含调用 c/c++, cuda 代码的相关逻辑。
 
-6. ppq.core.quant: ppq 核心量化数据结构定义【非常重要】。
+6. esp_ppq.core.quant: ppq 核心量化数据结构定义【非常重要】。
 
-7. ppq.core.storage: ppq 持久化操作的相关定义。
+7. esp_ppq.core.storage: ppq 持久化操作的相关定义。
 
 ## TensorQuantizationConfig(Tensor 量化控制结构体)
-PPQ 使用量化控制结构体描述量化行为，该结构体被定义在 ppq.core.quant 中。截止 PPQ 0.6.6 版本，该结构体由 15 项不同的属性组成。我们将向你介绍这一核心数据结构体的设计构想。
+PPQ 使用量化控制结构体描述量化行为，该结构体被定义在 esp_ppq.core.quant 中。截止 PPQ 0.6.6 版本，该结构体由 15 项不同的属性组成。我们将向你介绍这一核心数据结构体的设计构想。
 
 ### 1. QuantizationPolicy 量化策略
 在 TensorQuantizationConfig 当中，首当其冲地内容是 TQC.policy，这是一个 QuantizationPolicy 对象。
@@ -89,7 +89,7 @@ PPQ 可以模拟 1-32 bit 的任意位宽量化，但若以部署为目的，不
 
 quant_min, quant_max 分别由 TQC.quant_min, TQC.quant_max 属性确定，对于 FLOATING 量化，我们引入一个新的属性 TQC.exponent_bits(int)。使用这个属性来指定总位宽中有多少数位用于表示指数(相应地，底数位为总位宽-指数位-1)。
 
-在浮点量化中，尺度因子的选取对量化效果的影响不大，因此用户可以使用 constant 校准策略(见 ppq.quantization.observer)将所有尺度因子设置为1。
+在浮点量化中，尺度因子的选取对量化效果的影响不大，因此用户可以使用 constant 校准策略(见 esp_ppq.quantization.observer)将所有尺度因子设置为1。
 
 关于浮点量化的具体细节可以参考 [本文](https://zhuanlan.zhihu.com/p/574825662)
 
@@ -117,7 +117,7 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
 
 在 PPQ 当中，Quantizer 的职责即是为算子初始化他们的量化控制结构体。不同的量化器将按照不同的规则创建控制结构体，如 TRT_FP8 所对应的量化器 只会为了 Conv, Gemm 算子创建量化信息，要求他们的输入按照对称-浮点-Per Channel的方式完成量化。而 DSP_INT8 所对应的量化器为几乎所有算子创建量化信息，要求他们按照非对称-线性-Per Tensor的方式完成量化。
 
-用户可以手动创建量化控制结构体，使用 ppq.lib 中的接口：
+用户可以手动创建量化控制结构体，使用 esp_ppq.lib 中的接口：
 
     # 创建一个默认的线性量化控制结构体(对称, per-tensor)
     from esp_ppq.lib import LinearQuantizationConfig
@@ -164,8 +164,8 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
 
 ![Quantization State](https://user-images.githubusercontent.com/43309460/199236632-ec69ca29-9900-4875-8299-a196546d0dde.png)
 
-## PPQ.Core.Common(PPQ 全局控制常量)
-PPQ 全局控制常量被定义在 ppq.core.common.py 文件中，用户可以修改其中的定义以调整 PPQ 程序功能。截止 PPQ 0.6.6 版本，共计 38 个常量可以被设置。
+## esp_ppq.Core.Common(PPQ 全局控制常量)
+PPQ 全局控制常量被定义在 esp_ppq.core.common.py 文件中，用户可以修改其中的定义以调整 PPQ 程序功能。截止 PPQ 0.6.6 版本，共计 38 个常量可以被设置。
 这些常量影响网络解析过程，校准过程与导出逻辑。我们在这里向你阐述部分常用的修改项：
 
 1. OBSERVER_MIN_SCALE - 校准过程 Scale 的最小值，迫于实际部署的需要，Int8 量化的尺度因子不能过小，否则将导致浮点下溢出等数值问题。这个参数决定了所有 PPQ Calibratior 可以提供的最小尺度因子值。该参数只影响校准，不影响训练过程（训练过程仍然可能产生较小的Scale）。该参数不适用于 FP8 量化。

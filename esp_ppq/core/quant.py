@@ -46,7 +46,7 @@ class TargetPlatform(Enum):
     There are several supported platforms for PPQ now,
         however you are supposed to be aware of some particular platforms here:
 
-    SHAPE_OR_INDEX is a virtual platform, however it is an EXTREMELY IMPORTANT components in PPQ.
+    SHAPE_OR_INDEX is a virtual platform, however it is an EXTREMELY IMPORTANT components in esp_ppq.
         Dispatch an operation to platform SHAPE_OR_INDEX means this operation is SOI-related,
         it processes a SOI tensor and gives a processed SOI, all calculation of this operation must be sent to CPU
             (or any platform capable for calculating this.) when deploy.
@@ -55,7 +55,7 @@ class TargetPlatform(Enum):
         It is a crucial feature for quantizing network that contains SOI-related operation. (Shufflenet etc.)
 
         By default, PPQ automatically detects all SOI-related operations, and dispatch them to SHAPE_OR_INDEX platform.
-        To understand how this feature works, see also: ppq.sche
+        To understand how this feature works, see also: esp_ppq.sche
 
     UNSPECIFIED is a virtual platform, all operations are sent to this platform once they were created.
         Quantizer then dispatches them towards desired platform through its quantization logic.
@@ -258,7 +258,7 @@ class QuantizationPolicy:
         if not QuantizationPolicy.__check_valid(policy):
             raise ValueError(
                 'invalid quantization pattern, valid partterns are listed in '
-                'ppq.core.OperationQuantizationPolicy.__check_valid'
+                'esp_ppq.core.OperationQuantizationPolicy.__check_valid'
             )
         self._policy = policy
 
@@ -377,7 +377,7 @@ class QuantizationStates(Enum):
 class TensorQuantizationConfig(Serializable):
     """
 ## TensorQuantizationConfig(Tensor 量化控制结构体)
-PPQ 使用量化控制结构体描述量化行为，该结构体被定义在 ppq.core.quant 中。截止 PPQ 0.6.6 版本，该结构体由 15 项不同的属性组成。我们将向你介绍这一核心数据结构体的设计构想。
+PPQ 使用量化控制结构体描述量化行为，该结构体被定义在 esp_ppq.core.quant 中。截止 PPQ 0.6.6 版本，该结构体由 15 项不同的属性组成。我们将向你介绍这一核心数据结构体的设计构想。
 
 ### 1. QuantizationPolicy 量化策略
 在 TensorQuantizationConfig 当中，首当其冲地内容是 TQC.policy，这是一个 QuantizationPolicy 对象。
@@ -450,7 +450,7 @@ PPQ 可以模拟 1-64 bit 的任意位宽量化，但若以部署为目的，不
 
 quant_min, quant_max 分别由 TQC.quant_min, TQC.quant_max 属性确定，对于 FLOATING 量化，我们引入一个新的属性 TQC.exponent_bits(int)。使用这个属性来指定总位宽中有多少数位用于表示指数(相应地，底数位为总位宽-指数位-1)。
 
-在浮点量化中，尺度因子的选取对量化效果的影响不大，因此用户可以使用 constant 校准策略(见 ppq.quantization.observer)将所有尺度因子设置为1。
+在浮点量化中，尺度因子的选取对量化效果的影响不大，因此用户可以使用 constant 校准策略(见 esp_ppq.quantization.observer)将所有尺度因子设置为1。
 
 关于浮点量化的具体细节可以参考 [本文](https://zhuanlan.zhihu.com/p/574825662)
 
@@ -478,7 +478,7 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
 
 在 PPQ 当中，Quantizer 的职责即是为算子初始化他们的量化控制结构体。不同的量化器将按照不同的规则创建控制结构体，如 TRT_FP8 所对应的量化器 只会为了 Conv, Gemm 算子创建量化信息，要求他们的输入按照对称-浮点-Per Channel的方式完成量化。而 DSP_INT8 所对应的量化器为几乎所有算子创建量化信息，要求他们按照非对称-线性-Per Tensor的方式完成量化。
 
-用户可以手动创建量化控制结构体，使用 ppq.lib 中的接口：
+用户可以手动创建量化控制结构体，使用 esp_ppq.lib 中的接口：
 
     # 创建一个默认的线性量化控制结构体(对称, per-tensor)
     from esp_ppq.lib import LinearQuantizationConfig
@@ -656,7 +656,7 @@ TensorQuantizationConfig 是 PPQ 中的核心数据结构，它总是由 Quantiz
     @ property
     def dominated_by(self):
         """dominated_by is a crucial feature for tensor quantization
-        configuration in PPQ. This property is actually maintained by union-
+        configuration in esp_ppq. This property is actually maintained by union-
         find set data structure.
 
         Every tensor quantization configuration(A) is created with dominated_by = self, and only when

@@ -130,7 +130,7 @@ class TensorMeta:
         """
         if not isinstance(dtype, DataType):
             raise TypeError(f'Can not create Tensor Meta with dtype {type(dtype)}, '
-                            'only ppq.core.DataType instance is acceptable here.')
+                            'only esp_ppq.core.DataType instance is acceptable here.')
         self.dtype = dtype
         self.shape = shape
         self.name  = tensor_name
@@ -184,7 +184,7 @@ class OperationMeta:
         Args:
             input_metas (List[TensorMeta]):
                 A collection contains all input tensors' metadata.
-                ATTENTION: All parameters are considered as input in PPQ.
+                ATTENTION: All parameters are considered as input in esp_ppq.
             output_metas (List[TensorMeta]):
                 A collection contains all output tensors' metadata.
             operation_name (str): Not yet used.

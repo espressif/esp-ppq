@@ -45,7 +45,7 @@ class ComplieHelper(metaclass=SingletonMeta):
         if self.__CUDA_EXTENTION__ is None:
             raise Exception(
                 'Cuda Extension has not been compiled, '
-                'invoke ppq.core.ffi.ComplieHelper.complie() First.')
+                'invoke esp_ppq.core.ffi.ComplieHelper.complie() First.')
         return self.__CUDA_EXTENTION__
 
 CUDA_COMPLIER = ComplieHelper()
@@ -60,9 +60,9 @@ class CUDA:
     memory cost.
 
     You can easily extend your cuda kernel via this class:
-        Firstly, implement your kernel within ppq/csrc/cuda, write your own .cu file and .h file.
-        Secondly, add your functions to ppq/csrc/cuda/export.cc, add them to export table.
-        Finally, add a interface with this python class(ppq.core.ffi.CUDA),
+        Firstly, implement your kernel within esp_ppq/csrc/cuda, write your own .cu file and .h file.
+        Secondly, add your functions to esp_ppq/csrc/cuda/export.cc, add them to export table.
+        Finally, add a interface with this python class(esp_ppq.core.ffi.CUDA),
         following the signature as same as others.
 
     PPQ CUDA EXTENSION 命名规则:

@@ -27,7 +27,7 @@ This dataset is supposed to be a small subset (around ~100-500 samples) of the t
 
         Can be mse, kl, percentile, minmax, this parameter is case insensitive.
 
-        You can register your own calibration method through functions in ppq.api
+        You can register your own calibration method through functions in esp_ppq.api
 
 * override(bool)
 
@@ -57,7 +57,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
     setting.quantize_activation = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
     platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
