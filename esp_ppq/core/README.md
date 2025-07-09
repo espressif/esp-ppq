@@ -180,7 +180,7 @@ PPQ 全局控制常量被定义在 esp_ppq.core.common.py 文件中，用户可�
 
 6. FORMATTER_FUSE_BIAS_ADD - 读取 Onnx 图时，是否尝试合并 Bias Add。部分情况下，导出 Onnx 时前端框架会把 Conv, ConvTranspose, Gemm 等层的 Bias 单独拆分成一个 Add 算子，这将造成后续处理逻辑的错误，因此建议开启该选项。
 
-7. FORMATTER_REPLACE_BN_TO_CONV - 是否将单独的 Batchnorm 替换为卷积，这可能导致错误，因为我们无法判断 Batchnorm 的维数，PPQ 会将所有孤立的（无法进行 BN-Fusion 的） Batchnorm 替换为 Conv2d，对于三维或一维网络而言，这可能会导致错误的结果。 
+7. FORMATTER_REPLACE_BN_TO_CONV - 是否将单独的 Batchnorm 替换为卷积，这可能导致错误，因为我们无法判断 Batchnorm 的维数，PPQ 会将所有孤立的（无法进行 BN-Fusion 的） Batchnorm 替换为 Conv2d，对于三维或一维网络而言，这可能会导致错误的结果。
 
 8. FORMATTER_REMOVE_IDENTITY - 是否移除图中所有的 Identity 算子。
 

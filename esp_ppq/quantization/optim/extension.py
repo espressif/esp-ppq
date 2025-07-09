@@ -1,8 +1,7 @@
 from typing import Iterable
-from esp_ppq.IR.base.graph import BaseGraph
 
 from esp_ppq.executor import BaseGraphExecutor
-from esp_ppq.IR import BaseGraph
+from esp_ppq.IR.base.graph import BaseGraph
 
 from .base import QuantizationOptimizationPass
 
@@ -22,17 +21,12 @@ class ExtensionPass(QuantizationOptimizationPass):
 
     You can overwrite logic inside this pass.
     """
+
     def __init__(self, parameter: str) -> None:
         self.parameter = parameter
         super().__init__(name='PPQ Extension Pass')
 
-    def optimize(
-        self,
-        graph: BaseGraph,
-        dataloader: Iterable,
-        executor: BaseGraphExecutor,
-        **kwargs
-    ) -> None:
+    def optimize(self, graph: BaseGraph, dataloader: Iterable, executor: BaseGraphExecutor, **kwargs) -> None:
         assert isinstance(graph, BaseGraph)
 
         print('You are invoking Extension Pass now.')

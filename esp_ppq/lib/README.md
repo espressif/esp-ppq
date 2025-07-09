@@ -46,7 +46,7 @@
         def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
             # Implement this function first!
             return super().init_quantize_config(operation)
-        
+
         def quant_operation_types(self) -> set:
             return {'Conv', 'Gemm'}
 
@@ -115,7 +115,7 @@
 
 ### 3. esp_ppq.lib.quant 函数库
 
-1. Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer: 
+1. Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer:
 
     Get a pre-defined Quantizer corresponding to your platform.
     Quantizer in PPQ initializes Tensor Quantization Config for each Operation,
@@ -149,7 +149,7 @@
     rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN) -> TensorQuantizationConfig:
 
     Create a Linear Quantization Config.
-    
+
     创建线性量化配置信息。
 
 5. FloatingQuantizationConfig(
@@ -170,11 +170,11 @@
 6. Dispatcher(graph: BaseGraph, method: str='conservative') -> GraphDispatcher:
 
     Get a Graph Dispatcher.
-    
+
     获取一个指定的调度器。
 
 7. OperationForwardFunction(optype: str, platform: TargetPlatform = TargetPlatform.FP32) -> Callable:
-    
+
     Get an Operation forward function. Same Op are allows to have different forward function on different platform,
     to get a default forward function, use platform=TargetPlatform.FP32.
 
@@ -196,9 +196,9 @@
 ### 3. esp_ppq.lib.extension 函数库
 
 1. register_network_quantizer(quantizer: type, platform: TargetPlatform):
-    
+
     Register a quantizer to ppq quantizer collection.
-    
+
     This function will override the default quantizer collection:
         register_network_quantizer(MyQuantizer, TargetPlatform.TRT_INT8) will replace the default TRT_INT8 quantizer.
 
@@ -208,12 +208,12 @@
     Args:
 
     *. quantizer (type): quantizer to be inserted.
-    
+
     *. platform (TargetPlatform): corresponding platfrom of your quantizer.
 
 2. register_network_parser(parser: type, framework: NetworkFramework):
-    
-    Register a parser to ppq parser collection. 
+
+    Register a parser to ppq parser collection.
 
     This function will override the default parser collection:
         register_network_parser(MyParser, NetworkFramework.ONNX) will replace the default ONNX parser.
@@ -228,7 +228,7 @@
     *. framework (NetworkFramework): corresponding NetworkFramework of your parser.
 
 3. register_network_exporter(exporter: type, platform: TargetPlatform):
-    
+
     Register an exporter to ppq exporter collection.
 
     This function will override the default exporter collection:
@@ -238,17 +238,17 @@
     Your Exporter must require no initializing params.
 
     Args:
-        
+
     *. exporter (type): exporter to be inserted.
-    
+
     *. platform (TargetPlatform): corresponding platfrom of your exporter.
 
 4. register_calibration_observer(algorithm: str, observer: type):
-    
+
     Register an calibration observer to OBSERVER_TABLE.
 
     This function will override the existing OBSERVER_TABLE without warning.
-    
+
     registed observer must be a sub class of OperationObserver.
 
     Args:
@@ -258,19 +258,19 @@
     *. platform (TargetPlatform): corresponding platfrom of your exporter.
 
 5. register_operation_handler(handler: Callable, operation_type: str, platform: TargetPlatform):
-    
+
     Regitser a custimized function as operation handler.
-    
+
     Function should accept at least 3 input parameters, return one or more tensor as result:
     func(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
-    
+
     If there is already another operation handler for given operation_type,
         new handler will replace the old one without warrning.
 
     Args:
-        
+
     *. handler (Callable): Callable function, which interface follows restriction above.
-    
+
     *. operation_type (str): Operation type.
-    
+
     *. platform (TargetPlatform): Register platform.

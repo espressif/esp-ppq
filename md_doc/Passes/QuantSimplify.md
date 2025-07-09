@@ -15,7 +15,7 @@ Problem here is the output TQC of Relu1 and the input TQC of Relu2 is actually d
 should not be quantized twice.
 
 This Simplify Pass will detect all the duplicated TQCs in your network, disable them and create a link with their
-dominating TQCs. Disabled TQC will have and inactive state(QuantizationState.OVERRLAPED), so PPQ executor will 
+dominating TQCs. Disabled TQC will have and inactive state(QuantizationState.OVERRLAPED), so PPQ executor will
 simply ignore them when executing.
 
 A duplicated TQC is an input TQC(A) whose binding variable has been quantized by another output TQC(B),
@@ -36,5 +36,5 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)

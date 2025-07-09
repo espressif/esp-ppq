@@ -1,8 +1,8 @@
 import torch
-from esp_ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
-                      RoundingPolicy, TensorQuantizationConfig)
-from esp_ppq.utils.round import ppq_tensor_round
 from torch.autograd import Function
+
+from esp_ppq.core import PPQ_CONFIG, QuantizationProperty, QuantizationStates, RoundingPolicy, TensorQuantizationConfig
+from esp_ppq.utils.round import ppq_tensor_round
 
 
 class TensorwiseLinearQuantImpl(Function):
@@ -18,13 +18,27 @@ class TensorwiseLinearQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
-    def forward(ctx, tensor: torch.Tensor, scales: torch.Tensor,
-                offsets: torch.Tensor, quant_min: int, quant_max: int,
-                rounding: RoundingPolicy) -> torch.Tensor:
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        quant_min: int,
+        quant_max: int,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
         scales, offsets = scales.to(tensor.device), offsets.to(tensor.device)
 
-        ctx.save_for_backward(tensor, scales, offsets, torch.tensor(quant_min).type_as(tensor), torch.tensor(quant_max).type_as(tensor), torch.tensor(rounding.value).type(torch.uint8))
+        ctx.save_for_backward(
+            tensor,
+            scales,
+            offsets,
+            torch.tensor(quant_min).type_as(tensor),
+            torch.tensor(quant_max).type_as(tensor),
+            torch.tensor(rounding.value).type(torch.uint8),
+        )
         if not PPQ_CONFIG.USING_CUDA_KERNEL or not tensor.is_cuda:
             # quantization function, pytorch implmentation
             tensor = ppq_tensor_round((tensor / scales), rounding) + offsets
@@ -42,11 +56,11 @@ class TensorwiseLinearQuantImpl(Function):
                 offsets=offsets,
                 minimum=quant_min,
                 maximum=quant_max,
-                rounding=rounding.value
+                rounding=rounding.value,
             )
             return quantized
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         x, scales, offsets, qmin, qmax, rounding = ctx.saved_tensors
         rounding = RoundingPolicy(rounding.item())
@@ -70,7 +84,9 @@ class TensorwiseLinearQuantImpl(Function):
         elif rounding == RoundingPolicy.ROUND_HALF_UP:
             tensor = torch.floor(tensor + 0.5)
         elif rounding == RoundingPolicy.ROUND_TO_NEAR_INT:
-            raise NotImplementedError(f'Torch Tensor can not use this rounding policy({rounding}) try ROUND_HALF_EVEN instead.')
+            raise NotImplementedError(
+                f'Torch Tensor can not use this rounding policy({rounding}) try ROUND_HALF_EVEN instead.'
+            )
         else:
             raise ValueError('Unexpected rounding policy found.')
 
@@ -98,11 +114,18 @@ class ChannelwiseLinearQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
-    def forward(ctx, tensor: torch.Tensor, scales: torch.Tensor,
-                offsets: torch.Tensor, channel_axis: int,
-                quant_min: int, quant_max: int,
-                rounding: RoundingPolicy) -> torch.Tensor:
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        channel_axis: int,
+        quant_min: int,
+        quant_max: int,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
         scales, offsets = scales.to(tensor.device), offsets.to(tensor.device)
 
         if not PPQ_CONFIG.USING_CUDA_KERNEL or not tensor.is_cuda:
@@ -116,6 +139,7 @@ class ChannelwiseLinearQuantImpl(Function):
             return tensor
         else:
             from esp_ppq.core import CUDA
+
             quantized = CUDA.LinearQuantize_C(
                 tensor=tensor,
                 scales=scales,
@@ -123,10 +147,11 @@ class ChannelwiseLinearQuantImpl(Function):
                 channel_axis=channel_axis,
                 minimum=quant_min,
                 maximum=quant_max,
-                rounding=rounding.value)
+                rounding=rounding.value,
+            )
             return quantized
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         return dy, None, None, None, None, None, None, None, None, None
 
@@ -144,12 +169,13 @@ class TensorwiseDynamicLinearQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
+
+    @staticmethod
     def forward(ctx, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
         from esp_ppq.quantization.observer.range import minmax_to_scale_offset
+
         # solve scale and offset at first.
-        scales, offsets = minmax_to_scale_offset(
-            tensor.min().item(), tensor.max().item(), config=config)
+        scales, offsets = minmax_to_scale_offset(tensor.min().item(), tensor.max().item(), config=config)
         print(scales, offsets)
         # quantization function, pytorch implmentation
         tensor = ppq_tensor_round((tensor / scales), config.rounding) + offsets
@@ -157,7 +183,7 @@ class TensorwiseDynamicLinearQuantImpl(Function):
         tensor = (tensor - offsets) * scales
         return tensor
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         return dy, None
 
@@ -175,18 +201,16 @@ class ChannelwiseDynamicLinearQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
+
+    @staticmethod
     def forward(ctx, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
         from esp_ppq.quantization.observer.range import minmax_to_scale_offset
-        
+
         channelwise_view = tensor.transpose(dim0=0, dim1=config.channel_axis).unsqueeze(-1)
         channelwise_view = torch.flatten(channelwise_view, start_dim=1)
-        
+
         scales, offsets = [], []
-        for _min, _max in zip(
-            channelwise_view.min(dim=1)[0].tolist(),
-            channelwise_view.max(dim=1)[0].tolist()
-        ):
+        for _min, _max in zip(channelwise_view.min(dim=1)[0].tolist(), channelwise_view.max(dim=1)[0].tolist()):
             s, o = minmax_to_scale_offset(_min, _max, config)
             scales.append(s)
             offsets.append(o)
@@ -203,25 +227,27 @@ class ChannelwiseDynamicLinearQuantImpl(Function):
         tensor = (tensor - offsets) * scales
         return tensor
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         return dy, None
+
 
 def PPQDyamicLinearQuantFunction(tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
     """
     Dynamic Linear Quantization Function(PPQ 动态量化函数).
-    
+
     When calling this method, we firstly solve a scale & offset setting by min-max observer.
-    
+
     Then we applys ordinary Linear Quantization Function with solved setting.
-    
+
     If there is a pre-defined scale & offset within given config, they will be dropped without warning.
-    
+
     动态量化函数将在执行量化之前统计出 tensor 的 min - max, 而后计算出 scale & offset 并完成量化
-    
+
     此时 TQC 中的 scale 与 offset 将被忽略
     """
-    if not QuantizationStates.is_activated(config.state): return tensor
+    if not QuantizationStates.is_activated(config.state):
+        return tensor
     if not config.policy.has_property(QuantizationProperty.LINEAR):
         raise ValueError('Critical Quantization Error! Non-linear config detected.')
     if not config.policy.has_property(QuantizationProperty.DYNAMIC):
@@ -232,10 +258,11 @@ def PPQDyamicLinearQuantFunction(tensor: torch.Tensor, config: TensorQuantizatio
     elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
         return TensorwiseDynamicLinearQuantImpl.apply(tensor, config)
 
-def PPQLinearQuantFunction(
-    tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
+
+def PPQLinearQuantFunction(tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
     """PPQ 核心量化函数，没啥好说的了吧，这个玩意既做 quant 也做 dequant"""
-    if not QuantizationStates.is_activated(config.state): return tensor
+    if not QuantizationStates.is_activated(config.state):
+        return tensor
     if not config.policy.has_property(QuantizationProperty.LINEAR):
         raise ValueError('Critical Quantization Error! Non-linear config detected.')
     if config.policy.has_property(QuantizationProperty.DYNAMIC):
@@ -243,12 +270,19 @@ def PPQLinearQuantFunction(
 
     if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
         return ChannelwiseLinearQuantImpl.apply(
-            tensor, config.scale, config.offset, config.channel_axis,
-            config.quant_min, config.quant_max, config.rounding)
+            tensor,
+            config.scale,
+            config.offset,
+            config.channel_axis,
+            config.quant_min,
+            config.quant_max,
+            config.rounding,
+        )
     elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
         return TensorwiseLinearQuantImpl.apply(
-            tensor, config.scale, config.offset,
-            config.quant_min, config.quant_max, config.rounding)
+            tensor, config.scale, config.offset, config.quant_min, config.quant_max, config.rounding
+        )
+
 
 def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
     """PPQ 核心量化函数，没啥好说的了吧，这个玩意只做 quant 不做 dequant"""
@@ -284,4 +318,5 @@ def PPQLinearQuant_toInt(tensor: torch.Tensor, config: TensorQuantizationConfig)
             return tensor.type(dtype=torch.int64)
         if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
             return tensor.type(dtype=torch.uint64)
-    else: raise Exception('Do not konw how to convert value into int. num of bits is unexpected.')
+    else:
+        raise Exception('Do not konw how to convert value into int. num of bits is unexpected.')

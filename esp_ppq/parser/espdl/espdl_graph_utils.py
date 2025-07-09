@@ -48,17 +48,13 @@ def get_default_perm(var: Variable) -> List[int]:
     return [i for i in range(len(var.shape))]
 
 
-def insert_transpose_node(
-    graph: BaseGraph, var: Variable, op: Operation, perm: List[int]
-) -> Operation:
+def insert_transpose_node(graph: BaseGraph, var: Variable, op: Operation, perm: List[int]) -> Operation:
     """
     Insert a Transpose Node on given variable, according to given perm.
     """
     created = None
     if op and perm != range(len(perm)):
-        logger.debug(
-            f"insert transpose node: op: {op.name}, var:{var.name}, perm:{perm}"
-        )
+        logger.debug(f"insert transpose node: op: {op.name}, var:{var.name}, perm:{perm}")
         if var in op.inputs:
             created = graph.create_operation(op_type="Transpose", attributes={"perm": perm})
             var_index = op.inputs.index(var)
@@ -78,9 +74,7 @@ def insert_transpose_node(
             new_var.dtype = var.dtype
 
             info = ExporterPatternInfo()
-            info.add_var_permute(
-                created.outputs[0].name, get_default_perm(created.outputs[0])
-            )
+            info.add_var_permute(created.outputs[0].name, get_default_perm(created.outputs[0]))
 
         else:
             raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
@@ -109,15 +103,15 @@ def restore_origin_shape(op: Operation, graph: BaseGraph):
 
 
 def insert_concat_node(
-    graph: BaseGraph, 
-    insert_op_var: Variable, 
-    insert_op: Operation, 
-    link_vars: List[Variable], 
+    graph: BaseGraph,
+    insert_op_var: Variable,
+    insert_op: Operation,
+    link_vars: List[Variable],
     link_vars_src_op: List[Operation],
-    axis: int = 0
+    axis: int = 0,
 ) -> Operation:
     """
-    Insert a Concat Node on given insert_op_var, according to given axis. And using link_vars as the other input, 
+    Insert a Concat Node on given insert_op_var, according to given axis. And using link_vars as the other input,
     these function will use the TQC of the first input as the TQC for all the inputs and output.
 
     """
@@ -164,9 +158,9 @@ def insert_concat_node(
 
 
 def insert_slice_node(
-    graph: BaseGraph, 
+    graph: BaseGraph,
     var: Variable,
-    op: Operation, 
+    op: Operation,
     starts: List[int],
     ends: List[int],
     axes: List[int],
@@ -229,13 +223,21 @@ def insert_slice_node(
         new_var.is_parameter = var.is_parameter
         new_var.dtype = var.dtype
 
-        starts_param = graph.create_variable(value=torch.Tensor(starts).to(torch.int64), is_parameter=True, dest_ops=[created])
+        starts_param = graph.create_variable(
+            value=torch.Tensor(starts).to(torch.int64), is_parameter=True, dest_ops=[created]
+        )
         starts_param.dtype = DataType.INT64
-        ends_param = graph.create_variable(value=torch.Tensor(ends).to(torch.int64), is_parameter=True, dest_ops=[created])
+        ends_param = graph.create_variable(
+            value=torch.Tensor(ends).to(torch.int64), is_parameter=True, dest_ops=[created]
+        )
         ends_param.dtype = DataType.INT64
-        axes_param = graph.create_variable(value=torch.Tensor(axes).to(torch.int64), is_parameter=True, dest_ops=[created])
+        axes_param = graph.create_variable(
+            value=torch.Tensor(axes).to(torch.int64), is_parameter=True, dest_ops=[created]
+        )
         axes_param.dtype = DataType.INT64
-        steps_param = graph.create_variable(value=torch.Tensor(steps).to(torch.int64), is_parameter=True, dest_ops=[created])
+        steps_param = graph.create_variable(
+            value=torch.Tensor(steps).to(torch.int64), is_parameter=True, dest_ops=[created]
+        )
         steps_param.dtype = DataType.INT64
 
     else:
@@ -245,20 +247,14 @@ def insert_slice_node(
 
 
 def insert_reshape_node(
-    graph: BaseGraph, 
-    var: Variable,
-    op: Operation, 
-    shape: List[int], 
-    allowzero: int = 0
+    graph: BaseGraph, var: Variable, op: Operation, shape: List[int], allowzero: int = 0
 ) -> Operation:
     """
     Insert a Reshape Node on given variable, according to given shape.
     """
     created = None
     if op and var in op.inputs:
-        logger.debug(
-            f"insert reshape node: op: {op.name}, var: {var.name}, shape: {shape}"
-        )
+        logger.debug(f"insert reshape node: op: {op.name}, var: {var.name}, shape: {shape}")
         created = graph.create_operation(op_type="Reshape", attributes={"allowzero": allowzero})
 
         var_index = op.inputs.index(var)
@@ -281,7 +277,9 @@ def insert_reshape_node(
         new_var.is_parameter = var.is_parameter
         new_var.dtype = var.dtype
 
-        shape_param = graph.create_variable(value=torch.Tensor(shape).to(torch.int64), is_parameter=True, dest_ops=[created])
+        shape_param = graph.create_variable(
+            value=torch.Tensor(shape).to(torch.int64), is_parameter=True, dest_ops=[created]
+        )
         shape_param.dtype = DataType.INT64
 
     else:
@@ -310,9 +308,7 @@ def fuse_downstream_operation(
             if there is more than 1 input and output variable, ppq will link input[0] with output[0]
     """
     if fusing_downstream_op.name not in graph.operations:
-        raise KeyError(
-            f"Can not remove operation {fusing_downstream_op.name}, operation not found."
-        )
+        raise KeyError(f"Can not remove operation {fusing_downstream_op.name}, operation not found.")
 
     # removing all parameters first.
     for parameter in fusing_downstream_op.inputs.copy():
@@ -325,16 +321,10 @@ def fuse_downstream_operation(
 
             graph.variables.pop(parameter.name)
 
-    related_vars = [
-        var for var in fusing_downstream_op.inputs + fusing_downstream_op.outputs
-    ]
+    related_vars = [var for var in fusing_downstream_op.inputs + fusing_downstream_op.outputs]
     input_var, output_var = (
-        fusing_downstream_op.inputs[0]
-        if fusing_downstream_op.num_of_input >= 1
-        else None,
-        fusing_downstream_op.outputs[0]
-        if fusing_downstream_op.num_of_output >= 1
-        else None,
+        fusing_downstream_op.inputs[0] if fusing_downstream_op.num_of_input >= 1 else None,
+        fusing_downstream_op.outputs[0] if fusing_downstream_op.num_of_output >= 1 else None,
     )
 
     # remove operation from its output variables
@@ -361,11 +351,7 @@ def fuse_downstream_operation(
 
     if remove_unlinked_variable:
         for var in related_vars:
-            if (
-                var.source_op is None
-                and len(var.dest_ops) == 0
-                and var.name in graph.variables
-            ):
+            if var.source_op is None and len(var.dest_ops) == 0 and var.name in graph.variables:
                 graph.remove_variable(var)
 
     return graph
@@ -385,9 +371,7 @@ def infer_qtype(config: TensorQuantizationConfig):
     return offset_dtype, value_dtype
 
 
-def insert_quantize_node(
-    graph: BaseGraph, var: Variable, config: TensorQuantizationConfig, op: Operation
-) -> Operation:
+def insert_quantize_node(graph: BaseGraph, var: Variable, config: TensorQuantizationConfig, op: Operation) -> Operation:
     """
     Insert a Quantize Node on given variable, according to given TensorQuantizationConfig.
     """
@@ -395,9 +379,7 @@ def insert_quantize_node(
         # Following code will export Linear Quantization Config
         # That is for FP32 -> INT
         offset_dtype, value_type = infer_qtype(config)
-        scale = convert_any_to_torch_tensor(
-            config.scale.clone(), dtype=torch.float32
-        )
+        scale = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
         offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
 
         created = graph.create_operation(op_type="QuantizeLinear", attributes={})
@@ -411,16 +393,10 @@ def insert_quantize_node(
         elif var in op.outputs:
             graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
         else:
-            raise ValueError(
-                f"Unexpected Error in Exporting Op {op.name}({op.type})."
-            )
+            raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
 
-        graph.create_variable(
-            name=None, value=scale, is_parameter=True, dest_ops=[created]
-        )
-        graph.create_variable(
-            name=None, value=offset, is_parameter=True, dest_ops=[created]
-        )
+        graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
+        graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
 
         created.outputs[0].dtype = value_type
         created.outputs[0].shape = var.shape
@@ -429,8 +405,7 @@ def insert_quantize_node(
 
     else:
         raise TypeError(
-            f"PPQ Can not export quantization information with variable {var.name}, "
-            "Unexpected Quantization property."
+            f"PPQ Can not export quantization information with variable {var.name}, Unexpected Quantization property."
         )
 
 
@@ -446,16 +421,10 @@ def insert_requantize_node(
     """
     if config.policy.has_property(QuantizationProperty.LINEAR):
         upstream_offset_dtype, upstream_value_type = infer_qtype(upstream_config)
-        upstream_scale = convert_any_to_torch_tensor(
-            upstream_config.scale.clone(), dtype=torch.float32
-        )
-        upstream_offset = ppq_tensor_round(upstream_config.offset.clone()).type(
-            torch.float
-        )
+        upstream_scale = convert_any_to_torch_tensor(upstream_config.scale.clone(), dtype=torch.float32)
+        upstream_offset = ppq_tensor_round(upstream_config.offset.clone()).type(torch.float)
         offset_dtype, value_type = infer_qtype(config)
-        scale = convert_any_to_torch_tensor(
-            config.scale.clone(), dtype=torch.float32
-        )
+        scale = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
         offset = ppq_tensor_round(config.offset.clone()).type(torch.float)
 
         created = graph.create_operation(op_type="RequantizeLinear", attributes={})
@@ -469,21 +438,15 @@ def insert_requantize_node(
         elif var in op.outputs:
             graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
         else:
-            raise ValueError(
-                f"Unexpected Error in Exporting Op {op.name}({op.type})."
-            )
+            raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
 
         rescale = scale / upstream_scale
-        reoffset = ppq_tensor_round(
-            offset - ppq_tensor_round(upstream_offset / rescale, config.rounding)
-        ).type(offset_dtype)
+        reoffset = ppq_tensor_round(offset - ppq_tensor_round(upstream_offset / rescale, config.rounding)).type(
+            offset_dtype
+        )
 
-        graph.create_variable(
-            name=None, value=rescale, is_parameter=True, dest_ops=[created]
-        )
-        graph.create_variable(
-            name=None, value=reoffset, is_parameter=True, dest_ops=[created]
-        )
+        graph.create_variable(name=None, value=rescale, is_parameter=True, dest_ops=[created])
+        graph.create_variable(name=None, value=reoffset, is_parameter=True, dest_ops=[created])
 
         created.inputs[0].dtype = upstream_value_type
         created.inputs[0].shape = var.shape
@@ -493,8 +456,7 @@ def insert_requantize_node(
 
     else:
         raise TypeError(
-            f"PPQ Can not export quantization information with variable {var.name}, "
-            "Unexpected Quantization property."
+            f"PPQ Can not export quantization information with variable {var.name}, Unexpected Quantization property."
         )
 
 
@@ -506,9 +468,7 @@ def insert_dequantize_node(
     """
     if config.policy.has_property(QuantizationProperty.LINEAR):
         offset_dtype, value_type = infer_qtype(config)
-        scale = convert_any_to_torch_tensor(
-            config.scale.clone(), dtype=torch.float32
-        )
+        scale = convert_any_to_torch_tensor(config.scale.clone(), dtype=torch.float32)
         offset = ppq_tensor_round(config.offset.clone()).type(offset_dtype)
 
         created = graph.create_operation(op_type="DequantizeLinear", attributes={})
@@ -522,16 +482,10 @@ def insert_dequantize_node(
         elif var in op.outputs:
             graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
         else:
-            raise ValueError(
-                f"Unexpected Error in Exporting Op {op.name}({op.type})."
-            )
+            raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
 
-        graph.create_variable(
-            name=None, value=scale, is_parameter=True, dest_ops=[created]
-        )
-        graph.create_variable(
-            name=None, value=offset, is_parameter=True, dest_ops=[created]
-        )
+        graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
+        graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
 
         created.inputs[0].dtype = value_type
         created.inputs[0].shape = var.shape
@@ -541,6 +495,5 @@ def insert_dequantize_node(
 
     else:
         raise TypeError(
-            f"PPQ Can not export quantization information with variable {var.name}, "
-            "Unexpected Quantization property."
+            f"PPQ Can not export quantization information with variable {var.name}, Unexpected Quantization property."
         )

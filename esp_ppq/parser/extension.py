@@ -18,15 +18,14 @@ class ExtensionExporter(GraphExporter):
 
     def export(self, file_path: str, graph: BaseGraph, config_path: str = None):
         """Sample Export Function -- export all quantization params into txt"""
-        
+
         if config_path is None:
             raise ValueError('Can not export ppq quantization params, cause configuration path is empty.')
         with open(file=config_path, mode='w') as file:
-        
             for op in graph.operations.values():
-                if not isinstance(op, QuantableOperation): continue
+                if not isinstance(op, QuantableOperation):
+                    continue
 
                 for cfg, var in op.config_with_variable:
                     if QuantizationStates.can_export(cfg.state):
-                        
                         pass

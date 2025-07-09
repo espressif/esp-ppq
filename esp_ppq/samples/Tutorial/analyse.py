@@ -2,6 +2,7 @@ from typing import Iterable
 
 import torch
 import torchvision
+
 from esp_ppq import TargetPlatform, graphwise_error_analyse
 from esp_ppq.api import quantize_torch_model
 from esp_ppq.api.interface import ENABLE_CUDA_KERNEL
@@ -13,10 +14,11 @@ from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
 # 这个脚本将以随机数据和 mobilenet v2 网络为例向你展示它们的使用方法
 # ------------------------------------------------------------
 
-BATCHSIZE   = 32
+BATCHSIZE = 32
 INPUT_SHAPE = [BATCHSIZE, 3, 224, 224]
-DEVICE      = 'cuda'
-PLATFORM    = TargetPlatform.TRT_INT8
+DEVICE = 'cuda'
+PLATFORM = TargetPlatform.TRT_INT8
+
 
 def load_calibration_dataset() -> Iterable:
     # ------------------------------------------------------------
@@ -25,10 +27,14 @@ def load_calibration_dataset() -> Iterable:
     # 你应当保证校准数据是经过正确预处理的、有代表性的数据，否则量化将会失败；校准数据不需要标签；数据集不能乱序
     # ------------------------------------------------------------
     return [torch.rand(size=INPUT_SHAPE) for _ in range(32)]
+
+
 CALIBRATION = load_calibration_dataset()
+
 
 def collate_fn(batch: torch.Tensor) -> torch.Tensor:
     return batch.to(DEVICE)
+
 
 # ------------------------------------------------------------
 # 我们使用 mobilenet v2 作为一个样例模型
@@ -46,10 +52,16 @@ model = model.to(DEVICE)
 # ------------------------------------------------------------
 with ENABLE_CUDA_KERNEL():
     quantized = quantize_torch_model(
-        model=model, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        collate_fn=collate_fn, platform=PLATFORM,
-        onnx_export_file='Output/onnx.model', device=DEVICE, verbose=0)
+        model=model,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        onnx_export_file='Output/onnx.model',
+        device=DEVICE,
+        verbose=0,
+    )
 
     # ------------------------------------------------------------
     # graphwise_error_analyse 是最常用的分析方法，它分析网络中的量化误差情况，它的结果将直接打印在屏幕上
@@ -59,8 +71,8 @@ with ENABLE_CUDA_KERNEL():
     # 该方法只衡量 Conv, Gemm 算子的误差情况，如果你对其余算子的误差情况感兴趣，需要手动修改方法逻辑
     # ------------------------------------------------------------
     reports = graphwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION
+    )
 
     # ------------------------------------------------------------
     # layerwise_error_analyse 是更为强大的分析方法，它分析算子的量化敏感性
@@ -70,8 +82,8 @@ with ENABLE_CUDA_KERNEL():
     # 你可以将那些误差较大的层送往 TargetPlatform.FP32
     # ------------------------------------------------------------
     reports = layerwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION
+    )
 
     # ------------------------------------------------------------
     # statistical_analyse 是强有力的统计分析方法，该方法统计每一层的输入、输出以及参数的统计分布情况
@@ -79,9 +91,7 @@ with ENABLE_CUDA_KERNEL():
     # 推荐在网络量化情况不佳时，使用 statistical_analyse 辅助你的分析
     # 该方法不打印任何数据，你需要手动将数据保存到硬盘并进行分析
     # ------------------------------------------------------------
-    report = statistical_analyse(
-        graph=quantized, running_device=DEVICE, 
-        collate_fn=collate_fn, dataloader=CALIBRATION)
+    report = statistical_analyse(graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION)
 
     from pandas import DataFrame
 

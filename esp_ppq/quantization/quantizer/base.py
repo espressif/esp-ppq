@@ -2,60 +2,61 @@ from abc import ABCMeta, abstractmethod, abstractproperty
 from typing import Iterable, Union
 
 import torch
+
 from esp_ppq.api.setting import *
-from esp_ppq.core import (OperationQuantizationConfig, QuantizationPolicy,
-                      QuantizationStates, RoundingPolicy, TargetPlatform,
-                      TensorQuantizationConfig, empty_ppq_cache)
+from esp_ppq.core import (
+    OperationQuantizationConfig,
+    QuantizationPolicy,
+    QuantizationStates,
+    RoundingPolicy,
+    TargetPlatform,
+    TensorQuantizationConfig,
+    empty_ppq_cache,
+)
 from esp_ppq.executor import BaseGraphExecutor
-from esp_ppq.IR import (BaseGraph, GraphReplacer, Operation, QuantableGraph,
-                    QuantableOperation, QuantableVariable)
+from esp_ppq.IR import BaseGraph, GraphReplacer, Operation, QuantableGraph, QuantableOperation, QuantableVariable
 from esp_ppq.IR.base.command import QuantizeOperationCommand
 from esp_ppq.quantization.optim import *
 
 
-class BaseQuantizer(metaclass = ABCMeta):
-    def __init__(
-        self,
-        graph: BaseGraph,
-        verbose: bool = True
-    ) -> None:
+class BaseQuantizer(metaclass=ABCMeta):
+    def __init__(self, graph: BaseGraph, verbose: bool = True) -> None:
         if not isinstance(graph, BaseGraph):
-            raise TypeError(f'To initialize a Quantizer, a BaseGraph instance is needed.'\
-                f' While {type(graph)} was givne, if your graph is maintained by GraphCommandProcessor, '\
-                'use GraphCommandProcessor.graph here instead.')
-        self._verbose   = verbose
-        self._graph     = graph
+            raise TypeError(
+                f'To initialize a Quantizer, a BaseGraph instance is needed.'
+                f' While {type(graph)} was givne, if your graph is maintained by GraphCommandProcessor, '
+                'use GraphCommandProcessor.graph here instead.'
+            )
+        self._verbose = verbose
+        self._graph = graph
         self._processor = QuantableGraph(GraphReplacer(self._graph))
 
-    @ empty_ppq_cache
+    @empty_ppq_cache
     def quantize(
         self,
         inputs: Union[torch.Tensor, list, dict],
         calib_dataloader: Iterable,
         executor: BaseGraphExecutor,
         setting: QuantizationSetting,
-        **kwargs
+        **kwargs,
     ) -> None:
         # step - 1, prequant pipeline:
         # prequant pipeline will change your network structure and float value.
-        prequant_pipeline = self.build_prequant_pipeline(
-            setting, executor=executor)
+        prequant_pipeline = self.build_prequant_pipeline(setting, executor=executor)
         prequant_pipeline.optimize(
-            graph=self._graph,
-            dataloader=calib_dataloader,
-            executor=executor,
-            verbose=self._verbose,
-            **kwargs)
-        
+            graph=self._graph, dataloader=calib_dataloader, executor=executor, verbose=self._verbose, **kwargs
+        )
+
         # step - 2, quantize all operations
         executor.load_graph(self._graph)
         executor.tracing_operation_meta(inputs=inputs)
-        
+
         for op_name, operation in self._graph.operations.items():
-            if (operation.platform == TargetPlatform.UNSPECIFIED):
+            if operation.platform == TargetPlatform.UNSPECIFIED:
                 if operation.type in self.quant_operation_types:
                     operation.platform = self.target_platform
-                else: operation.platform = TargetPlatform.FP32
+                else:
+                    operation.platform = TargetPlatform.FP32
 
             if operation.platform not in {TargetPlatform.FP32, TargetPlatform.SOI}:
                 self.quantize_operation(op_name)
@@ -67,17 +68,14 @@ class BaseQuantizer(metaclass = ABCMeta):
         quant_pipeline = self.build_quant_pipeline(setting)
 
         quant_pipeline.optimize(
-            graph=self._graph,
-            dataloader=calib_dataloader,
-            executor=executor,
-            verbose=self._verbose,
-            **kwargs)
+            graph=self._graph, dataloader=calib_dataloader, executor=executor, verbose=self._verbose, **kwargs
+        )
 
         if self._verbose:
             print(self.report(), end='')
             print('Network Quantization Finished.')
 
-    def quantize_operation(self, op_name: str, platform: TargetPlatform=None) -> QuantableOperation:
+    def quantize_operation(self, op_name: str, platform: TargetPlatform = None) -> QuantableOperation:
         if op_name not in self._graph.operations:
             raise KeyError(f'Can not find op {op_name} in your graph, chech operation name again.')
         converting_operation = self._graph.operations[op_name]
@@ -86,10 +84,12 @@ class BaseQuantizer(metaclass = ABCMeta):
             return converting_operation
 
         # override platform with calling parameter.
-        if platform is not None: converting_operation.platform = platform
-        else: platform = converting_operation.platform
+        if platform is not None:
+            converting_operation.platform = platform
+        else:
+            platform = converting_operation.platform
 
-        if platform in {TargetPlatform.FP32, TargetPlatform.SOI}: 
+        if platform in {TargetPlatform.FP32, TargetPlatform.SOI}:
             return self._graph.operations[op_name]
 
         # if platform == TargetPlatform.UNSPECIFIED we can skip its quantization when type is not supported.
@@ -97,39 +97,40 @@ class BaseQuantizer(metaclass = ABCMeta):
             return self._graph.operations[op_name]
 
         # create quantize config and convert operation.
-        self._processor(QuantizeOperationCommand(
-            op_name=op_name, target_platform=platform,
-            config=self.init_quantize_config(operation=converting_operation)
-        ))
+        self._processor(
+            QuantizeOperationCommand(
+                op_name=op_name,
+                target_platform=platform,
+                config=self.init_quantize_config(operation=converting_operation),
+            )
+        )
         return self._graph.operations[op_name]
 
-    @ staticmethod
+    @staticmethod
     def create_default_quant_config(
-        op: Operation, 
+        op: Operation,
         num_of_bits: int = 8,
-        quant_min: Union[int, float] = -127, 
-        quant_max: Union[int, float] = 128, 
-        observer_algorithm: str = 'percentile', 
-        policy: QuantizationPolicy = 
-            QuantizationPolicy(
-                QuantizationProperty.PER_TENSOR + 
-                QuantizationProperty.LINEAR + 
-                QuantizationProperty.SYMMETRICAL), 
-        rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN, 
+        quant_min: Union[int, float] = -127,
+        quant_max: Union[int, float] = 128,
+        observer_algorithm: str = 'percentile',
+        policy: QuantizationPolicy = QuantizationPolicy(
+            QuantizationProperty.PER_TENSOR + QuantizationProperty.LINEAR + QuantizationProperty.SYMMETRICAL
+        ),
+        rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN,
         exponent_bits: int = 0,
     ) -> OperationQuantizationConfig:
         """
         为你的算子创建一个默认量化信息
-        
+
         对于一个 Onnx 算子而言，它总是会有几个输入和输出 Variable
         你需要为每一个相连的 Variable 初始化量化信息 TensorQuantConfig
-        
+
         这个函数就是用来帮你初始化这些信息的。
-        
+
         一个麻烦的问题是：
 
             对于很多 onnx 算子而言，他们的部分输入都是不需要量化的:
-            
+
             如 Clip 算子的三个输入 value, min, max, 大部分框架不要求量化 min, max
             如 Reshape 算子的两个输入 value, shape, 其中 shape 不能够被量化
 
@@ -137,15 +138,15 @@ class BaseQuantizer(metaclass = ABCMeta):
 
             算子接线器中记录了所有标准 onnx 的默认量化策略
             该函数将使用预定义的算子量化策略初始化量化信息
-        
+
         你可以在 Quantizer 中对默认量化策略进行进一步修改
 
         Create a default quantization configuration for given op.
         For each onnx op, there will be some input and output variables.
-        
+
         You are required to create tensor quantization config for every
         input and output variables.
-        
+
         This function is designed for creating a default quantization config for you.
 
             The created OQC(Op Quantization Config) is based on OpSocket.
@@ -158,15 +159,16 @@ class BaseQuantizer(metaclass = ABCMeta):
 
         Those rules are pre-defined within OpSocket, thus ppq will create
         OQC based on underlying OpSocket of your Op.
-        
+
         After the default OQC got created, you can overwrite its state in quantizer.
         """
         assert isinstance(op, Operation), (
-            f'Can only initialize OQC for esp_ppq.IR.Operation, however {type(op)} was given.')
+            f'Can only initialize OQC for esp_ppq.IR.Operation, however {type(op)} was given.'
+        )
         assert isinstance(policy, QuantizationPolicy), (
-            f'Can not create quantization config - Quantization Policy Type Error.')
-        assert isinstance(rounding, RoundingPolicy), (
-            f'Can not create quantization config - Rounding Policy Type Error.')
+            'Can not create quantization config - Quantization Policy Type Error.'
+        )
+        assert isinstance(rounding, RoundingPolicy), 'Can not create quantization config - Rounding Policy Type Error.'
 
         socket = op.socket
         input_cfgs, output_cfgs = [], []
@@ -180,11 +182,20 @@ class BaseQuantizer(metaclass = ABCMeta):
                     state = QuantizationStates.FP32
                 if target_plat == TargetPlatform.SOI:
                     state = QuantizationStates.FP32
-            input_cfgs.append(TensorQuantizationConfig(
-                policy=policy, rounding=rounding,
-                num_of_bits=num_of_bits, scale=None, offset=None,
-                exponent_bits=exponent_bits, quant_min=quant_min, quant_max=quant_max,
-                observer_algorithm=observer_algorithm, state=state))
+            input_cfgs.append(
+                TensorQuantizationConfig(
+                    policy=policy,
+                    rounding=rounding,
+                    num_of_bits=num_of_bits,
+                    scale=None,
+                    offset=None,
+                    exponent_bits=exponent_bits,
+                    quant_min=quant_min,
+                    quant_max=quant_max,
+                    observer_algorithm=observer_algorithm,
+                    state=state,
+                )
+            )
 
         for index in range(op.num_of_output):
             state = QuantizationStates.INITIAL
@@ -196,27 +207,37 @@ class BaseQuantizer(metaclass = ABCMeta):
                     state = QuantizationStates.FP32
                 if target_plat == TargetPlatform.SOI:
                     state = QuantizationStates.FP32
-            output_cfgs.append(TensorQuantizationConfig(
-                policy=policy, rounding=rounding, num_of_bits=num_of_bits, scale=None, offset=None,
-                exponent_bits=exponent_bits, quant_min=quant_min, quant_max=quant_max,
-                observer_algorithm=observer_algorithm, state=state))
+            output_cfgs.append(
+                TensorQuantizationConfig(
+                    policy=policy,
+                    rounding=rounding,
+                    num_of_bits=num_of_bits,
+                    scale=None,
+                    offset=None,
+                    exponent_bits=exponent_bits,
+                    quant_min=quant_min,
+                    quant_max=quant_max,
+                    observer_algorithm=observer_algorithm,
+                    state=state,
+                )
+            )
 
         return OperationQuantizationConfig(input_cfgs, output_cfgs)
 
-    @ abstractmethod
+    @abstractmethod
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
         raise NotImplementedError('Implement this first.')
 
-    @ abstractproperty
-    @ property
+    @abstractproperty
+    @property
     def quant_operation_types(self) -> set:
         raise NotImplementedError('Quantizier does not have a quantable op set yet.')
 
-    @ property
+    @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.INT8
 
-    @ property
+    @property
     def activation_fusion_types(self) -> set:
         return {'Relu', 'Clip'}
 
@@ -227,7 +248,7 @@ class BaseQuantizer(metaclass = ABCMeta):
         quant_vars = [var for var in self._graph.variables.values() if isinstance(var, QuantableVariable)]
         quant_cfgs = []
 
-        config_states_cnt = {state: 0 for state in QuantizationStates}
+        config_states_cnt = dict.fromkeys(QuantizationStates, 0)
         for op in quant_ops:
             for cfg, _ in op.config_with_variable:
                 config_states_cnt[cfg.state] += 1
@@ -241,165 +262,188 @@ class BaseQuantizer(metaclass = ABCMeta):
         debug_str += '------- Quantization Snapshot ------\n'
         debug_str += f'Num of Quant Config:          [{len(quant_cfgs)}]\n'
         for state, cnt in config_states_cnt.items():
-            if cnt <= 0: continue
+            if cnt <= 0:
+                continue
             padding_str = ' ' * max(28 - len(state.name), 0)
             debug_str += f'{state.name}:{padding_str} [{cnt}]\n'
         return debug_str
 
     def build_quant_pipeline(self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
         assert isinstance(setting, QuantizationSetting), (
-            f'PPQ needs a OptimSetting instance to initialize optimization pipeline,'
-            f' however {type(setting)} was given.')
+            f'PPQ needs a OptimSetting instance to initialize optimization pipeline, however {type(setting)} was given.'
+        )
 
         if setting.matrix_factorization == True:
-            ppq_warning('PPQ Matrix Factorization Pass has been removed from QuantizationSetting since 0.6.5, this pass must be called manually now.')
-            ppq_warning('PPQ Matrix Factorization Pass 已经不能通过 QuantizationSetting 调用，现在你必须手动调用该优化过程')
+            ppq_warning(
+                'PPQ Matrix Factorization Pass has been removed from QuantizationSetting since 0.6.5, this pass must be called manually now.'
+            )
+            ppq_warning(
+                'PPQ Matrix Factorization Pass 已经不能通过 QuantizationSetting 调用，现在你必须手动调用该优化过程'
+            )
 
         list_of_passes = []
         if setting.ssd_equalization:
             equalization_setting = setting.ssd_setting
-            list_of_passes.append(SSDEqualizationPass(
-                optimize_level       = equalization_setting.opt_level,
-                channel_ratio        = equalization_setting.channel_ratio,
-                loss_threshold       = equalization_setting.loss_threshold,
-                layer_norm           = equalization_setting.layer_norm,
-                iteration            = equalization_setting.iteration
-            ))
+            list_of_passes.append(
+                SSDEqualizationPass(
+                    optimize_level=equalization_setting.opt_level,
+                    channel_ratio=equalization_setting.channel_ratio,
+                    loss_threshold=equalization_setting.loss_threshold,
+                    layer_norm=equalization_setting.layer_norm,
+                    iteration=equalization_setting.iteration,
+                )
+            )
 
         if setting.fusion:
-            fusion_setting  = setting.fusion_setting
-            list_of_passes.append(QuantizeFusionPass(
-                fuse_activation=fusion_setting.fuse_activation,
-                fuse_passive_op=fusion_setting.fuse_passive_op,
-                activation_type=self.activation_fusion_types
-            ))
+            fusion_setting = setting.fusion_setting
+            list_of_passes.append(
+                QuantizeFusionPass(
+                    fuse_activation=fusion_setting.fuse_activation,
+                    fuse_passive_op=fusion_setting.fuse_passive_op,
+                    activation_type=self.activation_fusion_types,
+                )
+            )
 
             if fusion_setting.remove_useless_quantization:
                 list_of_passes.append(QuantizeSimplifyPass())
 
         if setting.quantize_parameter:
             param_setting = setting.quantize_parameter_setting
-            list_of_passes.append(ParameterQuantizePass(
-                method=param_setting.calib_algorithm))
+            list_of_passes.append(ParameterQuantizePass(method=param_setting.calib_algorithm))
 
         if setting.quantize_activation:
             act_setting = setting.quantize_activation_setting
-            list_of_passes.append(RuntimeCalibrationPass(
-                method=act_setting.calib_algorithm))
+            list_of_passes.append(RuntimeCalibrationPass(method=act_setting.calib_algorithm))
 
         if setting.fusion:
             if fusion_setting.align_quantization:
-                list_of_passes.append(QuantAlignmentPass(
-                    elementwise_alignment = fusion_setting.align_elementwise_to,
-                    concat_alignment      = fusion_setting.align_concat_to,
-                    pooling_alignment     = fusion_setting.align_avgpooling_to,
-                    resize_alignment      = fusion_setting.align_resize_to,
-                    force_overlap = fusion_setting.force_alignment_overlap
-                ))
+                list_of_passes.append(
+                    QuantAlignmentPass(
+                        elementwise_alignment=fusion_setting.align_elementwise_to,
+                        concat_alignment=fusion_setting.align_concat_to,
+                        pooling_alignment=fusion_setting.align_avgpooling_to,
+                        resize_alignment=fusion_setting.align_resize_to,
+                        force_overlap=fusion_setting.force_alignment_overlap,
+                    )
+                )
 
         if setting.quantize_parameter:
             param_setting = setting.quantize_parameter_setting
             if param_setting.quantize_passive_parameter:
-                list_of_passes.append(PassiveParameterQuantizePass(
-                    clip_visiblity=param_setting.clip_visiblity,
-                    pad_visiblity=param_setting.pad_visiblity
-                ))
+                list_of_passes.append(
+                    PassiveParameterQuantizePass(
+                        clip_visiblity=param_setting.clip_visiblity, pad_visiblity=param_setting.pad_visiblity
+                    )
+                )
 
         if setting.bias_correct:
             bias_correct_setting = setting.bias_correct_setting
-            list_of_passes.append(BiasCorrectionPass(
-                block_size=bias_correct_setting.block_size,
-                interested_layers=bias_correct_setting.interested_layers,
-                steps=bias_correct_setting.steps,
-                collecting_device=bias_correct_setting.collecting_device
-            ))
+            list_of_passes.append(
+                BiasCorrectionPass(
+                    block_size=bias_correct_setting.block_size,
+                    interested_layers=bias_correct_setting.interested_layers,
+                    steps=bias_correct_setting.steps,
+                    collecting_device=bias_correct_setting.collecting_device,
+                )
+            )
 
         if setting.lsq_optimization:
             lsq_setting = setting.lsq_optimization_setting
-            list_of_passes.append(LearnedStepSizePass(
-                interested_layers  = lsq_setting.interested_layers,
-                lr                 = lsq_setting.lr,
-                collecting_device  = lsq_setting.collecting_device,
-                steps              = lsq_setting.steps,
-                gamma              = lsq_setting.gamma,
-                is_scale_trainable = lsq_setting.is_scale_trainable,
-                block_size         = lsq_setting.block_size
-            ))
+            list_of_passes.append(
+                LearnedStepSizePass(
+                    interested_layers=lsq_setting.interested_layers,
+                    lr=lsq_setting.lr,
+                    collecting_device=lsq_setting.collecting_device,
+                    steps=lsq_setting.steps,
+                    gamma=lsq_setting.gamma,
+                    is_scale_trainable=lsq_setting.is_scale_trainable,
+                    block_size=lsq_setting.block_size,
+                )
+            )
             # requant passive parameters
             param_setting = setting.quantize_parameter_setting
-            list_of_passes.append(PassiveParameterQuantizePass(
-                clip_visiblity=param_setting.clip_visiblity,
-                pad_visiblity=param_setting.pad_visiblity
-            ))
+            list_of_passes.append(
+                PassiveParameterQuantizePass(
+                    clip_visiblity=param_setting.clip_visiblity, pad_visiblity=param_setting.pad_visiblity
+                )
+            )
 
         if setting.blockwise_reconstruction:
             blockwise_reconstruction_setting = setting.blockwise_reconstruction_setting
-            list_of_passes.append(AdaroundPass(
-                interested_layers  = blockwise_reconstruction_setting.interested_layers,
-                lr                 = blockwise_reconstruction_setting.lr,
-                collecting_device  = blockwise_reconstruction_setting.collecting_device,
-                steps              = blockwise_reconstruction_setting.steps,
-                gamma              = blockwise_reconstruction_setting.gamma,
-                is_scale_trainable = blockwise_reconstruction_setting.is_scale_trainable,
-                block_size         = blockwise_reconstruction_setting.block_size
-            ))
+            list_of_passes.append(
+                AdaroundPass(
+                    interested_layers=blockwise_reconstruction_setting.interested_layers,
+                    lr=blockwise_reconstruction_setting.lr,
+                    collecting_device=blockwise_reconstruction_setting.collecting_device,
+                    steps=blockwise_reconstruction_setting.steps,
+                    gamma=blockwise_reconstruction_setting.gamma,
+                    is_scale_trainable=blockwise_reconstruction_setting.is_scale_trainable,
+                    block_size=blockwise_reconstruction_setting.block_size,
+                )
+            )
             # requant passive parameters
             param_setting = setting.quantize_parameter_setting
-            list_of_passes.append(PassiveParameterQuantizePass(
-                clip_visiblity=param_setting.clip_visiblity,
-                pad_visiblity=param_setting.pad_visiblity
-            ))
+            list_of_passes.append(
+                PassiveParameterQuantizePass(
+                    clip_visiblity=param_setting.clip_visiblity, pad_visiblity=param_setting.pad_visiblity
+                )
+            )
 
         if setting.quantize_parameter:
             if param_setting.baking_parameter:
                 list_of_passes.append(ParameterBakingPass())
 
         if setting.extension:
-            list_of_passes.append(ExtensionPass(
-                setting.extension_setting.my_first_parameter))
+            list_of_passes.append(ExtensionPass(setting.extension_setting.my_first_parameter))
 
         return QuantizationOptimizationPipeline(passes=list_of_passes)
 
     def build_prequant_pipeline(
-        self, setting: QuantizationSetting,
-        executor: BaseGraphExecutor) -> QuantizationOptimizationPipeline:
+        self, setting: QuantizationSetting, executor: BaseGraphExecutor
+    ) -> QuantizationOptimizationPipeline:
         assert isinstance(setting, QuantizationSetting), (
-            f'PPQ needs a OptimSetting instance to initialize optimization pipeline,'
-            f' however {type(setting)} was given.')
+            f'PPQ needs a OptimSetting instance to initialize optimization pipeline, however {type(setting)} was given.'
+        )
 
         list_of_passes = []
         if setting.weight_split:
             weight_split_setting = setting.weight_split_setting
-            list_of_passes.append(HorizontalLayerSplitPass(
-                interested_layers    = weight_split_setting.interested_layers,
-                method               = weight_split_setting.method,
-                value_threshold      = weight_split_setting.value_threshold,
-            ))
+            list_of_passes.append(
+                HorizontalLayerSplitPass(
+                    interested_layers=weight_split_setting.interested_layers,
+                    method=weight_split_setting.method,
+                    value_threshold=weight_split_setting.value_threshold,
+                )
+            )
 
         if setting.channel_split:
             channel_split_setting = setting.channel_split_setting
-            list_of_passes.append(ChannelwiseSplitPass(
-                optimize_level       = channel_split_setting.opt_level,
-                iterations           = channel_split_setting.iterations,
-                threshold            = channel_split_setting.value_threshold,
-                including_bias       = channel_split_setting.including_bias,
-                including_act        = channel_split_setting.including_act,
-                bias_multiplier      = channel_split_setting.bias_multiplier,
-                act_multiplier       = channel_split_setting.act_multiplier,
-                interested_layers    = channel_split_setting.interested_layers
-            ))
+            list_of_passes.append(
+                ChannelwiseSplitPass(
+                    optimize_level=channel_split_setting.opt_level,
+                    iterations=channel_split_setting.iterations,
+                    threshold=channel_split_setting.value_threshold,
+                    including_bias=channel_split_setting.including_bias,
+                    including_act=channel_split_setting.including_act,
+                    bias_multiplier=channel_split_setting.bias_multiplier,
+                    act_multiplier=channel_split_setting.act_multiplier,
+                    interested_layers=channel_split_setting.interested_layers,
+                )
+            )
 
         if setting.equalization:
             equalization_setting = setting.equalization_setting
-            list_of_passes.append(LayerwiseEqualizationPass(
-                optimize_level       = equalization_setting.opt_level,
-                iterations           = equalization_setting.iterations,
-                value_threshold      = equalization_setting.value_threshold,
-                including_bias       = equalization_setting.including_bias,
-                including_act        = equalization_setting.including_act,
-                bias_multiplier      = equalization_setting.bias_multiplier,
-                act_multiplier       = equalization_setting.act_multiplier,
-                interested_layers    = equalization_setting.interested_layers
-            ))
+            list_of_passes.append(
+                LayerwiseEqualizationPass(
+                    optimize_level=equalization_setting.opt_level,
+                    iterations=equalization_setting.iterations,
+                    value_threshold=equalization_setting.value_threshold,
+                    including_bias=equalization_setting.including_bias,
+                    including_act=equalization_setting.including_act,
+                    bias_multiplier=equalization_setting.bias_multiplier,
+                    act_multiplier=equalization_setting.act_multiplier,
+                    interested_layers=equalization_setting.interested_layers,
+                )
+            )
 
         return QuantizationOptimizationPipeline(passes=list_of_passes)

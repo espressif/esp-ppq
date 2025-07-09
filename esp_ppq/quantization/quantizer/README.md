@@ -20,7 +20,7 @@ def is_quantized_platform(cls, platform) -> bool:
     }
 ```
 
-## Inherit BaseQuantizer 
+## Inherit BaseQuantizer
 
 As you can see in [quantizer](../esp_ppq/quantization/quantizer), there are many quantizers, each corresponding with
 a backend platform, and they all inherit from the basic class *BaseQuantizer*, the basic quantizer class regulates
@@ -43,13 +43,13 @@ class ACADEMICQuantizer(BaseQuantizer):
         self._quant_max = 255
         super().__init__(graph, verbose)
 ```
-the *TargetPlatform.ACADEMIC_INT8* platform takes 8-bit asymmetric quantization scheme for activation,  thus 
+the *TargetPlatform.ACADEMIC_INT8* platform takes 8-bit asymmetric quantization scheme for activation,  thus
 *_num_of_bits = 8* and *_quant_min = 0*, *_quant_max = 255*, note that if your platform takes symmetric scheme,
-then you should modify like 
+then you should modify like
 ```python
 self._num_of_bits = 8
 self._quant_min   = -128 # or -127, it depends the clip boundary of your backend
-self._quant_max   = 127 
+self._quant_max   = 127
 ```
 
 ## Confirm Quantization Scheme
@@ -76,8 +76,8 @@ def quant_operation_types(self) -> set:
 
 To implement the whole quantizer, you should confirm the quantization scheme(per tensor/per channel, symmetric/asymmetric)
 of your backend platform, and in many platforms weight parameters and activations may take different quantization schemes.
-Please see [QuantizationProperty](https://github.com/openppl-public/ppq/tree/master/ppq/core/quant.py) for all supported quantization schemes. Your quantizer class should 
-implement the function *quantize_policy* to identify the quantization scheme of activation 
+Please see [QuantizationProperty](https://github.com/openppl-public/ppq/tree/master/ppq/core/quant.py) for all supported quantization schemes. Your quantizer class should
+implement the function *quantize_policy* to identify the quantization scheme of activation
 ```python
 @ property
 def quantize_policy(self) -> QuantizationPolicy:
@@ -88,9 +88,9 @@ def quantize_policy(self) -> QuantizationPolicy:
         )
 ```
 as you can see from above, the *ACADEMICQuantizer* takes an asymmetric linear per-tensor scheme for activation quantization, the
-most-common quantization setting in academic papers. 
+most-common quantization setting in academic papers.
 
-Similarly, you need to confirm the rounding policy of your backend platform, for example, the *TargetPlatfom.PPL_CUDA_INT8* 
+Similarly, you need to confirm the rounding policy of your backend platform, for example, the *TargetPlatfom.PPL_CUDA_INT8*
 platform takes a round-to-nearest-even policy, while the *TargetPlatform.NCNN_INT8* platform takes a round-half-away-from-zero
 policy, to better align with your backend, you should make sure of coherent rounding behavior between your quantizer
 and your real backend.
@@ -154,7 +154,7 @@ the *create_default_quant_config* creates a default asymmetric per-tensor config
             tensor_config.observer_algorithm = 'minmax'
 ```
 as you can see, all you need to do is to find the special operations(which have variables taking a different quantization scheme),
-and locate the corresponding config(*W_config* in this example), and modify the *quant_max*, *quant_min* and *policy* attribute 
+and locate the corresponding config(*W_config* in this example), and modify the *quant_max*, *quant_min* and *policy* attribute
 to your backend needs(symmetric per-tensor for weight parameters in this example). Also note that in most academic settings, only
 input variables need quantization, so we pick the output config *output_config* out, set its state to *QuantizationStates.FP32*,
 which means PPQ will skip the quantization of output activation of every quantable operations and execute in fp32 mode.
@@ -174,7 +174,7 @@ Now that you have created your platform and corresponding quantizer, then you ne
         def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
             # Implement this function first!
             return super().init_quantize_config(operation)
-        
+
         def quant_operation_types(self) -> set:
             return {'Conv', 'Gemm'}
 

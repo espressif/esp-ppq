@@ -1,6 +1,6 @@
 ## PPQ Graph(PPQ 计算图)
 
-PPQ 在 Onnx IR 的基础上构建了自己的计算图结构。在这里，一个计算图的定义由 图(BaseGraph)， 算子 (Operation) 和 变量 (Variable) 三者组成。 
+PPQ 在 Onnx IR 的基础上构建了自己的计算图结构。在这里，一个计算图的定义由 图(BaseGraph)， 算子 (Operation) 和 变量 (Variable) 三者组成。
 PPQ 的计算图对象不仅保存了你网络的结构信息与参数信息，同时也保存了图上的量化信息与量化参数，所有的量化过程都是围绕着这样的底层数据结构展开的。
 本文档将向你介绍 PPQ IR 的基本定义与使用方法：
 
@@ -16,36 +16,36 @@ Onnx 参考: https://github.com/onnx/onnx/blob/main/docs/IR.md
 
 #### 成员属性:
 * **is_parameter(self) -> bool:**
-    
+
     返回当前变量是否是一个参数，如果变量是一个参数，那么通常而言它是有常数值的。
     参数变量会出现在 onnx 文件的 initializer 中。这个属性允许用户进行修改，你可以通过 variable.is_parameter = True 的方式对其进行赋值。
 
 * **name(self) -> str:**
-    
+
     返回当前算子的名字，你可以使用 variable.name = 'New Var Name' 的方式为变量指定新的名字。
     但值得注意的是，你不能在一个图中有两个命名相同的变量。
 
 * **value(self) -> torch.Tensor:**
-    
+
     返回当前 variable 的值，对于那些连接了算子两端的非参数变量而言，它们通常是无值的，仅当运行时，它们的值才会被赋予，
     而对于常数变量而言，variable.value 将直接返回变量的常量值。用户可以通过 variable.value = xxx 的方式对变量的值直接进行修改。
 
 * **dest_ops(self) -> List[Operation]:**
-    
+
     返回当前变量连接的所有下游节点。
 
     在 Onnx 与 PPQ 的定义中，任何 Variable 都有且只有一个源算子，但可以有多个目标算子，该函数将返回与当前 Variable 相连接的所有目标算子，这个列表是无序的。
     用户可以直接修改这个列表从而为 Variable 添加新的目标算子，如此修改时，用户需要同步修改目标算子的 inputs 属性。
 
 * **source_op(self) -> Operation:**
-    
+
     返回当前变量的源算子。
 
     在 Onnx 与 PPQ 的定义中，任何 Variable 都有且只有一个源算子，但可以有多个目标算子，该函数将返回与当前 Variable 的源算子。
     用户可以直接修改该属性从而替换变量的源算子，如此修改时，用户需要同步修改源算子的 outputs 属性。
 
 * **shape(self) -> List[Union[Text, int, None]]:**
-    
+
     返回当前变量的形状信息
 
     当 variable.value 不为空时，该函数直接返回 variable.value.shape，当 variable.value 为空时，该函数返回自身的 self._shape 属性。
@@ -53,11 +53,11 @@ Onnx 参考: https://github.com/onnx/onnx/blob/main/docs/IR.md
     若用户没有调用此函数，则图中所有非参数变量的形状信息均为空值。该属性会在导出时写入 Onnx 文件。
 
     用户可以通过直接赋值的方式修改非参数变量的形状信息，PPQ 接受 int, Text, None 三种类型指定的形状
-    
+
     如 ['Batchsize', 3, 224, 224], [1, 3, 224, 224], [None, 3, 224, 224] 均是合理有效的形状信息
 
 * **dtype(self) -> DataType:**
-    
+
     返回当前变量的数据类型。
 
     当 variable.value 不为空时，该函数直接返回 variable.value.dtype，当 variable.value 为空时，该函数返回自身的 self._dtype_ 属性。
@@ -67,7 +67,7 @@ Onnx 参考: https://github.com/onnx/onnx/blob/main/docs/IR.md
     用户可以通过直接赋值的方式修改非参数变量的数据类型。
 
 * **copy(self, copy_value: bool = False):**
-    
+
     返回当前变量的克隆，参数 copy_value 指明了是否进行深克隆。
 
 ### 2. Operation(算子):
@@ -79,7 +79,7 @@ Operation 是一个计算图中的节点，在 Onnx 中一个节点可以有多�
 #### 成员属性:
 
 * **socket(self) -> OpSocket:**
-    
+
     返回当前算子的接线器(OpSocket)，在 PPQ 当中我们使用算子接线器描述算子应当被如何量化以及网络中的数据传递情况。
     算子接线器描述了该算子的每一个输入与输出变量是否能够被量化，描述了算子中数据从哪一个输入流动到哪一个输出。
 
@@ -90,48 +90,48 @@ Operation 是一个计算图中的节点，在 Onnx 中一个节点可以有多�
     如此修改时，你需要同步修改输入变量的 dest_ops 属性。
 
 * **outputs(self) -> List[Variable]:**
-    
+
     返回当前算子的所有输出变量，若没有输出则返回空列表，该列表是有序的。
     该属性直接返回 op._outputs 对象，你可以直接修改返回的列表从而为算子添加新的输出，如此修改时，你需要同步修改输出变量的 source_op 属性。
 
 * **parameters(self) -> List[Variable]:**
-    
+
     返回当前算子的所有参数，这将返回一个视图，你并不能修改这个视图来为算子添加新的参数。
 
 * **num_of_parameter(self) -> int:**
-    
+
     返回当前算子的参数个数。
 
 * **name(self) -> str:**
-    
+
     返回当前算子的名字。用户可以使用 op.name = 'New Op Name' 的方式为算子指定新的名字，但值得注意的是，你不能在一个图中有两个命名相同的算子。
 
 * **type(self) -> str:**
-    
+
     返回当前算子的类型。用户可以使用 op.type = 'New Op Type' 的方式为算子指定新的类型。
 
 * **opset(self) -> Opset:**
-    
+
     返回当前算子的 Opset。
 
 * **attributes(self) -> Dict[str, Any]:**
-    
+
     返回当前算子的属性字典。你可以对其进行修改从而添加、修改、删除算子上的属性，任何添加的属性都会在导出时被写入 Onnx 文件中。
 
 * **platform(self) -> TargetPlatform:**
-    
+
     返回当前算子的平台。你可以使用 op.platform = xxx 来修改算子的调度情况。
 
 * **num_of_input(self) -> int:**
-    
+
     返回当前算子的输入个数。
 
 * **num_of_output(self) -> int:**
-    
+
     返回当前算子的输出个数。
 
 * **extension_attrib(self) -> dict:**
-    
+
     返回扩展属性集合，该属性与 attributes 类似，但写入此处的属性并不会写入到 Onnx 中。
 
     用户可以使用 extension_attrib 为算子添加自定义的信息，从而完成信息在不同 Optim Pass 之间的传递。
@@ -152,35 +152,35 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
 #### 成员属性:
 
 * **config(self) -> OperationQuantizationConfig:**
-    
+
     返回当前量化算子的量化信息，OperationQuantizationConfig 结构体包含了量化算子的所有输入、输出量化信息。
 
 * **input_quant_config(self) -> List[TensorQuantizationConfig]:**
-    
+
     以有序列表的形式返回当前算子的输入量化信息。用户可以修改量化信息中的内容，但不推荐修改列表本身。
 
 * **output_quant_config(self) -> List[TensorQuantizationConfig]:**
-    
+
     以有序列表的形式返回当前算子的输出量化信息。用户可以修改量化信息中的内容，但不推荐修改列表本身。
 
 #### 成员函数：
 
 * **baking_parameters(self, quant_func: BaseQuantFunction):**
-    
+
     执行量化烘焙，这将使得该算子的所有参数量化静态化，这些参数的值将被量化后的值所替换，其对应 TQC 的状态将被切换为 Baked。
     在神经网络的前向传播中，我们总是需要反复计算算子参数的量化过程，但当参数已经确定并不再发生变化时，我们可以通过缓存这些参数量化结果的方式加速程序运行。
 
 * **store_parameter_value(self):**
-    
+
     备份算子当前的状态，该函数与 dequantize 相互呼应，使得算子能够在量化与非量化状态中相互切换
 
 * **dequantize(self, parameter_only: bool = False, expire_device: str = 'cpu'):**
-    
+
     解除当前算子的量化，如果在量化过程中算子的参数并未发生改变，则可以通过直接切换 TQC 状态的方式完成 dequantize 操作。
     但如果在量化过程中算子的参数被修改，则该方法不仅切换 TQC 的状态，同时从 expire_device 上取得算子参数的备份数据并替换现有的。
 
 * **restore_quantize_state(self, expire_device: str = 'cpu'):**
-    
+
     还原算子的量化，如果在量化过程中算子的参数并未发生改变，则可以通过直接切换 TQC 状态的方式完成 restore_quantize_state 操作。
     但如果在量化过程中算子的参数被修改，则该方法不仅切换 TQC 的状态，同时从 expire_device 上取得量化后的算子参数并替换现有的。
 
@@ -346,21 +346,21 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
 
     PPQ 使用了非递归的算法完成上述匹配，其最坏时间和空间复杂度大概都是 O(NM^k)
     其中 N 是母图节点个数，M 是子图节点个数，k 是母图的最大出度
-        
+
     对于存在二义性子图模式，匹配复杂度将指数级增长；为了限制算法执行时间，当匹配到多于
     max_candidates 个模式子图时，算法强制停机，并报错返回。
 
     实际使用中的时间复杂度更加接近于 O(NM)
-        
+
     参数 exclusive 指定了是否需要进行精确匹配。在精确匹配模式下：
 
     1. 不允许模式子图中除根节点外的其他节点有来自模式子图以外节点的输入
 
     2. 不允许模式子图中除叶节点外的其他节点有朝向模式子图以外节点的输出
 
-    
+
     使用例子：
-    
+
             pt = PatternTree(
                 patterns = [lambda x: x.is_computing_op, 'Softplus', 'Tanh', 'Mul']
                 edges = [[0, 1], [1, 2], [2, 3], [0, 3]])
@@ -369,7 +369,7 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
                                             --- 'Softplus'   ---   'Tanh' --
             lambda x: x.is_computing_op --- +                              + --- 'Mul'
                                             ---     ---     ---    ---    --
-    
+
     该函数按模式指定的顺序返回匹配到的算子
 
 
@@ -382,7 +382,7 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
 #### 成员方法
 
 * **truncate_on_var(self, var: Variable, mark_as_output: bool):**
-    
+
     从一个指定的变量处截断计算图，该变量后续的所有算子都将被移除。
     参数 mark_as_output 决定了是否将当前变量指定为图的输出变量。
 
@@ -407,7 +407,7 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
 #### 成员方法
 
 * **fuse_bn(self):**
-    
+
     合并图中的 Conv + bn, Gemm + bn, MatMul + bn, ConvTranspose + bn
 
 * **fuse_gemm(self):**
@@ -437,13 +437,13 @@ QuantableOperation 是 PPQ 在 Onnx Operation 基础上追加定义的内容，�
 * **fuse_bias_add(self):**
 
     合并图中的 bias add。
-    
+
     在一些情况下，Onnx 导出的计算图会出现 Conv bias 形成独立算子的情况，即 Conv 之后存在单独的 Add 算子。
     该函数用于合并上述情况。
 
 * **fuse_swish(self):**
 
     合并图中的 swish 激活函数
-    
+
     Onnx 标准中不包含 Swish 算子，因此它们将被拆分成 'Sigmoid', 'Mul'2个算子。
     该函数将它们进行合并

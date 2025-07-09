@@ -2,6 +2,7 @@ from typing import Dict, Set
 
 from esp_ppq.core import TargetPlatform
 from esp_ppq.IR import BaseGraph
+
 from .base import GraphDispatcher
 
 
@@ -10,16 +11,19 @@ class AllinDispatcher(GraphDispatcher):
     dispatch to a specific platform for further execution and quantization.
     ATTENTION: this dispatcher will enable all ops in quant_types to quant_platform.
     """
+
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__()
         self.graph = graph
 
     def dispatch(
-        self, quant_types: Set[str],
+        self,
+        quant_types: Set[str],
         quant_platform: TargetPlatform = TargetPlatform.UNSPECIFIED,
         fp32_platform: TargetPlatform = TargetPlatform.FP32,
-        SOI_platform: TargetPlatform = TargetPlatform.SOI, **kwargs
-        ) -> Dict[str, TargetPlatform]:
+        SOI_platform: TargetPlatform = TargetPlatform.SOI,
+        **kwargs,
+    ) -> Dict[str, TargetPlatform]:
         """
             We assume all ops in origin model can be quant.
             This is suitable for some npu platform.

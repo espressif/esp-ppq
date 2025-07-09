@@ -10,16 +10,18 @@ from .processer import GraphCommandProcessor
 
 
 class PointPattern(Callable, metaclass=ABCMeta):
-    @ abstractmethod
-    def match(self, operation: Operation) -> bool: pass
+    @abstractmethod
+    def match(self, operation: Operation) -> bool:
+        pass
 
     def __call__(self, operation: Operation) -> bool:
         return self.match(operation)
 
 
 class RelayPattern(Callable, metaclass=ABCMeta):
-    @ abstractmethod
-    def match(self, from_where: Operation, to_where: Operation) -> bool: pass
+    @abstractmethod
+    def match(self, from_where: Operation, to_where: Operation) -> bool:
+        pass
 
     def __call__(self, from_where: Operation, to_where: Operation) -> bool:
         return self.match(from_where, to_where)
@@ -28,7 +30,8 @@ class RelayPattern(Callable, metaclass=ABCMeta):
 class Path(Iterable):
     def __init__(self, operation: Operation = None) -> None:
         self._container = deque()
-        if operation is not None: self._container.append(operation)
+        if operation is not None:
+            self._container.append(operation)
 
     def append(self, op: Operation):
         self._container.append(op)
@@ -79,12 +82,13 @@ class OperationSet(set):
 
 
 class TraversalCommand(GraphCommand):
-    def __init__(self,
+    def __init__(
+        self,
         sp_expr: Union[PointPattern, Callable],
         rp_expr: Union[RelayPattern, Callable],
         ep_expr: Union[PointPattern, Callable],
         direction: str = 'down',
-        matching_type: str = 'path'
+        matching_type: str = 'path',
     ) -> None:
         """
             TraversalCommand 是一个用于表示图检索指令的结构体
@@ -121,9 +125,9 @@ class TraversalCommand(GraphCommand):
                 指定为 opset，则系统只匹配涉及到的节点
         """
         self._direction = direction
-        self._sp_expr     = sp_expr
-        self._rp_expr     = rp_expr
-        self._ep_expr     = ep_expr
+        self._sp_expr = sp_expr
+        self._rp_expr = rp_expr
+        self._ep_expr = ep_expr
         if matching_type == 'path':
             super().__init__(GraphCommandType.TRAVERSAL_PATTERN_MATCHING)
         elif matching_type == 'opset':
@@ -131,8 +135,7 @@ class TraversalCommand(GraphCommand):
         else:
             raise ValueError('PPQ only support "opset" matching and "path" matching for now.')
 
-
-    @ staticmethod
+    @staticmethod
     def complie(query: str):
         """compile 函数把一个查询字符串编译成一个 TraversalCommand。 我们还没有具体实现这个函数，但我们已经定义好了语法：
 
@@ -163,22 +166,21 @@ class TraversalCommand(GraphCommand):
         pass
 
 
-class GraphPattern():
-
+class GraphPattern:
     def __init__(self, node_patterns: List[Callable], edges: List[List[int]]) -> None:
         """Pattern Tree 是一个用来表示图模式的结构体 这将在图中检索任意一个子图.
 
         你将使用 Graph Pattern 定义你的子图结构
         使用 patterns 确定每一个节点需要满足的条件
         使用 edges 将节点们彼此相连从而构成图结构
-        
+
         构成的图必须可以进行拓扑排序，不可以检索有环结构，不可以检索不连通结构
         例子：
             pattern = ['Conv', 'Conv', 'Conv'],
             edges = [[0, 1], [1, 2], [0, 2]]
 
         描述了一个类似这样的树形结构:
-        
+
             Conv -+- Conv -+- Conv
                   |        |
                   ----------
@@ -208,21 +210,21 @@ class GraphPattern():
             if not isinstance(edge, tuple) and not isinstance(edge, list):
                 raise TypeError(f'Can not create Pattern with edge {str(edge)} it is not tuple or list.')
             if len(edge) != 2:
-                raise ValueError(f'Can not create Pattern with edge {str(edge)} '
-                                 f'it should contains exact 2 elements, however {len(edge)} was given.')
+                raise ValueError(
+                    f'Can not create Pattern with edge {str(edge)} '
+                    f'it should contains exact 2 elements, however {len(edge)} was given.'
+                )
             sp, ep = edge
             if not isinstance(sp, int) or not isinstance(ep, int):
-                raise TypeError(f'Can not create Pattern was given edge {[str(sp), str(ep)]}, '
-                                'expect int value here.')
-        
+                raise TypeError(f'Can not create Pattern was given edge {[str(sp), str(ep)]}, expect int value here.')
+
         self.order, self.output_table, self.input_table = self.compile(node_patterns=node_patterns, edges=edges)
         self.argsort_order = sorted([(_, idx) for idx, _ in enumerate(self.order)])
         self.argsort_order = [idx for _, idx in self.argsort_order]
         self.node_patterns = node_patterns
 
-
     def compile(self, node_patterns: List[Callable], edges: List[List[int]]):
-        """ Pattern Compile.
+        """Pattern Compile.
         1. Do topological Sort on given pattern.
         2. Reorganize pattern by topological order.
         """
@@ -233,15 +235,19 @@ class GraphPattern():
         forward_table = [set() for _ in node_patterns]
         backward_table = [set() for _ in node_patterns]
         roots = []
-        
+
         for edge in edges:
             sp, ep = edge
             if sp >= len(node_patterns) or sp < 0:
-                raise IndexError(f'Can not Compile Pattern, Edge {edge} Out of Node Range, '
-                                 f'Except Value between 0 and {len(node_patterns) - 1}, however {sp} was given.')
+                raise IndexError(
+                    f'Can not Compile Pattern, Edge {edge} Out of Node Range, '
+                    f'Except Value between 0 and {len(node_patterns) - 1}, however {sp} was given.'
+                )
             if ep >= len(node_patterns) or ep < 0:
-                raise IndexError(f'Can not Compile Pattern, Edge {edge} Out of Node Range, '
-                                 f'Except Value between 0 and {len(node_patterns) - 1}, however {ep} was given.')
+                raise IndexError(
+                    f'Can not Compile Pattern, Edge {edge} Out of Node Range, '
+                    f'Except Value between 0 and {len(node_patterns) - 1}, however {ep} was given.'
+                )
             forward_table[sp].add(ep)
             backward_table[ep].add(sp)
             num_of_inputs[ep] += 1
@@ -249,13 +255,14 @@ class GraphPattern():
         # initialization
         pop_list, sort_ret = deque(), []
         for idx, n_input in enumerate(num_of_inputs):
-            if n_input == 0: 
+            if n_input == 0:
                 pop_list.append(idx)
                 roots.append(idx)
 
         # topological sort
         for _ in range(len(visited)):
-            if len(pop_list) == 0: break
+            if len(pop_list) == 0:
+                break
             current = pop_list.popleft()
 
             for next in forward_table[current]:
@@ -268,12 +275,10 @@ class GraphPattern():
 
         if all(visited):
             if len(roots) > 1:
-                ppq_warning('More than 1 pattern root was found, '
-                            'Complext Pattern might cause memory overflow ...')
+                ppq_warning('More than 1 pattern root was found, Complext Pattern might cause memory overflow ...')
             return sort_ret, forward_table, backward_table
         else:
-            raise RuntimeError('Topological Sort failed. '
-                               'Some node can not be sorted (might due to circular reference)')
+            raise RuntimeError('Topological Sort failed. Some node can not be sorted (might due to circular reference)')
 
 
 class TypeExpr(Callable):
@@ -286,25 +291,25 @@ class TypeExpr(Callable):
 
 
 class PatternMatchHelper:
-    @ staticmethod
+    @staticmethod
     def match_burte_force(
-        graph: BaseGraph, pattern: GraphPattern, 
-        exclusive: bool, max_candidates: int = 1000000) -> List[List[Operation]]:
+        graph: BaseGraph, pattern: GraphPattern, exclusive: bool, max_candidates: int = 1000000
+    ) -> List[List[Operation]]:
         """暴力子图模式匹配 这是 PPQ 0.6.6 更新的内容
         在 0.6.6 之前，我们使用具有不确定性的贪心匹配算法，但是考虑到实际应用中的问题
         在 0.6.6 版本之后，我们将其修改为枚举匹配。
-        
+
         子图匹配问题是一个 NP-Hard 的问题，不存在多项式时间复杂度的解法。
         你需要给出一个模式子图，match_burte_force 方法将在 graph 中对模式子图进行匹配。
-        
+
         PPQ 使用了非递归的算法完成上述匹配，其最坏时间和空间复杂度大概都是 O(NM^k)
         其中 N 是母图节点个数，M 是子图节点个数，k 是母图的最大出度
-        
+
         对于存在二义性子图模式，匹配复杂度将指数级增长；为了限制算法执行时间，当匹配到多于
         max_candidates 个模式子图时，算法强制停机，并报错返回。
-        
+
         实际使用中的时间复杂度更加接近于 O(NM)
-        
+
         参数 exclusive 指定了是否需要进行精确匹配。在精确匹配模式下：
             1. 不允许模式子图中除根节点外的其他节点有来自模式子图以外节点的输入
             2. 不允许模式子图中除叶节点外的其他节点有朝向模式子图以外节点的输出
@@ -322,7 +327,8 @@ class PatternMatchHelper:
         """
 
         def is_linked(upstream_op: Operation, downstream_op: Operation) -> bool:
-            if upstream_op is None or downstream_op is None: return True
+            if upstream_op is None or downstream_op is None:
+                return True
             return downstream_op in graph.get_downstream_operations(upstream_op)
 
         node_order = pattern.order
@@ -334,7 +340,7 @@ class PatternMatchHelper:
             if pattern.node_patterns[root_idx](operation):
                 matched_patterns.append([operation] + [None for _ in range(len(node_order) - 1)])
 
-        for idx in node_order[1: ]:
+        for idx in node_order[1:]:
             node_candidates, next_generation = [], []
             for operation in graph.operations.values():
                 if pattern.node_patterns[idx](operation):
@@ -357,7 +363,8 @@ class PatternMatchHelper:
                     if (not is_pattern_root and exclusive) and link_check:
                         matched_set = set(matched_pattern)
                         for op in graph.get_upstream_operations(operation):
-                            if op not in matched_set: exclusive_check = False
+                            if op not in matched_set:
+                                exclusive_check = False
                         if len(pattern.input_table[idx]) != len(set(graph.get_upstream_operations(operation))):
                             exclusive_check = False
 
@@ -365,12 +372,13 @@ class PatternMatchHelper:
                         generated = matched_pattern.copy()
                         generated[idx] = operation
                         next_generation.append(generated)
- 
+
             matched_patterns = next_generation
             if len(matched_patterns) > max_candidates:
                 raise OverflowError('Too many candidate patterns. Simplify your pattern first.')
 
-            if len(matched_patterns) == 0: break
+            if len(matched_patterns) == 0:
+                break
 
         # final exclusive check
         if exclusive:
@@ -393,6 +401,7 @@ class SearchableGraph(GraphCommandProcessor):
     Args:
         GraphCommandProcessor ([type]): [description]
     """
+
     def __init__(self, graph: Union[BaseGraph, Callable]) -> None:
         super().__init__(graph)
         self._cache = {}
@@ -404,18 +413,21 @@ class SearchableGraph(GraphCommandProcessor):
                     sp_expr=command._sp_expr,
                     rp_expr=command._rp_expr,
                     ep_expr=command._ep_expr,
-                    direction=command._direction)
+                    direction=command._direction,
+                )
             else:
                 return self.opset_matching(
                     sp_expr=command._sp_expr,
                     rp_expr=command._rp_expr,
                     ep_expr=command._ep_expr,
-                    direction=command._direction)
+                    direction=command._direction,
+                )
         else:
             raise TypeError(
                 'To execute a traversal-based pattern matching, a TraversalCommand is required here.\n'
                 'Initialize your own TraversalCommand instance for invoking '
-                'this function rather than using plain GraphCommand Please.')
+                'this function rather than using plain GraphCommand Please.'
+            )
 
     def _acceptable_command_types(self) -> List[GraphCommandType]:
         return [
@@ -426,18 +438,17 @@ class SearchableGraph(GraphCommandProcessor):
         ]
 
     def _path_matching(
-        self,
-        start_point: Operation,
-        rp_expr: RelayPattern,
-        ep_expr: PointPattern,
-        direction: str = 'up'
+        self, start_point: Operation, rp_expr: RelayPattern, ep_expr: PointPattern, direction: str = 'up'
     ) -> List[Path]:
         # memoization based searching.
-        if start_point in self._cache: return self._cache[start_point]
+        if start_point in self._cache:
+            return self._cache[start_point]
 
         # find next operations with given direction
-        if direction == 'up': following_ops = self.graph.get_upstream_operations(start_point)
-        else: following_ops = self.graph.get_downstream_operations(start_point)
+        if direction == 'up':
+            following_ops = self.graph.get_upstream_operations(start_point)
+        else:
+            following_ops = self.graph.get_downstream_operations(start_point)
 
         ret_collection = []
         for op in following_ops:
@@ -447,34 +458,32 @@ class SearchableGraph(GraphCommandProcessor):
 
             else:
                 # if operation is not a valid relay point, end searching here.
-                if not rp_expr(start_point, op): continue
+                if not rp_expr(start_point, op):
+                    continue
 
                 # searching following operations.
-                for path in self._path_matching(start_point=op, rp_expr=rp_expr,
-                    ep_expr=ep_expr, direction=direction):
+                for path in self._path_matching(start_point=op, rp_expr=rp_expr, ep_expr=ep_expr, direction=direction):
                     ret_collection.append(path.copy().append_left(start_point))
 
         self._cache[start_point] = ret_collection
         return ret_collection
 
     def _opset_matching(
-        self,
-        start_point: Operation,
-        rp_expr: RelayPattern,
-        ep_expr: PointPattern,
-        direction: str = 'up'
+        self, start_point: Operation, rp_expr: RelayPattern, ep_expr: PointPattern, direction: str = 'up'
     ) -> OperationSet:
-
         # memoization based searching.
-        if start_point in self._cache: return self._cache[start_point]
+        if start_point in self._cache:
+            return self._cache[start_point]
 
         # begin searching.
         ret_collection = OperationSet()
 
         # find next operations with given direction
-        if direction == 'up': following_ops = self.graph.get_upstream_operations(start_point)
-        else: following_ops = self.graph.get_downstream_operations(start_point)
-        
+        if direction == 'up':
+            following_ops = self.graph.get_upstream_operations(start_point)
+        else:
+            following_ops = self.graph.get_downstream_operations(start_point)
+
         # new feature with ppq 0.6.5, if ep_expr is None, means search until mismatch.
         if len(following_ops) == 0 and ep_expr is None:
             return ret_collection.add(start_point)
@@ -486,15 +495,16 @@ class SearchableGraph(GraphCommandProcessor):
 
             else:
                 # if operation is not a valid relay point, end searching here.
-                if not rp_expr(start_point, op): 
+                if not rp_expr(start_point, op):
                     # new feature with ppq 0.6.5, if ep_expr is None, means search until mismatch.
-                    if ep_expr is None: ret_collection.add(start_point)
+                    if ep_expr is None:
+                        ret_collection.add(start_point)
                     continue
 
                 # searching following operations.
                 further_result = self._opset_matching(
-                    start_point=op, rp_expr=rp_expr,
-                    ep_expr=ep_expr, direction=direction)
+                    start_point=op, rp_expr=rp_expr, ep_expr=ep_expr, direction=direction
+                )
 
                 if len(further_result) > 0:
                     ret_collection.update(further_result)
@@ -503,13 +513,7 @@ class SearchableGraph(GraphCommandProcessor):
         self._cache[start_point] = ret_collection
         return ret_collection
 
-    def path_matching(
-        self,
-        sp_expr: Callable,
-        rp_expr: Callable,
-        ep_expr: Callable,
-        direction: str
-        ) -> List[Path]:
+    def path_matching(self, sp_expr: Callable, rp_expr: Callable, ep_expr: Callable, direction: str) -> List[Path]:
         """path_matching is used for path searching on the graph, and complete
         paths will be returned. Note that it's possible for results to overflow
         when there are numerous matchings.
@@ -545,14 +549,14 @@ class SearchableGraph(GraphCommandProcessor):
 
         _ret_collection = []
         for operation in self.graph.operations.values():
-
             # filter out operation which can not be a start point.
-            if not sp_expr(operation): continue
+            if not sp_expr(operation):
+                continue
 
             # match patterns, add patterns towards result collection.
             matchings = self._path_matching(
-                start_point=operation, rp_expr=rp_expr,
-                ep_expr=ep_expr, direction=direction)
+                start_point=operation, rp_expr=rp_expr, ep_expr=ep_expr, direction=direction
+            )
             _ret_collection.extend(matchings)
 
         # clear cache
@@ -562,12 +566,8 @@ class SearchableGraph(GraphCommandProcessor):
         return _ret_collection
 
     def opset_matching(
-        self,
-        sp_expr: Callable,
-        rp_expr: Callable,
-        ep_expr: Callable,
-        direction: str = 'up'
-        ) -> OperationSet:
+        self, sp_expr: Callable, rp_expr: Callable, ep_expr: Callable, direction: str = 'up'
+    ) -> OperationSet:
         """opset_matching is used for operator set searching, it returns
         relevant op set instead of specific paths, should be used when results
         of path_matching overflow.
@@ -603,13 +603,14 @@ class SearchableGraph(GraphCommandProcessor):
         ret_collection, candidates = OperationSet(), OperationSet()
         for operation in self.graph.operations.values():
             # filter out operation which can not be a start point.
-            if sp_expr(operation): candidates.add(operation)
+            if sp_expr(operation):
+                candidates.add(operation)
 
         for operation in candidates:
             # match patterns, add patterns towards result collection.
             partial_matchings = self._opset_matching(
-                start_point=operation, rp_expr=rp_expr,
-                ep_expr=ep_expr, direction=direction)
+                start_point=operation, rp_expr=rp_expr, ep_expr=ep_expr, direction=direction
+            )
 
             if len(partial_matchings) > 0:
                 ret_collection.update(partial_matchings)
@@ -619,15 +620,15 @@ class SearchableGraph(GraphCommandProcessor):
         return ret_collection
 
     def activation_matching(
-        self, start_op_types: Set[str],
+        self,
+        start_op_types: Set[str],
         end_types: Set[str],
     ) -> Dict[str, List[str]]:
-
         matchings = self.path_matching(
-            sp_expr   = lambda op: op.type in start_op_types,
-            rp_expr   = lambda x, y: False, # must have no relay operation.
-            ep_expr   = lambda op: op.type in end_types,
-            direction = 'down'
+            sp_expr=lambda op: op.type in start_op_types,
+            rp_expr=lambda x, y: False,  # must have no relay operation.
+            ep_expr=lambda op: op.type in end_types,
+            direction='down',
         )
 
         activation_matchings = defaultdict(list)
@@ -636,14 +637,9 @@ class SearchableGraph(GraphCommandProcessor):
             activation_matchings[op.name].append(act.name)
         return dict(activation_matchings)
 
-    def concat_matching(
-        self, relay_pattern: Callable,
-        end_pattern: Callable) -> Dict[str, List[str]]:
+    def concat_matching(self, relay_pattern: Callable, end_pattern: Callable) -> Dict[str, List[str]]:
         matchings = self.path_matching(
-            sp_expr = lambda op: op.type in {'Concat'},
-            rp_expr = relay_pattern,
-            ep_expr = end_pattern,
-            direction = 'up'
+            sp_expr=lambda op: op.type in {'Concat'}, rp_expr=relay_pattern, ep_expr=end_pattern, direction='up'
         )
 
         concat_matchings = defaultdict(list)
@@ -652,9 +648,9 @@ class SearchableGraph(GraphCommandProcessor):
             concat_matchings[concat.name].append(op.name)
         return dict(concat_matchings)
 
-    def pattern_matching(self, patterns: List[Callable], 
-                         edges: List[List[int]], 
-                         exclusive: bool = True) -> List[List[Operation]]:
+    def pattern_matching(
+        self, patterns: List[Callable], edges: List[List[int]], exclusive: bool = True
+    ) -> List[List[Operation]]:
         """暴力子图模式匹配 这是 PPQ 0.6.6 更新的内容
         在 0.6.6 之前，我们使用具有不确定性的贪心匹配算法，但是考虑到实际应用中的问题
         在 0.6.6 版本之后，我们将其修改为枚举匹配。
@@ -664,12 +660,12 @@ class SearchableGraph(GraphCommandProcessor):
 
         PPQ 使用了非递归的算法完成上述匹配，其最坏时间和空间复杂度大概都是 O(NM^k)
         其中 N 是母图节点个数，M 是子图节点个数，k 是母图的最大出度
-        
+
         对于存在二义性子图模式，匹配复杂度将指数级增长；为了限制算法执行时间，当匹配到多于
         max_candidates 个模式子图时，算法强制停机，并报错返回。
 
         实际使用中的时间复杂度更加接近于 O(NM)
-        
+
         参数 exclusive 指定了是否需要进行精确匹配。在精确匹配模式下：
             1. 不允许模式子图中除根节点外的其他节点有来自模式子图以外节点的输入
             2. 不允许模式子图中除叶节点外的其他节点有朝向模式子图以外节点的输出
@@ -686,5 +682,5 @@ class SearchableGraph(GraphCommandProcessor):
 
         """
         return PatternMatchHelper().match_burte_force(
-            graph=self.graph, pattern=GraphPattern(node_patterns=patterns, edges=edges), 
-            exclusive=exclusive)
+            graph=self.graph, pattern=GraphPattern(node_patterns=patterns, edges=edges), exclusive=exclusive
+        )

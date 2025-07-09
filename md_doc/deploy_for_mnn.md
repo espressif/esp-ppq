@@ -37,7 +37,7 @@ for example:
 ```python
 WORKING_DIRECTORY = 'working'                             # choose your working directory
 TARGET_PLATFORM   = TargetPlatform.MNN_INT8          # choose your target platform
-MODEL_TYPE        = NetworkFramework.ONNX                 # 
+MODEL_TYPE        = NetworkFramework.ONNX                 #
 INPUT_LAYOUT          = 'chw'                             # input data layout, chw or hwc
 NETWORK_INPUTSHAPE    = [1, 3, 224, 224]                  # input shape of your network
 CALIBRATION_BATCHSIZE = 1                                # batchsize of calibration dataset
@@ -57,7 +57,7 @@ for onnx:
 
 ## Quant Your Model(take resnet18 as an example)
 ```shell
-./quantized.out resnet18.mnn  resnet18_quant.mnn quant_cfg.json 
+./quantized.out resnet18.mnn  resnet18_quant.mnn quant_cfg.json
 ```
 The quantized mnn model can be obtained: resnet18_quant.mnn
 
@@ -67,4 +67,3 @@ The quantized mnn model can be obtained: resnet18_quant.mnn
 ## Note that data.bin should be preprocessed data
 
 ## If there is a bad case of the model accuracy dropping, please contact us.
-

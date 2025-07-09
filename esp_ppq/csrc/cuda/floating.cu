@@ -38,7 +38,7 @@ __global__ void _QuantizeTensor_FT(
     const float*     value,
     const float*     scale,
     const float*     offset,
-    const int        exponent, 
+    const int        exponent,
     const int        mantissa,
     const float      clip_min,
     const float      clip_max,
@@ -81,7 +81,7 @@ __global__ void _QuantizeTensor_FC(
     const float*     value,
     const float*     scale,
     const float*     offset,
-    const int        exponent, 
+    const int        exponent,
     const int        mantissa,
     const float      clip_min,
     const float      clip_max,
@@ -137,7 +137,7 @@ void _QuantizeTensor_FT_B(
     const float* scales,
     const float* offsets,
     const float* grad_y,
-    const int exponent, 
+    const int exponent,
     const int mantissa,
     const float clip_min,
     const float clip_max,
@@ -145,9 +145,9 @@ void _QuantizeTensor_FT_B(
     float* grad_s,
     float* grad_x
 ){
-    int64_t iter; 
+    int64_t iter;
     float s = scales[0];
-    float inv_s = 1 / s; 
+    float inv_s = 1 / s;
     float o = offsets[0];
     float _clip_min = s * (clip_min - o);
     float _clip_max = s * (clip_max - o);
@@ -185,7 +185,7 @@ void _QuantizeTensor_FT_B(
 
 __host__ std::vector<Tensor> QuantizeTensor_FT_B(
     const Tensor &value, const Tensor &scales, const Tensor &offsets, const Tensor &grad_y,
-    const int exponent, const int mantissa, const float clip_min, const float clip_max, 
+    const int exponent, const int mantissa, const float clip_min, const float clip_max,
     const Rounding rounding
 ){
     /**
@@ -202,7 +202,7 @@ __host__ std::vector<Tensor> QuantizeTensor_FT_B(
     Tensor grad_x = at::zeros_like(grad_y);
 
     _QuantizeTensor_FT_B<<<
-        NUM_OF_BLOCK(NUM_OF_ELEMENT(value), NUM_OF_THREADS), 
+        NUM_OF_BLOCK(NUM_OF_ELEMENT(value), NUM_OF_THREADS),
         NUM_OF_THREADS, 0, at::cuda::getCurrentCUDAStream()>>>(
         NUM_OF_ELEMENT(value),
         PTR<float>(value),
@@ -229,7 +229,7 @@ void _QuantizeTensor_FC_B(
     const float*  scales,
     const float*  offsets,
     float*        grad_y,
-    const int     exponent, 
+    const int     exponent,
     const int     mantissa,
     const float   clip_min,
     const float   clip_max,
@@ -238,7 +238,7 @@ void _QuantizeTensor_FC_B(
     float *       grad_x
 ){
     int channel_idx = blockIdx.x;
-    float s = scales[channel_idx]; float inv_s = 1 / s; 
+    float s = scales[channel_idx]; float inv_s = 1 / s;
     float o = offsets[channel_idx];
     float _clip_min = s * (clip_min - o);
     float _clip_max = s * (clip_max - o);
@@ -284,7 +284,7 @@ void _QuantizeTensor_FC_B(
 
 
 __host__ std::vector<Tensor> QuantizeTensor_FC_B(
-    const Tensor &value, const Tensor &scales, const Tensor &offsets, 
+    const Tensor &value, const Tensor &scales, const Tensor &offsets,
     const Tensor &grad_y, const int exponent, const int mantissa,
     const float clip_min, const float clip_max,
     const Rounding rounding, const int channel_axis

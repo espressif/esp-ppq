@@ -69,3 +69,66 @@ include = ["esp_ppq"]
 
 [tool.hatch.build.targets.wheel]
 include = ["esp_ppq"]
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+fix = true
+target-version = "py311"
+extend-exclude = [
+  ".gitlab",
+  "esp_ppq/parser/espdl/FlatBuffers"
+]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "preserve"
+# Enable reformatting of code snippets in docstrings.
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "F", # pyflakes
+    "I", # isort
+    "B", # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+
+ignore = [
+    "B024", # `xxx` is an abstract base class, but it has no abstract methods or properties
+    "B028", # Warning without stacklevel
+    "B904", # use 'raise ... from err'
+    "B905", # use explicit 'strict=' parameter with 'zip()'
+    "N818", # Exception name should be named with an Error suffix
+    "C416", # I think comprehension is more clear https://docs.astral.sh/ruff/rules/unnecessary-comprehension/
+    "C408", # we have used lots of dict(...) instead of literal
+    "C419", # Unnecessary list comprehension
+    "B006", # Do not use mutable data structures for argument defaults
+    "B007", # Loop control variable not used within loop body
+    "B023", # Function definition does not bind loop variable
+    "E402", # Module level import not at top of file
+    "E501", # line too long, handled by black
+    "E711", # Comparison to `None` should be `cond is not None`
+    "E712", # Avoid equality comparisons to `True`
+    "E721", # Use `is` and `is not` for type comparisons, or `isinstance()` for isinstance checks
+    "E722", # Do not use bare `except`
+    "E731", # Do not assign a `lambda` expression, use a `def`
+    "F401", # `xxx` imported but unused
+    "F403", # `from xxx import *` used; unable to detect undefined names
+    "F405", # Var may be undefined, or defined from star imports
+    "F841", # Local variable `xxx` is assigned to but never used
+]
+
+[tool.ruff.lint.per-file-ignores]
+"esp_ppq/samples/TensorRT/trt_infer.py" = ["B018"]
+"esp_ppq/quantization/quantizer/base.py" = ["B008"]
+"esp_ppq/executor/op/torch/default.py" = ["C400"]
+"esp_ppq/IR/base/opdef.py" = ["F811"]
+"esp_ppq/samples/TensorRT/Example_Fp32.py" = ["F821"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["esp_ppq"]

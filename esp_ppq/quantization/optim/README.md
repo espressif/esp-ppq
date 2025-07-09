@@ -5,7 +5,7 @@
 我们提供两种不同的优化过程调用接口：
 
 1. PPQ 的 api 函数 quantize_onnx_model, quantize_torch_model 等，将根据输入的量化配置 (QuantizationSetting) 决定启动那些优化过程，同时传递相应的参数，用户可以检阅 ppq\api\setting.py 文件获取更多的信息。当使用 API 函数进行量化时，用户无法调用自定义的优化过程，只能使用系统预制的量化优化过程实现功能，当然它更加稳定。
-    
+
 2. (推荐)用户可以自行组织量化管线，自行选取需要使用的量化过程并在初始化时传入相应的参数，用户可以参考 ProgramEntrace_2.py 样例，手动创建符合自己需要的量化管线。需要注意：量化过程是彼此独立的，但调用时应当遵循固定的先后次序。如 QuantFusionPass 应当在 RuntimeCalibrationPass 之前完成调用。
 
 PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 QuantizationOptimizationPipeline。
@@ -60,7 +60,7 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
             # 1. realize __init__ function, name your optim pass
             def __init__(self) -> None:
                 super().__init__('My Optim Pass')
-            
+
             # 2. realize optimize function, do your work
             def optimize(self, graph: BaseGraph, **kwargs) -> None:
                 for op in graph.operations.values():
@@ -71,9 +71,9 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
 ### 4. 优化过程参数的传递
 
 用户可以使用两种方式向优化过程传递参数：
-    
+
 1. 在 __init__ 函数中定义参数，并在创建优化过程时传参
-    
+
 2. 在 optimize 函数中定义参数，并在调用优化过程时传参
 
 当用户使用 quantize_onnx_model, quantize_torch_model 函数对模型进行量化时，PPQ 会在 ppq\quantization\quantizer\base.py 文件中完成所有量化优化过程的创建，并赋予它们初始化的参数。而后 Quantizer 将创建量化管线并完成优化过程的调用，此时传入的参数如下：
@@ -98,7 +98,7 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
         # 1. realize __init__ function, name your optim pass
         def __init__(self) -> None:
             super().__init__('My Optim Pass')
-        
+
         # 2. realize optimize function, do your work
         def optimize(self, graph: BaseGraph, dataloader: Iterable, executor: TorchExecutor, **kwargs) -> None:
             for data in dataloader:
@@ -122,7 +122,7 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
         ParameterQuantizePass(),
         RuntimeCalibrationPass(),
         LearnedStepSizePass(
-            steps=1000, is_scale_trainable=False, 
+            steps=1000, is_scale_trainable=False,
             lr=1e-4, block_size=4, collecting_device='cuda'),
         ParameterBakingPass()
     ])
@@ -130,7 +130,7 @@ PPQ 优化过程由两个基类定义： QuantizationOptimizationPass 与 Quanti
     with ENABLE_CUDA_KERNEL():
         # 调用管线完成量化，下列参数将传递给每一个优化过程
         pipeline.optimize(
-            graph=graph, dataloader=dataset, verbose=True, 
+            graph=graph, dataloader=dataset, verbose=True,
             calib_steps=32, collate_fn=collate_fn, executor=executor)
 
 ### 5. 优化过程的调用顺序

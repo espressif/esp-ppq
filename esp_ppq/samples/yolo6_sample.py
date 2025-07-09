@@ -4,12 +4,16 @@ import esp_ppq.lib as PFL
 from esp_ppq import TargetPlatform, TorchExecutor, graphwise_error_analyse
 from esp_ppq.api import ENABLE_CUDA_KERNEL
 from esp_ppq.api.interface import load_onnx_graph
-from esp_ppq.core.quant import (QuantizationPolicy, QuantizationProperty,
-                            RoundingPolicy)
-from esp_ppq.quantization.optim import (LearnedStepSizePass, ParameterBakingPass,
-                                    ParameterQuantizePass, QuantAlignmentPass,
-                                    QuantizeFusionPass, QuantizeSimplifyPass,
-                                    RuntimeCalibrationPass)
+from esp_ppq.core.quant import QuantizationPolicy, QuantizationProperty, RoundingPolicy
+from esp_ppq.quantization.optim import (
+    LearnedStepSizePass,
+    ParameterBakingPass,
+    ParameterQuantizePass,
+    QuantAlignmentPass,
+    QuantizeFusionPass,
+    QuantizeSimplifyPass,
+    RuntimeCalibrationPass,
+)
 
 # ------------------------------------------------------------
 # 在这个例子中我们将向你展示如何使用 INT8 量化一个 Yolo v6 模型
@@ -25,7 +29,7 @@ dataset = [torch.rand(size=[1, 3, 640, 640]) for _ in range(64)]
 # 算法工程师、部署工程师、以及芯片研发人员使用的，它更为灵活。
 # 我们将手动使用 Quantizer 完成算子量化信息初始化, 并且手动完成模型的调度工作
 # ------------------------------------------------------------
-collate_fn  = lambda x: x.cuda()
+collate_fn = lambda x: x.cuda()
 
 # ------------------------------------------------------------
 # 在开始之前，我需要向你介绍量化器、量化信息以及调度表
@@ -36,14 +40,16 @@ collate_fn  = lambda x: x.cuda()
 from esp_ppq import TensorQuantizationConfig as TQC
 
 MyTQC = TQC(
-    policy = QuantizationPolicy(
-        QuantizationProperty.SYMMETRICAL + 
-        QuantizationProperty.LINEAR +
-        QuantizationProperty.PER_TENSOR),
+    policy=QuantizationPolicy(
+        QuantizationProperty.SYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
+    ),
     rounding=RoundingPolicy.ROUND_HALF_EVEN,
-    num_of_bits=8, quant_min=-128, quant_max=127, 
-    exponent_bits=0, channel_axis=None,
-    observer_algorithm='minmax'
+    num_of_bits=8,
+    quant_min=-128,
+    quant_max=127,
+    exponent_bits=0,
+    channel_axis=None,
+    observer_algorithm='minmax',
 )
 # ------------------------------------------------------------
 # 作为示例，我们创建了一个 "线性" "对称" "Tensorwise" 的量化信息
@@ -67,9 +73,9 @@ MyTQC = TQC(
 # 由它们所生成的量化信息是不同的，为此你可以访问它们的源代码
 # 位于 esp_ppq.quantization.quantizer 中，查看它们初始化量化信息的逻辑。
 # ------------------------------------------------------------
-_ = PFL.Quantizer(platform=TargetPlatform.TRT_FP8, graph=graph)          # 取得 TRT_FP8 所对应的量化器
-_ = PFL.Quantizer(platform=TargetPlatform.GRAPHCORE_FP8, graph=graph)    # 取得 GRAPHCORE_FP8 所对应的量化器
-quantizer = PFL.Quantizer(platform=TargetPlatform.TRT_INT8, graph=graph) # 取得 TRT_INT8 所对应的量化器
+_ = PFL.Quantizer(platform=TargetPlatform.TRT_FP8, graph=graph)  # 取得 TRT_FP8 所对应的量化器
+_ = PFL.Quantizer(platform=TargetPlatform.GRAPHCORE_FP8, graph=graph)  # 取得 GRAPHCORE_FP8 所对应的量化器
+quantizer = PFL.Quantizer(platform=TargetPlatform.TRT_INT8, graph=graph)  # 取得 TRT_INT8 所对应的量化器
 
 # ------------------------------------------------------------
 # 调度器是 PPQ 中另一核心类型，它负责切分计算图
@@ -78,21 +84,21 @@ quantizer = PFL.Quantizer(platform=TargetPlatform.TRT_INT8, graph=graph) # 取�
 # *** 量化器只为量化区的算子初始化量化信息 ***
 # 调度信息将被写在算子的属性中，你可以通过 op.platform 来访问每一个算子的调度信息
 # ------------------------------------------------------------
-dispatching = PFL.Dispatcher(graph=graph).dispatch(                       # 生成调度表
-    quant_types=quantizer.quant_operation_types)
+dispatching = PFL.Dispatcher(graph=graph).dispatch(  # 生成调度表
+    quant_types=quantizer.quant_operation_types
+)
 
 for op in graph.operations.values():
     # quantize_operation - 为算子初始化量化信息，platform 传递了算子的调度信息
     # 如果你的算子被调度到 TargetPlatform.FP32 上，则该算子不量化
     # 你可以手动修改调度信息
-    dispatching['Op1'] = TargetPlatform.FP32        # 将 Op1 强行送往非量化区
-    dispatching['Op2'] = TargetPlatform.UNSPECIFIED # 将 Op2 强行送往量化区
-    
+    dispatching['Op1'] = TargetPlatform.FP32  # 将 Op1 强行送往非量化区
+    dispatching['Op2'] = TargetPlatform.UNSPECIFIED  # 将 Op2 强行送往量化区
+
     # 你可能已经注意到了，我们并没有将 Op2 送往 TRT_INT8，而是将其送往 UNSPECIFIED 平台
     # 其含义是告诉量化器我们 "建议" 量化器对算子初始化量化信息，如果此时 Op2 不是量化器所支持的类型，则该算子仍然不会被量化
     # 但如果我们直接将 Op2 送往 TRT_INT8，不论如何该算子都将被量化
-    quantizer.quantize_operation(
-        op_name = op.name, platform = dispatching[op.name])
+    quantizer.quantize_operation(op_name=op.name, platform=dispatching[op.name])
 
 # ------------------------------------------------------------
 # 在创建量化管线之前，我们需要初始化执行器，它用于模拟硬件并执行你的网络
@@ -123,29 +129,26 @@ executor.load_graph(graph=graph)
 # 你可以组合它们从而实现自定义的功能，也可以继承 QuantizationOptimizationPass 基类
 # 从而创造出新的量化优化过程
 # ------------------------------------------------------------
-pipeline = PFL.Pipeline([
-    QuantizeSimplifyPass(),
-    QuantizeFusionPass(
-        activation_type=quantizer.activation_fusion_types),
-    ParameterQuantizePass(),
-    RuntimeCalibrationPass(),
-    QuantAlignmentPass(force_overlap=True),
-    LearnedStepSizePass(
-         steps=1000, is_scale_trainable=True, 
-        lr=1e-5, block_size=4, collecting_device='cuda'),
-    ParameterBakingPass()
-])
+pipeline = PFL.Pipeline(
+    [
+        QuantizeSimplifyPass(),
+        QuantizeFusionPass(activation_type=quantizer.activation_fusion_types),
+        ParameterQuantizePass(),
+        RuntimeCalibrationPass(),
+        QuantAlignmentPass(force_overlap=True),
+        LearnedStepSizePass(steps=1000, is_scale_trainable=True, lr=1e-5, block_size=4, collecting_device='cuda'),
+        ParameterBakingPass(),
+    ]
+)
 
 with ENABLE_CUDA_KERNEL():
     # 调用管线完成量化
     pipeline.optimize(
-        graph=graph, dataloader=dataset, verbose=True, 
-        calib_steps=32, collate_fn=collate_fn, executor=executor)
+        graph=graph, dataloader=dataset, verbose=True, calib_steps=32, collate_fn=collate_fn, executor=executor
+    )
 
     # 执行量化误差分析
-    graphwise_error_analyse(
-        graph=graph, running_device='cuda', 
-        dataloader=dataset, collate_fn=collate_fn)
+    graphwise_error_analyse(graph=graph, running_device='cuda', dataloader=dataset, collate_fn=collate_fn)
 
 # ------------------------------------------------------------
 # 在最后，我们导出计算图

@@ -10,23 +10,23 @@ import tensorrt as trt
 import torch
 import torchvision
 import torchvision.models
+import trt_infer
 from tqdm import tqdm
 
-import trt_infer
 from esp_ppq import *
 from esp_ppq.api import *
 
 # Nvidia Nsight Performance Profile
-QUANT_PLATFROM   = TargetPlatform.TRT_INT8
-BATCHSIZE        = 1
-SAMPLES          = [torch.zeros(size=[BATCHSIZE, 3, 640, 640]) for _ in range(32)]
-DEVICE           = 'cuda'
-MODEL_PATH       = 'models/yolov6s.onnx'
+QUANT_PLATFROM = TargetPlatform.TRT_INT8
+BATCHSIZE = 1
+SAMPLES = [torch.zeros(size=[BATCHSIZE, 3, 640, 640]) for _ in range(32)]
+DEVICE = 'cuda'
+MODEL_PATH = 'models/yolov6s.onnx'
 CFG_VALID_RESULT = False
 
+
 def infer_trt(model_path: str, samples: List[np.ndarray]) -> List[np.ndarray]:
-    """ Run a tensorrt model with given samples
-    """
+    """Run a tensorrt model with given samples"""
     logger = trt.Logger(trt.Logger.ERROR)
     with open(model_path, 'rb') as f, trt.Runtime(logger) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
@@ -38,8 +38,8 @@ def infer_trt(model_path: str, samples: List[np.ndarray]) -> List[np.ndarray]:
             for sample in tqdm(samples, desc='TensorRT is running...'):
                 inputs[0].host = convert_any_to_numpy(sample)
                 [output] = trt_infer.do_inference(
-                    context, bindings=bindings, inputs=inputs, 
-                    outputs=outputs, stream=stream, batch_size=1)[0]
+                    context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream, batch_size=1
+                )[0]
                 results.append(convert_any_to_torch_tensor(output).reshape([-1, 1000]))
     else:
         with engine.create_execution_context() as context:
@@ -47,35 +47,39 @@ def infer_trt(model_path: str, samples: List[np.ndarray]) -> List[np.ndarray]:
             inputs[0].host = convert_any_to_numpy(samples[0])
             for sample in tqdm(samples, desc='TensorRT is running...'):
                 trt_infer.do_inference(
-                    context, bindings=bindings, inputs=inputs, 
-                    outputs=outputs, stream=stream, batch_size=1)
+                    context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream, batch_size=1
+                )
     return results
+
 
 with ENABLE_CUDA_KERNEL():
     # export non-quantized model to tensorRT for benchmark
     non_quantized = quantize_onnx_model(
-        onnx_import_file=MODEL_PATH, calib_dataloader=SAMPLES, 
+        onnx_import_file=MODEL_PATH,
+        calib_dataloader=SAMPLES,
         collate_fn=lambda x: x.to(DEVICE),
-        calib_steps=32, input_shape=[BATCHSIZE, 3, 640, 640],
+        calib_steps=32,
+        input_shape=[BATCHSIZE, 3, 640, 640],
         setting=QuantizationSettingFactory.default_setting(),
         platform=QUANT_PLATFROM,
-        do_quantize=False)
+        do_quantize=False,
+    )
 
-    export_ppq_graph(
-        graph=non_quantized, 
-        platform=TargetPlatform.ONNX,
-        graph_save_to='model_fp32.onnx')
+    export_ppq_graph(graph=non_quantized, platform=TargetPlatform.ONNX, graph_save_to='model_fp32.onnx')
     builder = trt_infer.EngineBuilder()
     builder.create_network('model_fp32.onnx')
     builder.create_engine(engine_path='model_fp32.engine', precision="fp16")
 
     # quantize model with esp_ppq.
     quantized = quantize_onnx_model(
-        onnx_import_file=MODEL_PATH, calib_dataloader=SAMPLES, 
+        onnx_import_file=MODEL_PATH,
+        calib_dataloader=SAMPLES,
         collate_fn=lambda x: x.to(DEVICE),
-        calib_steps=32, input_shape=[BATCHSIZE, 3, 640, 640],
+        calib_steps=32,
+        input_shape=[BATCHSIZE, 3, 640, 640],
         setting=QuantizationSettingFactory.default_setting(),
-        platform=QUANT_PLATFROM)
+        platform=QUANT_PLATFROM,
+    )
 
     if CFG_VALID_RESULT:
         executor = TorchExecutor(graph=quantized)
@@ -86,16 +90,13 @@ with ENABLE_CUDA_KERNEL():
             ref_results.append(result)
 
     # export model to disk.
-    export_ppq_graph(
-        graph=quantized, 
-        platform=TargetPlatform.TRT_INT8,
-        graph_save_to='model_int8.onnx')
+    export_ppq_graph(graph=quantized, platform=TargetPlatform.TRT_INT8, graph_save_to='model_int8.onnx')
 
     if CFG_VALID_RESULT:
         # compute simulating error
         trt_outputs = infer_trt(
-            model_path='model_int8.engine', 
-            samples=[convert_any_to_numpy(sample) for sample in SAMPLES])
+            model_path='model_int8.engine', samples=[convert_any_to_numpy(sample) for sample in SAMPLES]
+        )
 
         error = []
         for ref, real in zip(ref_results, trt_outputs):
@@ -110,10 +111,10 @@ with ENABLE_CUDA_KERNEL():
     print(f'Start Benchmark with tensorRT (Batchsize = {BATCHSIZE})')
     tick = time.time()
     infer_trt(model_path='model_fp32.engine', samples=benchmark_samples)
-    tok  = time.time()
-    print(f'Time span (FP32 MODE): {tok - tick : .4f} sec')
+    tok = time.time()
+    print(f'Time span (FP32 MODE): {tok - tick: .4f} sec')
 
     tick = time.time()
     infer_trt(model_path='model_int8.engine', samples=benchmark_samples)
-    tok  = time.time()
-    print(f'Time span (INT8 MODE): {tok - tick  : .4f} sec')
+    tok = time.time()
+    print(f'Time span (INT8 MODE): {tok - tick: .4f} sec')

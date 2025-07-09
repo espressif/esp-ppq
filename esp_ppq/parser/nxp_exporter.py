@@ -1,11 +1,12 @@
 import onnx
 from onnx import helper, numpy_helper
+
 from esp_ppq.core import NetworkFramework, QuantizationStates, convert_any_to_numpy
-from esp_ppq.IR import (BaseGraph, GraphExporter, Operation, QuantableVariable,
-                    Variable)
+from esp_ppq.IR import BaseGraph, GraphExporter, Operation, QuantableVariable, Variable
 
 MIN_SUFFIX = '_min'
 MAX_SUFFIX = '_max'
+
 
 class NxpExporter(GraphExporter):
     def __init__(self) -> None:
@@ -17,7 +18,8 @@ class NxpExporter(GraphExporter):
             inputs=[_.name for _ in operation.inputs],
             outputs=[_.name for _ in operation.outputs],
             name=operation.name,
-            **operation.attributes)
+            **operation.attributes,
+        )
         return op_proto
 
     def export_var(self, variable: Variable) -> onnx.TensorProto:
@@ -26,20 +28,20 @@ class NxpExporter(GraphExporter):
                 name=variable.name,
                 # PPQ data type has exact same eunm value with onnx.
                 elem_type=variable.dtype.value,
-                shape=variable.shape)
+                shape=variable.shape,
+            )
         else:
             value = convert_any_to_numpy(variable.value)
-            if value is None: value = []
-            else: value = value.flatten()
+            if value is None:
+                value = []
+            else:
+                value = value.flatten()
             tensor_proto = helper.make_tensor(
-                name=variable.name, data_type=variable.dtype.value,
-                dims=variable.shape,
-                vals=value
+                name=variable.name, data_type=variable.dtype.value, dims=variable.shape, vals=value
             )
         return tensor_proto
 
-    def export(self, file_path: str, graph: BaseGraph,
-        config_path: str = None, export_param: bool = False):
+    def export(self, file_path: str, graph: BaseGraph, config_path: str = None, export_param: bool = False):
         onnx_graph = onnx.GraphProto()
         onnx_graph.name = graph._name
 
@@ -60,22 +62,27 @@ class NxpExporter(GraphExporter):
 
             if isinstance(variable, QuantableVariable):
                 configs = variable.dest_op_configs + [variable.source_op_config]
-                if variable.is_parameter and not export_param: continue
+                if variable.is_parameter and not export_param:
+                    continue
                 for config in configs:
-                    if config is None: continue # source_op can be None
+                    if config is None:
+                        continue  # source_op can be None
                     if config.can_export():
-
                         tensor_range = config.scale * pow(2, config.num_of_bits - 1)
                         min_val, max_val = -tensor_range, tensor_range - config.scale
                         min_tensor = numpy_helper.from_array(
-                            convert_any_to_numpy(min_val).astype('float32'), variable.name + MIN_SUFFIX)
+                            convert_any_to_numpy(min_val).astype('float32'), variable.name + MIN_SUFFIX
+                        )
                         min_info = helper.make_tensor_value_info(
-                            variable.name + MIN_SUFFIX, min_tensor.data_type, min_tensor.dims)
+                            variable.name + MIN_SUFFIX, min_tensor.data_type, min_tensor.dims
+                        )
 
                         max_tensor = numpy_helper.from_array(
-                            convert_any_to_numpy(max_val).astype('float32'), variable.name + MAX_SUFFIX)
+                            convert_any_to_numpy(max_val).astype('float32'), variable.name + MAX_SUFFIX
+                        )
                         max_info = helper.make_tensor_value_info(
-                            variable.name + MAX_SUFFIX, max_tensor.data_type, max_tensor.dims)
+                            variable.name + MAX_SUFFIX, max_tensor.data_type, max_tensor.dims
+                        )
 
                         onnx_graph.initializer.append(min_tensor)
                         onnx_graph.initializer.append(max_tensor)

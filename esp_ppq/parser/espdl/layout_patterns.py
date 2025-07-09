@@ -1,6 +1,8 @@
 from typing import List
-import torch
+
 import numpy as np
+import torch
+
 from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
@@ -8,6 +10,14 @@ from esp_ppq.core import (
 from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.log import NaiveLogger
+from esp_ppq.parser.espdl.espdl_graph_utils import (
+    fuse_downstream_operation,
+    get_default_perm,
+    get_inverse_transpose,
+    insert_transpose_node,
+    restore_origin_shape,
+    transpose_shape,
+)
 from esp_ppq.parser.espdl.espdl_typedef import (
     ADD_LIKE_OP_SET,
     CONV_LAYOUT_OP_SET,
@@ -15,14 +25,6 @@ from esp_ppq.parser.espdl.espdl_typedef import (
     PASSIVE_LAYOUT_OP_SET,
     SOFTMAX_LIKE_OP_SET,
     ExporterPatternInfo,
-)
-from esp_ppq.parser.espdl.espdl_graph_utils import(
-    transpose_shape,
-    get_inverse_transpose,
-    get_default_perm,
-    insert_transpose_node,
-    restore_origin_shape,
-    fuse_downstream_operation,
 )
 
 logger = NaiveLogger.get_logger('ESPDL')
@@ -141,6 +143,7 @@ class BypassAddLikePattern(OperationExporter):
 
         return op
 
+
 class BypassSoftmaxLayoutPattern(OperationExporter):
     """
     Softmax pattern with one input and one output and axis attribute
@@ -160,7 +163,7 @@ class BypassSoftmaxLayoutPattern(OperationExporter):
             else:
                 var_perm = get_default_perm(input)
                 info.add_var_permute(input.name, var_perm)
-            
+
             # use input perm
             for output in op.outputs:
                 info.add_var_permute(output.name, var_perm)
@@ -213,9 +216,9 @@ class ResetResizePattern(OperationExporter):
             input_var = op.inputs[0]
             input_shape_orig = input_var.shape
             perm = None
-            if len(input_shape_orig) == 4:      # 2d, NCHW -> NHWC
+            if len(input_shape_orig) == 4:  # 2d, NCHW -> NHWC
                 perm = [0, 2, 3, 1]
-            elif len(input_shape_orig) == 3:    # 1d, NCW -> NWC
+            elif len(input_shape_orig) == 3:  # 1d, NCW -> NWC
                 perm = [0, 2, 1]
             else:
                 logger.error(f"Reize: do not support shape for {input_shape_orig}")
@@ -247,7 +250,7 @@ class ResetResizePattern(OperationExporter):
             else:
                 sizes_var = None
 
-            if (scales_var is None and sizes_var is None):
+            if scales_var is None and sizes_var is None:
                 raise ValueError("scales_var is None and sizes_var is None.")
 
             rank = len(input_shape_orig)
@@ -286,7 +289,7 @@ class ResetResizePattern(OperationExporter):
                 axes = list(range(rank))
 
             # Adjust scales and sizes according to keep_aspect_ratio_policy.
-            # This attribute describes how to interpret the sizes input with regard to keeping the original 
+            # This attribute describes how to interpret the sizes input with regard to keeping the original
             # aspect ratio of the input, and it is not applicable when the scales input is used.
             keep_aspect_ratio_policy = op.attributes.get("keep_aspect_ratio_policy", None)
             if sizes_var is not None:
@@ -297,9 +300,7 @@ class ResetResizePattern(OperationExporter):
                     elif keep_aspect_ratio_policy == "not_smaller":
                         scale = np.array(scale_factors)[axes].max()
                     else:
-                        raise ValueError(
-                            f"Invalid keep_aspect_ratio_policy={keep_aspect_ratio_policy!r}"
-                        )
+                        raise ValueError(f"Invalid keep_aspect_ratio_policy={keep_aspect_ratio_policy!r}")
 
                     scale_factors = [scale if i in axes else 1.0 for i in range(rank)]
 
@@ -343,9 +344,6 @@ class ResetResizePattern(OperationExporter):
         return op
 
 
-
-
-
 class FuseTransposePattern(OperationExporter):
     """
     Fuse Transpose Pattern
@@ -374,9 +372,7 @@ class FuseTransposePattern(OperationExporter):
                             downstream_config.output_quantization_config,
                         )
                         op.config = new_config
-                    graph = fuse_downstream_operation(
-                        graph, downstream_transpose_op, keep_coherence=True
-                    )
+                    graph = fuse_downstream_operation(graph, downstream_transpose_op, keep_coherence=True)
                     op.attributes["perm"] = perm
                 else:
                     break
@@ -387,28 +383,30 @@ class FuseTransposePattern(OperationExporter):
                 graph.remove_operation(op, keep_coherence=True)
         return op
 
+
 def print_vars(op: Operation):
     logger.info(f"Op: {op.name}, {op.type}, {op.attributes}")
     for var in op.inputs:
         print("inputs:", var.name, var.shape)
     for var in op.outputs:
         print("outputs:", var.name, var.shape)
-    
+
+
 def reset_graph_layout(graph: BaseGraph):
     """
     Reset layout from NCHW -> NHWC
     """
 
     layout_patterns = [
-        [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern], 
+        [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern],
         [PASSIVE_LAYOUT_OP_SET, BypassPassiveLayoutPattern],
         [ADD_LIKE_OP_SET, BypassAddLikePattern],
         [SOFTMAX_LIKE_OP_SET, BypassSoftmaxLayoutPattern],
         [["Concat"], ResetConcatPattern],
         [["Resize"], ResetResizePattern],
-        [OTHER_OP_SET, RestoreOriginLayoutPattern]
+        [OTHER_OP_SET, RestoreOriginLayoutPattern],
     ]
-        
+
     for op in graph.topological_sort():
         flag = 1
         for pattern in layout_patterns:
@@ -418,7 +416,7 @@ def reset_graph_layout(graph: BaseGraph):
                 break
         if flag:
             logger.error(f"Can not reset {op.type}:{op.name} layout")
-    
+
     # fuse transpose op
     pattern = FuseTransposePattern()
     for op in graph.topological_sort():

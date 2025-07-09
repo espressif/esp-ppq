@@ -14,14 +14,12 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-
-ONNX_PATH        = 'models/yolov5s.v5.onnx'       # 你的模型位置
-ENGINE_PATH      = 'Output/yolov5s.v5(trt).engine' # 生成的 Engine 位置
-CALIBRATION_PATH = 'imgs'                         # 校准数据集
+ONNX_PATH = 'models/yolov5s.v5.onnx'  # 你的模型位置
+ENGINE_PATH = 'Output/yolov5s.v5(trt).engine'  # 生成的 Engine 位置
+CALIBRATION_PATH = 'imgs'  # 校准数据集
 
 
 class EntropyCalibrator(trt.IInt8MinMaxCalibrator):
-
     def __init__(self, files_path=r'imgs'):
         trt.IInt8MinMaxCalibrator.__init__(self)
 
@@ -31,27 +29,27 @@ class EntropyCalibrator(trt.IInt8MinMaxCalibrator):
         self.Channel = 3
         self.Height = 640
         self.Width = 640
-        self.transform = transforms.Compose([
-            transforms.Resize([self.Height, self.Width]),  # [h,w]
-            transforms.ToTensor(),
-        ])
+        self.transform = transforms.Compose(
+            [
+                transforms.Resize([self.Height, self.Width]),  # [h,w]
+                transforms.ToTensor(),
+            ]
+        )
 
         self.imgs = glob.glob(os.path.join(files_path, '*'))
         self.batch_idx = 0
-        self.max_batch_idx = len(self.imgs)//self.batch_size
-        self.data_size = trt.volume([self.batch_size, self.Channel,self.Height, self.Width]) * trt.float32.itemsize
+        self.max_batch_idx = len(self.imgs) // self.batch_size
+        self.data_size = trt.volume([self.batch_size, self.Channel, self.Height, self.Width]) * trt.float32.itemsize
         self.device_input = cuda.mem_alloc(self.data_size)
 
     def next_batch(self):
         if self.batch_idx < self.max_batch_idx:
-            batch_files = self.imgs[self.batch_idx * self.batch_size:\
-                                    (self.batch_idx + 1) * self.batch_size]
-            batch_imgs = np.zeros((self.batch_size, self.Channel, self.Height, self.Width),
-                                  dtype=np.float32)
+            batch_files = self.imgs[self.batch_idx * self.batch_size : (self.batch_idx + 1) * self.batch_size]
+            batch_imgs = np.zeros((self.batch_size, self.Channel, self.Height, self.Width), dtype=np.float32)
             for i, f in enumerate(batch_files):
                 img = Image.open(f).convert('RGB')
                 img = self.transform(img).numpy()
-                assert (img.nbytes == self.data_size/self.batch_size), 'not valid img!'+f
+                assert img.nbytes == self.data_size / self.batch_size, 'not valid img!' + f
                 batch_imgs[i] = img
             self.batch_idx += 1
             print("batch:[{}/{}]".format(self.batch_idx, self.max_batch_idx))
@@ -65,7 +63,7 @@ class EntropyCalibrator(trt.IInt8MinMaxCalibrator):
     def get_batch(self, names, p_str=None):
         try:
             batch_imgs = self.next_batch()
-            if batch_imgs.size == 0 or batch_imgs.size != self.batch_size*self.Channel*self.Height*self.Width:
+            if batch_imgs.size == 0 or batch_imgs.size != self.batch_size * self.Channel * self.Height * self.Width:
                 return None
             cuda.memcpy_htod(self.device_input, batch_imgs.astype(np.float32))
             return [int(self.device_input)]
@@ -87,8 +85,7 @@ class EntropyCalibrator(trt.IInt8MinMaxCalibrator):
 device = torch.device('cuda')
 logger = trt.Logger(trt.Logger.ERROR)
 builder = trt.Builder(logger)
-EXPLICIT_BATCH = 1 << (int)(
-    trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 network = builder.create_network(EXPLICIT_BATCH)
 parser = trt.OnnxParser(network, logger)
 

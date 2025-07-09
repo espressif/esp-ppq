@@ -3,10 +3,11 @@ from numpy import dot, ndarray
 from numpy.linalg import norm
 
 
-def torch_cosine_similarity(y_pred: torch.Tensor, y_real: torch.Tensor, reduction: str='mean') -> torch.Tensor:
+def torch_cosine_similarity(y_pred: torch.Tensor, y_real: torch.Tensor, reduction: str = 'mean') -> torch.Tensor:
     if y_pred.shape != y_real.shape:
-        raise ValueError(f'Can not compute mse loss for tensors with different shape. '
-            f'({y_pred.shape} and {y_real.shape})')
+        raise ValueError(
+            f'Can not compute mse loss for tensors with different shape. ({y_pred.shape} and {y_real.shape})'
+        )
     reduction = str(reduction).lower()
 
     if y_pred.ndim == 1:
@@ -25,14 +26,14 @@ def torch_cosine_similarity(y_pred: torch.Tensor, y_real: torch.Tensor, reductio
     elif reduction == 'none':
         return cosine_sim
     else:
-        raise ValueError(f'Unsupported reduction method.')
+        raise ValueError('Unsupported reduction method.')
 
 
-def numpy_cosine_similarity(
-    x: ndarray, y: ndarray) -> ndarray:
+def numpy_cosine_similarity(x: ndarray, y: ndarray) -> ndarray:
     return dot(x, y) / (norm(x) * norm(y))
 
 
 def torch_cosine_similarity_as_loss(
-    y_pred: torch.Tensor, y_real: torch.Tensor, reduction: str='mean') -> torch.Tensor:
+    y_pred: torch.Tensor, y_real: torch.Tensor, reduction: str = 'mean'
+) -> torch.Tensor:
     return 1 - torch_cosine_similarity(y_pred=y_pred, y_real=y_real, reduction=reduction)

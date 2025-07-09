@@ -6,7 +6,7 @@ Learned Step Size optimization, a training-based optimization pass that tunes we
 [This method is proposed by Steven K. Esser] (https://arxiv.org/pdf/1902.08153.pdf)
 
 This is an alternative version of LSQ, this pass will split your graph into multiple trainable blocks, each blocks will be trained separately.
-Warning: PPQ Learned Step Size minimize only the output loss of each block, which means after training the internal results probably goes far away from original. 
+Warning: PPQ Learned Step Size minimize only the output loss of each block, which means after training the internal results probably goes far away from original.
 
 PPQ Learned Step Size optimization requires 256 ~ 2048 samples for finetuning your network, while the data label is not necessary. All training data are cache in GPU memory or CPU memory for acceleration.
 
@@ -46,7 +46,7 @@ The formula of calculating the derivatives of y and scale_Y:
 
 * block_size(int)
 
-        PPQ Learned Step Size optimization split your graph into blocks at first, 
+        PPQ Learned Step Size optimization split your graph into blocks at first,
         each block will be finetuned separately.
 
         A large block size will greatly reduce running time of this optimization,
@@ -86,7 +86,7 @@ The formula of calculating the derivatives of y and scale_Y:
 
         A function that used to measure the loss after optimization.
 
-        LSQ is a training-based pass, 
+        LSQ is a training-based pass,
         we will check the loss at the end of block optimization.
 
         If the result goes worsen, optimized weights and scales will be drop.
@@ -104,7 +104,7 @@ This pass is inclueded in PPQ Quantization Setting, you can calling this optimiz
     # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)
 
 You can manually create this optimization by:

@@ -7,9 +7,10 @@ from tqdm import tqdm
 if ov.get_version() < '2022.1.0':
     raise Exception('Please Install Openvino >= 2022.1.0')
 
+
 def Benchmark(ir_or_onnx_file: str, samples: int = 500, jobs: int = 4) -> float:
-    """ Run Performance Benckmark with given onnx model. (Or Openvino IR)
-    
+    """Run Performance Benckmark with given onnx model. (Or Openvino IR)
+
     By default this function will run with Async Mode.
     """
     # https://docs.openvino.ai/latest/api/ie_python_api/_autosummary/openvino.runtime.InferRequest.html
@@ -19,7 +20,9 @@ def Benchmark(ir_or_onnx_file: str, samples: int = 500, jobs: int = 4) -> float:
     compiled_model = core.compile_model(model, 'CPU')
 
     infer_request = compiled_model.create_infer_request()
-    print(f'Openvino Model Loaded: {len(infer_request.input_tensors)} Input Tensors, {len(infer_request.output_tensors)} Output Tensors')
+    print(
+        f'Openvino Model Loaded: {len(infer_request.input_tensors)} Input Tensors, {len(infer_request.output_tensors)} Output Tensors'
+    )
 
     feed_dict = []
     for tensor in infer_request.input_tensors:
@@ -40,8 +43,8 @@ def Benchmark(ir_or_onnx_file: str, samples: int = 500, jobs: int = 4) -> float:
     # Wait for all requests to complete
     infer_queue.wait_all()
     tok = time()
-    
-    print(f'Time span: {tok - tick  : .4f} sec')
+
+    print(f'Time span: {tok - tick: .4f} sec')
     return tick - tok
 
     """

@@ -158,7 +158,7 @@ and then we need to collect and manage resources
     for (uint32_t i = 0; i < engines.size(); ++i) {
         engine_ptrs[i] = engines[i].get();
     }
-    
+
     // manage engine resources
     onnx::RuntimeBuilder::Resources resources;
     resources.engines = engine_ptrs.data();
@@ -177,7 +177,7 @@ finally, we are able to create PPL runtime instance, send preprocessed input and
     cv::resize(src_img, src_img, cv::Size(224,224));
     vector<float> in_data_(src_img.rows * src_img.cols * src_img.channels());
     preprocess(src_img, in_data_.data());
-    
+
     //create ppl runtime
     unique_ptr<Runtime> runtime;
     runtime.reset(builder->CreateRuntime());
@@ -194,7 +194,7 @@ finally, we are able to create PPL runtime instance, send preprocessed input and
     src_desc.SetDataFormat(DATAFORMAT_NDARRAY);
 
     input_tensor->ConvertFromHost(in_data_.data(), src_desc);
-    
+
     // run inference
     runtime->Run();
 }
@@ -213,7 +213,7 @@ to obtain the output result and see top-5 predictions
     dst_desc.SetDataType(DATATYPE_FLOAT32);
     dst_desc.SetDataFormat(DATAFORMAT_NDARRAY);
     output_tensor->ConvertToHost(output_data, dst_desc);
-    
+
     // sort and print out top-5 prediction
     vector<pair<float, uint64_t>> arr;
     for(uint64_t i = 0; i < output_size; i++)
@@ -225,7 +225,7 @@ to obtain the output result and see top-5 predictions
         return p1.first > p2.first;
     };
     sort(arr.begin(), arr.end(), cmp);
-    
+
     for(uint64_t i = 0; i < 5; i++)
     {
         fprintf(stderr, "%ld %f\n", arr[i].second, arr[i].first);

@@ -2,20 +2,35 @@ from abc import abstractmethod
 from collections import deque
 from typing import Any, Dict, List, Text, Union
 
-import torch
 import numpy as np
-from esp_ppq.core import (LINEAR_ACTIVATIONS, DataType, NetworkFramework,
-                      Serializable, SingletonMeta, TargetPlatform, TensorMeta,
-                      convert_any_to_torch_tensor, ppq_warning)
+import torch
 
-from .opdef import (DEFAULT_SOCKET_CREATOR, DEFAULT_SOCKET_TABLE,
-                    OperationBase, Opset, OpSocket)
+from esp_ppq.core import (
+    LINEAR_ACTIVATIONS,
+    DataType,
+    NetworkFramework,
+    Serializable,
+    SingletonMeta,
+    TargetPlatform,
+    TensorMeta,
+    convert_any_to_torch_tensor,
+    ppq_warning,
+)
+
+from .opdef import DEFAULT_SOCKET_CREATOR, DEFAULT_SOCKET_TABLE, OperationBase, Opset, OpSocket
 
 
 class Variable(Serializable):
-    def __init__(self, name: str, value: Any = None, is_parameter: bool = False,
-                 dest_ops: List[OperationBase] = None, source_op: OperationBase = None,
-                 shape: List[int] = None, dtype: DataType= DataType.FP32) -> None:
+    def __init__(
+        self,
+        name: str,
+        value: Any = None,
+        is_parameter: bool = False,
+        dest_ops: List[OperationBase] = None,
+        source_op: OperationBase = None,
+        shape: List[int] = None,
+        dtype: DataType = DataType.FP32,
+    ) -> None:
         super().__init__()
         self._name = name
         self._value = None if value is None else value
@@ -25,52 +40,53 @@ class Variable(Serializable):
         self.shape = shape
         self.dtype = dtype
 
-    @ property
+    @property
     def is_parameter(self) -> bool:
         return self._is_parameter
 
-    @ is_parameter.setter
+    @is_parameter.setter
     def is_parameter(self, value: bool):
         self._is_parameter = value
 
-    @ property
+    @property
     def name(self) -> str:
         return self._name
 
-    @ property
+    @property
     def value(self) -> torch.Tensor:
         return self._value
 
-    @ value.setter
+    @value.setter
     def value(self, value):
         self._value = value
 
-    @ property
+    @property
     def dest_ops(self) -> List[OperationBase]:
         return self._dest_ops
 
-    @ property
+    @property
     def source_op(self) -> OperationBase:
         return self._source_op
 
-    @ source_op.setter
+    @source_op.setter
     def source_op(self, source_op: OperationBase) -> OperationBase:
         self._source_op = source_op
 
-    @ property
+    @property
     def dest_idx(self) -> List[int]:
         _dest_idx = []
         for op in self.dest_ops:
             _dest_idx.append(op.inputs.index(self))
         return _dest_idx
 
-    @ property
+    @property
     def src_idx(self) -> int:
         if self.source_op is not None:
             return self.source_op.outputs.index(self)
-        else: return None
+        else:
+            return None
 
-    @ property
+    @property
     def meta(self) -> TensorMeta:
         raise Exception('PPQ Variable.meta has been removed since 0.6.6, use Variable.shape, Variable.dtype instead.')
 
@@ -91,17 +107,18 @@ class Variable(Serializable):
         state['_source_op'] = self.source_op.name if self.source_op is not None else None
         return state
 
-    @ property
+    @property
     def shape(self) -> List[Union[Text, int, None]]:
         """Return tensor shape of this variable It is modifiable when current
         variable is not a paramter."""
         if self.value is not None:
             if isinstance(self.value, torch.Tensor):
                 return list(self.value.shape)
-            else: return self._shape
+            else:
+                return self._shape
         return self._shape
 
-    @ shape.setter
+    @shape.setter
     def shape(self, shape: List[Union[Text, int, None]]):
         if isinstance(shape, torch.Tensor):
             shape = shape.tolist()
@@ -110,11 +127,12 @@ class Variable(Serializable):
         if isinstance(shape, list):
             for element in shape:
                 if type(element) not in {str, int}:
-                    raise TypeError(f'Shape of a variable should only contains int or str. '
-                                    f'however {type(element)} was given.')
+                    raise TypeError(
+                        f'Shape of a variable should only contains int or str. however {type(element)} was given.'
+                    )
         self._shape = shape
 
-    @ property
+    @property
     def dtype(self) -> DataType:
         """Return tensor shape of this variable It is modifiable when current
         variable is not a paramter."""
@@ -125,7 +143,7 @@ class Variable(Serializable):
                 return DataType.convert_from_numpy(self.value.dtype)
         return self._dtype
 
-    @ dtype.setter
+    @dtype.setter
     def dtype(self, T: DataType):
         if isinstance(T, np.dtype):
             self._dtype = DataType.convert_from_numpy(T)
@@ -139,59 +157,66 @@ class Variable(Serializable):
     def copy(self, copy_value: bool = False):
         if not copy_value or self.value is None:
             cloned = Variable(
-                name=self.name, value=self.value,
-                is_parameter=self.is_parameter, shape=self.shape, dtype=self.dtype)
+                name=self.name, value=self.value, is_parameter=self.is_parameter, shape=self.shape, dtype=self.dtype
+            )
             return cloned
 
         if not isinstance(self.value, torch.Tensor):
-            ppq_warning(f'You are requiring to copy variable {self.name}, '
-                        'however its value is not an instance of torch.Tensor, '
-                        'ppq will automaticall convert it to torch.Tensor now.')
+            ppq_warning(
+                f'You are requiring to copy variable {self.name}, '
+                'however its value is not an instance of torch.Tensor, '
+                'ppq will automaticall convert it to torch.Tensor now.'
+            )
             self.value = convert_any_to_torch_tensor(self.value)
         if isinstance(self.value, torch.Tensor):
             value = self.value.clone()
-        return Variable(name=self.name, value=value,
-                        is_parameter=self.is_parameter, shape=self.shape, dtype=self.dtype)
+        return Variable(name=self.name, value=value, is_parameter=self.is_parameter, shape=self.shape, dtype=self.dtype)
 
 
 class Operation(OperationBase, Serializable):
     def __init__(
-        self, name: str, op_type: str,
-        attributes: Dict[str, Any], platform: TargetPlatform = TargetPlatform.UNSPECIFIED,
-        inputs: List[Variable] = None, outputs: List[Variable] = None, opset: Opset = None) -> None:
+        self,
+        name: str,
+        op_type: str,
+        attributes: Dict[str, Any],
+        platform: TargetPlatform = TargetPlatform.UNSPECIFIED,
+        inputs: List[Variable] = None,
+        outputs: List[Variable] = None,
+        opset: Opset = None,
+    ) -> None:
         OperationBase.__init__(self, name, op_type, attributes, platform=platform, opset=opset)
         Serializable.__init__(self)
-        self._input_vars    = [] if inputs is None else inputs
-        self._output_vars   = [] if outputs is None else outputs
+        self._input_vars = [] if inputs is None else inputs
+        self._output_vars = [] if outputs is None else outputs
 
-    @ property
+    @property
     def socket(self) -> OpSocket:
         if self.type in DEFAULT_SOCKET_TABLE:
             return DEFAULT_SOCKET_TABLE[self.type](self)
         else:
             return DEFAULT_SOCKET_CREATOR(self)
 
-    @ property
+    @property
     def inputs(self) -> List[Variable]:
         return self._input_vars
 
-    @ property
+    @property
     def outputs(self) -> List[Variable]:
         return self._output_vars
 
-    @ property
+    @property
     def parameters(self) -> List[Variable]:
         return [var for var in self.inputs if var.is_parameter]
 
-    @ property
+    @property
     def is_linear_activation(self) -> bool:
         return self.type in LINEAR_ACTIVATIONS
 
-    @ property
+    @property
     def num_of_parameter(self) -> int:
         return len([var for var in self.inputs if var.is_parameter])
 
-    @ property
+    @property
     def is_boundary(self) -> bool:
         up_ops, down_ops = [], []
         for var in self.inputs:
@@ -204,10 +229,14 @@ class Operation(OperationBase, Serializable):
         return self._name.__hash__()
 
     def __str__(self) -> str:
-        return f'{self._name}(Type: {self.type}, Num of Input: {self.num_of_input}, Num of Output: {self.num_of_output})'
+        return (
+            f'{self._name}(Type: {self.type}, Num of Input: {self.num_of_input}, Num of Output: {self.num_of_output})'
+        )
 
     def __repr__(self) -> str:
-        return f'{self._name}(Type: {self.type}, Num of Input: {self.num_of_input}, Num of Output: {self.num_of_output})'
+        return (
+            f'{self._name}(Type: {self.type}, Num of Input: {self.num_of_input}, Num of Output: {self.num_of_output})'
+        )
 
     def __getstate__(self) -> dict:
         state = super().__getstate__()
@@ -221,7 +250,8 @@ class Operation(OperationBase, Serializable):
             op_type=self.type,
             attributes=self.attributes.copy(),
             platform=self.platform,
-            opset=self.opset)
+            opset=self.opset,
+        )
         clone._detail = self._detail.copy()
         return clone
 
@@ -246,32 +276,32 @@ class BaseGraph(Serializable):
     Args:
         Serializable ([type]): [description]
     """
+
     def __init__(self, name: str, built_from: NetworkFramework = NetworkFramework.NATIVE) -> None:
         super().__init__()
-        self._operations    = {}
-        self._variables     = {}
-        self._graph_inputs  = {}
+        self._operations = {}
+        self._variables = {}
+        self._graph_inputs = {}
         self._graph_outputs = {}
         self._name = name
         self._built_from = built_from
-        self._detail        = {}
+        self._detail = {}
         self._num_of_generated_var = 0
-        self._num_of_generated_op  = 0
+        self._num_of_generated_op = 0
 
-
-    @ property
+    @property
     def operations(self) -> Dict[str, Operation]:
         return self._operations
 
-    @ property
+    @property
     def variables(self) -> Dict[str, Variable]:
         return self._variables
 
-    @ property
+    @property
     def inputs(self) -> Dict[str, Variable]:
         return self._graph_inputs
 
-    @ property
+    @property
     def outputs(self) -> Dict[str, Variable]:
         return self._graph_outputs
 
@@ -285,7 +315,7 @@ class BaseGraph(Serializable):
     def set_extension_attrib(self, attrib: str, value: Any):
         self._detail[attrib] = value
 
-    @ property
+    @property
     def extension_attrib(self):
         return self._detail
 
@@ -293,8 +323,10 @@ class BaseGraph(Serializable):
         if not isinstance(operation, Operation):
             raise TypeError(f'You can only insert operations via this function, however {type(operation)} was given.')
         if not all([var.name in self.variables for var in operation.inputs + operation.outputs]):
-            raise KeyError(f'Inserting Operation {operation} has a related variable '\
-                'which are not included in this graph yet, insert such variables before inserting this.')
+            raise KeyError(
+                f'Inserting Operation {operation} has a related variable '
+                'which are not included in this graph yet, insert such variables before inserting this.'
+            )
         if operation.name in self.operations:
             raise KeyError(f'Duplicated Operation({operation}) was found, rename your Operation before inserting.')
         self.operations[operation.name] = operation
@@ -303,8 +335,10 @@ class BaseGraph(Serializable):
         if not isinstance(var, Variable):
             raise TypeError(f'You can only insert variable via this function, however {type(var)} was given.')
         if not all([dest_op.name in self.operations for dest_op in var.dest_ops]):
-            raise KeyError(f'Inserting Variable {var} has a related Operation(dest_op) '\
-                'which are not included in this graph yet, insert such Operations before inserting this.')
+            raise KeyError(
+                f'Inserting Variable {var} has a related Operation(dest_op) '
+                'which are not included in this graph yet, insert such Operations before inserting this.'
+            )
         if var.name in self.variables:
             raise KeyError(f'Duplicated Variable({var}) was found, rename your Variable before inserting.')
         self.variables[var.name] = var
@@ -334,16 +368,18 @@ class BaseGraph(Serializable):
         visited = {operation.name: False for operation in self.operations.values()}
         sort_ret, pop_list = [], deque()
         num_of_inputs = {
-            operation.name: len(self.get_upstream_operations(operation))
-            for operation in self.operations.values()}
+            operation.name: len(self.get_upstream_operations(operation)) for operation in self.operations.values()
+        }
 
         # initialization
         for op_name, n_input in num_of_inputs.items():
-            if n_input == 0: pop_list.append(op_name)
+            if n_input == 0:
+                pop_list.append(op_name)
 
         # topological sort
         for _ in range(len(visited)):
-            if len(pop_list) == 0: break
+            if len(pop_list) == 0:
+                break
             op_name = pop_list.popleft()
             op = self.operations[op_name]
             for post_op in self.get_downstream_operations(op):
@@ -356,8 +392,8 @@ class BaseGraph(Serializable):
             return sort_ret
         else:
             raise RuntimeError(
-                'Topological Sort failed. Some operation can not be sorted (might due to circular reference).\n' +
-                ''.join(op_name + '\n' for op_name in visited if visited[op_name] == False)
+                'Topological Sort failed. Some operation can not be sorted (might due to circular reference).\n'
+                + ''.join(op_name + '\n' for op_name in visited if visited[op_name] == False)
             )
 
     def insert_op_on_var(self, inserting_op: Operation, var: str):
@@ -392,8 +428,8 @@ class BaseGraph(Serializable):
 
         # create all links.
         link_var = self.create_variable(
-            name=None, value=None, is_parameter=False,
-            dest_ops=variable.dest_ops.copy(), source_op=inserting_op)
+            name=None, value=None, is_parameter=False, dest_ops=variable.dest_ops.copy(), source_op=inserting_op
+        )
 
         inserting_op.inputs.append(variable)
         inserting_op.outputs.append(link_var)
@@ -475,8 +511,10 @@ class BaseGraph(Serializable):
         if down_op.name not in self.operations:
             raise KeyError(f'Can not inserting operation behind {down_op.name}, operation not found.')
         if down_op.name not in [op.name for op in up_var.dest_ops]:
-            raise PermissionError(f'variable {up_var.name} and {down_op.name} are not linked,'
-                                  ' there is no way to insert an op between them.')
+            raise PermissionError(
+                f'variable {up_var.name} and {down_op.name} are not linked,'
+                ' there is no way to insert an op between them.'
+            )
         if len(inserting_op.inputs) != 0 or len(inserting_op.outputs) != 0:
             raise PermissionError('Can only insert operation with no input and output variables.')
 
@@ -484,8 +522,9 @@ class BaseGraph(Serializable):
         for var in down_op.inputs:
             if var == up_var:
                 variables.append(var)
-        assert len(variables) == 1, (f'Can not insert operation between {var.name} and {down_op.name},'
-                                     ' graph is too complex.')
+        assert len(variables) == 1, (
+            f'Can not insert operation between {var.name} and {down_op.name}, graph is too complex.'
+        )
 
         # add to graph.
         if inserting_op.name not in self.operations.keys():
@@ -493,8 +532,8 @@ class BaseGraph(Serializable):
 
         # create all links.
         link_var = self.create_variable(
-            name=None, value=None, is_parameter=False,
-            dest_ops=[down_op], source_op=inserting_op)
+            name=None, value=None, is_parameter=False, dest_ops=[down_op], source_op=inserting_op
+        )
 
         inserting_op.inputs.append(up_var)
         inserting_op.outputs.append(link_var)
@@ -536,23 +575,26 @@ class BaseGraph(Serializable):
         if B is not None and B.name not in self.operations:
             raise KeyError(f'Can not find your operation {B.name} in current graph.')
 
-        if variable.source_op is None: variable.source_op = A
+        if variable.source_op is None:
+            variable.source_op = A
         if variable.source_op != A:
-            raise PermissionError(f'Can not create link with variable {variable}, '
-                                  f'cause its source operations != {A}')
+            raise PermissionError(f'Can not create link with variable {variable}, cause its source operations != {A}')
 
         # For complex graph, following logic might have some error.
         if A is not None and variable not in A.outputs:
             A.outputs.append(variable)
-        if B is None: return
+        if B is None:
+            return
         if B is not None and variable not in B.inputs:
             variable.dest_ops.append(B)
             B.inputs.append(variable)
         else:
             variable.dest_ops.append(B)
             B.inputs.append(variable)
-            ppq_warning(f'You are trying to link variable with operation, '
-                          f'however Variable {variable.name} has already linked with downstream op {B.name}')
+            ppq_warning(
+                f'You are trying to link variable with operation, '
+                f'however Variable {variable.name} has already linked with downstream op {B.name}'
+            )
 
     def create_link_with_var(self, A: Variable, B: Variable):
         """connect upstream_variable.source_op with
@@ -573,7 +615,8 @@ class BaseGraph(Serializable):
         if B.source_op is not None:
             raise PermissionError(
                 f'Can not create link with variable {A.name} & {B.name}, '
-                'Cause downstream variable has a non-empty source op')
+                'Cause downstream variable has a non-empty source op'
+            )
 
         dest_ops = B.dest_ops
         for dest_op in dest_ops:
@@ -583,9 +626,9 @@ class BaseGraph(Serializable):
         self.remove_variable(B)
         return self
 
-    def remove_operation(self, removing_op: Operation,
-                         keep_coherence: bool = False,
-                         remove_unlinked_variable: bool = False):
+    def remove_operation(
+        self, removing_op: Operation, keep_coherence: bool = False, remove_unlinked_variable: bool = False
+    ):
         """Remove operation from graph, this function will unlink removing
         operation from current graph, pop it from graph.operations, and remove
         it from all its input and output variables.
@@ -604,11 +647,11 @@ class BaseGraph(Serializable):
 
         # removing all parameters first.
         for parameter in removing_op.inputs.copy():
-            if keep_coherence and removing_op.type in {'Constant', 'Identity'}: break
+            if keep_coherence and removing_op.type in {'Constant', 'Identity'}:
+                break
             if parameter.is_parameter:
-
                 parameter.dest_ops.clear()
-                parameter.value = None # clear memory.
+                parameter.value = None  # clear memory.
                 removing_op.inputs.remove(parameter)
 
                 self.variables.pop(parameter.name)
@@ -616,7 +659,8 @@ class BaseGraph(Serializable):
         related_vars = [var for var in removing_op.inputs + removing_op.outputs]
         input_var, output_var = (
             removing_op.inputs[0] if removing_op.num_of_input >= 1 else None,
-            removing_op.outputs[0] if removing_op.num_of_output >= 1 else None)
+            removing_op.outputs[0] if removing_op.num_of_output >= 1 else None,
+        )
 
         # remove operation from its output variables
         for _output_var in removing_op.outputs:
@@ -629,12 +673,9 @@ class BaseGraph(Serializable):
                 _input_var.dest_ops.remove(removing_op)
         removing_op.inputs.clear()
 
-        if (input_var is not None and
-            output_var is not None and
-            keep_coherence):
-
+        if input_var is not None and output_var is not None and keep_coherence:
             removing_var = output_var
-            dest_ops     = removing_var.dest_ops
+            dest_ops = removing_var.dest_ops
             is_graph_output = removing_var.name in self.outputs
 
             for op in dest_ops:
@@ -671,7 +712,8 @@ class BaseGraph(Serializable):
         source_op = removing_var.source_op
         if source_op is not None:
             assert isinstance(source_op, Operation), (
-                f'Can not remove variable {removing_var.name}, it links to a unexpected source operation.')
+                f'Can not remove variable {removing_var.name}, it links to a unexpected source operation.'
+            )
             if removing_var in source_op.outputs:
                 source_op.outputs.remove(removing_var)
             removing_var.source_op = None
@@ -679,7 +721,8 @@ class BaseGraph(Serializable):
         # remove from all dest ops
         for dest_op in removing_var.dest_ops:
             assert isinstance(dest_op, Operation), (
-                f'Can not remove variable {removing_var.name}, it links to a unexpected dest operation.')
+                f'Can not remove variable {removing_var.name}, it links to a unexpected dest operation.'
+            )
             if removing_var in dest_op.inputs:
                 dest_op.inputs.remove(removing_var)
         removing_var.dest_ops.clear()
@@ -693,9 +736,16 @@ class BaseGraph(Serializable):
         self.variables.pop(removing_var.name)
         return self
 
-    def create_operation(self, op_type: str,  name: str = None,
-        attributes: Dict[str, Any] = None, platform: TargetPlatform = TargetPlatform.UNSPECIFIED,
-        inputs: List[Variable] = None, outputs: List[Variable] = None, **kwargs) -> Operation:
+    def create_operation(
+        self,
+        op_type: str,
+        name: str = None,
+        attributes: Dict[str, Any] = None,
+        platform: TargetPlatform = TargetPlatform.UNSPECIFIED,
+        inputs: List[Variable] = None,
+        outputs: List[Variable] = None,
+        **kwargs,
+    ) -> Operation:
         """Create an operation and attach it it current graph. op_type is
         mandatory here, however op_name is not required. PPQ will automatically
         generates a name for your operation:
@@ -720,46 +770,57 @@ class BaseGraph(Serializable):
         Returns:
             Operation: _description_
         """
-        if inputs is None:  inputs = []
-        if outputs is None: outputs = []
+        if inputs is None:
+            inputs = []
+        if outputs is None:
+            outputs = []
 
         if name is None:
             name = f'PPQ_Operation_{self._num_of_generated_op}'
             self._num_of_generated_op += 1
 
         if not isinstance(inputs, list):
-            raise TypeError(f'A list of input variable is required for creating operation, '
-                            f'however {type(inputs)} was given')
+            raise TypeError(
+                f'A list of input variable is required for creating operation, however {type(inputs)} was given'
+            )
 
-        if attributes is None: attributes = {}
+        if attributes is None:
+            attributes = {}
         created = Operation(
-            name=name,
-            op_type=op_type,
-            attributes=attributes,
-            platform=platform,
-            inputs=inputs,
-            outputs=outputs
+            name=name, op_type=op_type, attributes=attributes, platform=platform, inputs=inputs, outputs=outputs
         )
         self.append_operation(created)
 
         for item in inputs:
             if not isinstance(item, Variable):
-                raise TypeError(f'A list contains variables is required for creating operation, '
-                                f'however there is a {type(item)} in your input list.')
+                raise TypeError(
+                    f'A list contains variables is required for creating operation, '
+                    f'however there is a {type(item)} in your input list.'
+                )
             item.dest_ops.append(created)
 
         if not isinstance(outputs, list):
-            raise TypeError(f'A list of output variable is required for creating operation, '
-                            f'however {type(inputs)} was given')
+            raise TypeError(
+                f'A list of output variable is required for creating operation, however {type(inputs)} was given'
+            )
         for item in outputs:
             if not isinstance(item, Variable):
-                raise TypeError(f'A list contains variables is required for creating operation, '
-                                f'however there is a {type(item)} in your output list.')
+                raise TypeError(
+                    f'A list contains variables is required for creating operation, '
+                    f'however there is a {type(item)} in your output list.'
+                )
             item.source_op = created
         return created
 
-    def create_variable(self, name: str = None, value: Any = None, is_parameter: bool = False,
-        dest_ops: List[OperationBase] = None, source_op: OperationBase = None, **kwargs) -> Variable:
+    def create_variable(
+        self,
+        name: str = None,
+        value: Any = None,
+        is_parameter: bool = False,
+        dest_ops: List[OperationBase] = None,
+        source_op: OperationBase = None,
+        **kwargs,
+    ) -> Variable:
         """Create a variable and attach it it current graph. PPQ will
         automatically generates a name for your variable:
         PPQ_Variable_{self._num_of_generated_op}.
@@ -784,16 +845,13 @@ class BaseGraph(Serializable):
             name = f'PPQ_Variable_{self._num_of_generated_var}'
             self._num_of_generated_var += 1
 
-        created = Variable(
-            name=name,
-            value=value,
-            is_parameter=is_parameter,
-            dest_ops=dest_ops,
-            source_op=source_op)
+        created = Variable(name=name, value=value, is_parameter=is_parameter, dest_ops=dest_ops, source_op=source_op)
 
         if dest_ops is not None:
             if not isinstance(dest_ops, list):
-                raise TypeError(f'Parameter dest ops should be a list of Operation, however {type(dest_ops)} was given.')
+                raise TypeError(
+                    f'Parameter dest ops should be a list of Operation, however {type(dest_ops)} was given.'
+                )
             for op in dest_ops:
                 if not isinstance(op, Operation):
                     raise TypeError(f'Parameter dest ops should be a list of Operation, however {type(op)} was given.')
@@ -813,7 +871,8 @@ class BaseGraph(Serializable):
         var_name = var.name
         if var_name not in self.variables:
             raise KeyError(f'Can not find variable {var_name} within current graph.')
-        if var_name in self.inputs: return
+        if var_name in self.inputs:
+            return
         if var_name in self.outputs:
             raise KeyError(f'Can not mark variable {var_name} as graph input, cause it is graph output.')
         self.inputs[var_name] = self.variables[var_name]
@@ -824,7 +883,8 @@ class BaseGraph(Serializable):
         var_name = var.name
         if var_name not in self.variables:
             raise KeyError(f'Can not find variable {var_name} within current graph.')
-        if var_name in self.outputs: return
+        if var_name in self.outputs:
+            return
         self.outputs[var_name] = self.variables[var_name]
 
     def __getstate__(self) -> dict:
@@ -854,26 +914,29 @@ class BaseGraph(Serializable):
         It is not shared between the first and therefore the copy.
         """
         from esp_ppq.IR.quantize import QuantableOperation
+
         cloned = BaseGraph(name=self._name, built_from=self._built_from)
-        for op in self.operations.values(): cloned.append_operation(op.copy())
-        for var in self.variables.values(): cloned.append_variable(var.copy(copy_value=copy_value))
+        for op in self.operations.values():
+            cloned.append_operation(op.copy())
+        for var in self.variables.values():
+            cloned.append_variable(var.copy(copy_value=copy_value))
 
         # notice that all operations is copyed without link, so do all variables
         # relink them with following code
         config_dict = {}
         for op in self.operations.values():
-            assert op.name in cloned.operations, (
-                f'Graph Copy Error, Operation {op.name} is not correctly cloned')
+            assert op.name in cloned.operations, f'Graph Copy Error, Operation {op.name} is not correctly cloned'
             c_op = cloned.operations[op.name]
             for i_var in op.inputs:
                 assert i_var.name in cloned.variables, (
-                    f'Graph Copy Error, Variable {i_var.name} is not correctly cloned')
+                    f'Graph Copy Error, Variable {i_var.name} is not correctly cloned'
+                )
                 ci_var = cloned.variables[i_var.name]
-                cloned.create_link_with_op(
-                    variable=ci_var, A=ci_var.source_op, B=c_op)
+                cloned.create_link_with_op(variable=ci_var, A=ci_var.source_op, B=c_op)
             for o_var in op.outputs:
                 assert o_var.name in cloned.variables, (
-                    f'Graph Copy Error, Variable {o_var.name} is not correctly cloned')
+                    f'Graph Copy Error, Variable {o_var.name} is not correctly cloned'
+                )
                 co_var = cloned.variables[o_var.name]
                 c_op.outputs.append(co_var)
                 co_var.source_op = c_op
@@ -887,14 +950,15 @@ class BaseGraph(Serializable):
                 for cfg, var in c_op.config_with_variable:
                     if cfg.dominated_by != cfg:
                         assert cfg.dominated_by._hash in config_dict, (
-                            'Graph Copy Error, can not find a corresponding master config.')
+                            'Graph Copy Error, can not find a corresponding master config.'
+                        )
                         op, var = config_dict[cfg.dominated_by._hash]
 
                         op = cloned.operations[op.name]
-                        assert isinstance(op, QuantableOperation), (
-                            'Graph Copy Error, Unexpected Master Operation Type.')
+                        assert isinstance(op, QuantableOperation), 'Graph Copy Error, Unexpected Master Operation Type.'
                         for mcfg, mvar in op.config_with_variable:
-                            if mvar.name == var.name: cfg._dominator = mcfg
+                            if mvar.name == var.name:
+                                cfg._dominator = mcfg
 
         # recreate input, output
         for name in self.inputs:
@@ -915,22 +979,25 @@ class BaseGraph(Serializable):
         for name in self.outputs:
             if name not in cloned.outputs:
                 raise KeyError(f'Graph Copy Error, Output {var.name} is Missing')
-        cloned._num_of_generated_op  = self._num_of_generated_op
+        cloned._num_of_generated_op = self._num_of_generated_op
         cloned._num_of_generated_var = self._num_of_generated_var
         cloned._detail = self._detail.copy()
         return cloned
 
 
 class GraphBuilder(metaclass=SingletonMeta):
-    @ abstractmethod
-    def build(self, file_path: str, **kwargs) -> BaseGraph: pass
+    @abstractmethod
+    def build(self, file_path: str, **kwargs) -> BaseGraph:
+        pass
 
 
 class GraphExporter(metaclass=SingletonMeta):
-    @ abstractmethod
-    def export(self, file_path: str, graph: BaseGraph, config_path: str = None, **kwargs): pass
+    @abstractmethod
+    def export(self, file_path: str, graph: BaseGraph, config_path: str = None, **kwargs):
+        pass
 
 
 class OperationExporter(metaclass=SingletonMeta):
-    @ abstractmethod
-    def export(self, operation:Operation, graph: BaseGraph, **kwargs) -> Operation: pass
+    @abstractmethod
+    def export(self, operation: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        pass

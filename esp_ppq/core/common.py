@@ -11,7 +11,7 @@ sys.setrecursionlimit(MAX_RECURSION_DEPTH)
 OBSERVER_MIN_SCALE = 1e-8
 # Observer 中，最小 scale 的手动覆盖属性
 OBSERVER_MIN_SCALE_MANUL_OVERRIDE = 'OBSERVER_MIN_SCALE_MANUL_OVERRIDE'
-# 当出现 scale < min_scale 的情况时，是否给出警报 
+# 当出现 scale < min_scale 的情况时，是否给出警报
 OBSERVER_WARNING = False
 # Observer 中 kl 散度的计算设备
 OBSERVER_KL_COMPUTING_DEVICE = 'cpu'
@@ -52,9 +52,22 @@ FORMATTER_FUSE_SWISH = True
 # PASSIVE OPERATIONS 是那些不参与计算的 Op, 这些 op 的输入与输出将直接共享 scale
 # 同时这些 op 前后的定点过程将被直接停用
 PASSIVE_OPERATIONS = {
-    'MaxPool', 'GlobalMaxPool', 'Reshape', 'Flatten', 'Identity', 'Dropout',
-    'Slice', 'Pad', 'Split', 'Transpose', 'Interp', 'Squeeze', 'Unsqueeze',
-    'Gather', 'ReverseSequence'}
+    'MaxPool',
+    'GlobalMaxPool',
+    'Reshape',
+    'Flatten',
+    'Identity',
+    'Dropout',
+    'Slice',
+    'Pad',
+    'Split',
+    'Transpose',
+    'Interp',
+    'Squeeze',
+    'Unsqueeze',
+    'Gather',
+    'ReverseSequence',
+}
 # COPUTING OP 是所有计算层，该属性被用于联合定点和子图切分
 COMPUTING_OP = {'Conv', 'Gemm', 'ConvTranspose', 'MatMul', 'Attention', 'PPQBiasFusedMatMul', 'LSTM'}
 # SOI OP 是所有产生 SOI 输出的节点类型，该属性被用于子图切分
@@ -62,10 +75,11 @@ SOI_OP = {'TopK', 'Shape', 'NonMaxSuppression'}
 
 # 强制联合定点的算子种类
 TYPES_FOR_ALIGNMENT = {
-    'Elementwise': {'Add', 'Sub', 'Sum'}, 
-    'Concat': {'Concat'}, 
+    'Elementwise': {'Add', 'Sub', 'Sum'},
+    'Concat': {'Concat'},
     'Pooling': {'AveragePool', 'GlobalAveragePool'},
-    'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'}}
+    'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'},
+}
 # 强制联合定点手动覆盖
 ALIGNMENT_MANUL_OVERRIDE = 'ALIGNMENT_MANUL_OVERRIDE'
 
@@ -87,7 +101,7 @@ ONNX_VERSION = 6
 
 ONNX_DOMAIN = 'ai.onnx'
 CAFFE_DOMAIN = 'esp_ppq.caffe'
-DEFAULT_OPSET_DOMAIN  = 'ai.onnx'
+DEFAULT_OPSET_DOMAIN = 'ai.onnx'
 DEFAULT_OPSET_VERSION = 11
 STRICT_OPSET_CHECKING = False
 LATEST_OPSET_VERSION = 23
@@ -95,7 +109,7 @@ LATEST_OPSET_VERSION = 23
 # LSTM 算子的权重缓存属性
 LSTM_FLATTEN_WEIGHT_ATTRIB = 'LSTM_FLATTEN_WEIGHT_ATTRIB'
 # GRU 算子的权重缓存属性
-GRU_FLATTEN_WEIGHT_ATTRIB  = 'GRU_FLATTEN_WEIGHT_ATTRIB'
+GRU_FLATTEN_WEIGHT_ATTRIB = 'GRU_FLATTEN_WEIGHT_ATTRIB'
 # 一个属性标记计算图是否已经被调度
 IS_DISPATCHED_GRAPH = 'IS_DISPATCHED_GRAPH'
 # 图上用于表示 Opset 的属性
@@ -109,7 +123,7 @@ ORT_OOS_FUSE_START_OPS = {'Conv', 'GlobalAveragePool', 'AveragePool', 'Add', 'Mu
 # LINEAR ACTIVATIONS 是所有线性激活层，PPQ 将执行计算层与线性激活层的联合定点，不论后端是否真的做了图融合。
 # 事实上就算后端不融合这些层，执行联合定点也是有益无害的。
 LINEAR_ACTIVATIONS = {'Relu', 'Clip'}
-COMPELING_OP_TYPES = {'Add',' Sub', 'Concat'}
+COMPELING_OP_TYPES = {'Add', ' Sub', 'Concat'}
 
 # 误差容忍度
 CHECKPOINT_TOLERANCE = 1

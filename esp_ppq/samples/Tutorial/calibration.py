@@ -2,9 +2,9 @@ from typing import Iterable
 
 import torch
 import torchvision
+
 from esp_ppq import TargetPlatform, graphwise_error_analyse
-from esp_ppq.api.interface import (ENABLE_CUDA_KERNEL, dump_torch_to_onnx,
-                               load_onnx_graph, quantize_native_model)
+from esp_ppq.api.interface import ENABLE_CUDA_KERNEL, dump_torch_to_onnx, load_onnx_graph, quantize_native_model
 from esp_ppq.api.setting import QuantizationSettingFactory
 
 # ------------------------------------------------------------
@@ -12,10 +12,11 @@ from esp_ppq.api.setting import QuantizationSettingFactory
 # 这个脚本将以随机数据和 mobilenet v2 网络为例向你展示它们的使用方法
 # ------------------------------------------------------------
 
-BATCHSIZE   = 32
+BATCHSIZE = 32
 INPUT_SHAPE = [BATCHSIZE, 3, 224, 224]
-DEVICE      = 'cuda'
-PLATFORM    = TargetPlatform.TRT_INT8
+DEVICE = 'cuda'
+PLATFORM = TargetPlatform.TRT_INT8
+
 
 def load_calibration_dataset() -> Iterable:
     # ------------------------------------------------------------
@@ -24,10 +25,14 @@ def load_calibration_dataset() -> Iterable:
     # 你应当保证校准数据是经过正确预处理的、有代表性的数据，否则量化将会失败；校准数据不需要标签；数据集不能乱序
     # ------------------------------------------------------------
     return [torch.rand(size=INPUT_SHAPE) for _ in range(32)]
+
+
 CALIBRATION = load_calibration_dataset()
+
 
 def collate_fn(batch: torch.Tensor) -> torch.Tensor:
     return batch.to(DEVICE)
+
 
 # ------------------------------------------------------------
 # 我们使用 mobilenet v2 作为一个样例模型
@@ -44,7 +49,7 @@ model = model.to(DEVICE)
 # ------------------------------------------------------------
 QSetting = QuantizationSettingFactory.default_setting()
 QSetting.quantize_activation_setting.calib_algorithm = 'kl'
-QSetting.quantize_parameter_setting.calib_algorithm  = 'minmax'
+QSetting.quantize_parameter_setting.calib_algorithm = 'minmax'
 # ------------------------------------------------------------
 # 更进一步地，当你选择了某种校准方法，你可以进入 esp_ppq.core.common
 # OBSERVER_KL_HIST_BINS, OBSERVER_PERCENTILE, OBSERVER_MSE_HIST_BINS 皆是与校准方法相关的可调整参数
@@ -60,14 +65,20 @@ QSetting.quantize_parameter_setting.calib_algorithm  = 'minmax'
 # 这将显著降低 PPQ 的运算速度；但即使你无法编译这些算子，你仍然可以使用 pytorch 的 gpu 算子完成量化
 # ------------------------------------------------------------
 with ENABLE_CUDA_KERNEL():
-    dump_torch_to_onnx(model=model, onnx_export_file='Output/model.onnx', 
-                       input_shape=INPUT_SHAPE, input_dtype=torch.float32)
+    dump_torch_to_onnx(
+        model=model, onnx_export_file='Output/model.onnx', input_shape=INPUT_SHAPE, input_dtype=torch.float32
+    )
     graph = load_onnx_graph(onnx_import_file='Output/model.onnx')
     quantized = quantize_native_model(
-        model=graph, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        collate_fn=collate_fn, platform=PLATFORM,
-        device=DEVICE, verbose=0)
+        model=graph,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        device=DEVICE,
+        verbose=0,
+    )
 
     # ------------------------------------------------------------
     # graphwise_error_analyse 是最常用的分析方法，它分析网络中的量化误差情况，它的结果将直接打印在屏幕上
@@ -78,5 +89,5 @@ with ENABLE_CUDA_KERNEL():
     # 你可以使用该方法对比不同校准方法对量化结果所产生的影响
     # ------------------------------------------------------------
     reports = graphwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION
+    )

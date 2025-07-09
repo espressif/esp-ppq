@@ -77,7 +77,6 @@ OTHER_OP_SET = {
     "Min",
     "ScatterElements",
     "ScatterND",
-    "Slice",
     "TopK",
     "Where",
     "GRU",
@@ -129,24 +128,18 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
         self.var_config = {}
         self.luts = {}
 
-    def get_var_exponents(
-        self, var_name: str, default: List[int] = None
-    ) -> Union[int, List[int]]:
+    def get_var_exponents(self, var_name: str, default: List[int] = None) -> Union[int, List[int]]:
         return self.var_exponents.get(var_name, default)
 
-    def get_var_layout(
-        self, var_name: str, default: LayoutAnnotation = None
-    ) -> LayoutAnnotation:
+    def get_var_layout(self, var_name: str, default: LayoutAnnotation = None) -> LayoutAnnotation:
         return self.var_layout.get(var_name, default)
 
     def get_var_permute(self, var_name: str, default: List[int] = None) -> List[int]:
         return self.var_permute.get(var_name, default)
 
-    def get_var_config(
-        self, var_name: str, default: OperationQuantizationConfig = None
-    ) -> OperationQuantizationConfig:
+    def get_var_config(self, var_name: str, default: OperationQuantizationConfig = None) -> OperationQuantizationConfig:
         return self.var_config.get(var_name, default)
-    
+
     def get_lut(self, lut_name: str, default: torch.Tensor = None) -> torch.Tensor:
         return self.luts.get(lut_name, default)
 
@@ -163,7 +156,7 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
 
     def add_var_config(self, var_name: str, config: OperationQuantizationConfig):
         self.var_config[var_name] = config
-    
+
     def add_lut(self, lut_name: str, lut: torch.Tensor, exponent: Union[int, List[int]]):
         self.luts[lut_name] = lut
         self.var_exponents[lut_name] = exponent

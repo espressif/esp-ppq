@@ -25,10 +25,10 @@ from .espdl.export_patterns import (
     AddLUTPattern,
     FuseReluLikePattern,
     InsertDequantNodePattern,
+    InsertPreNodeOfMatMulPattern,
     InsertQuantNodePattern,
     InsertQuantTypePattern,
     InsertRequantNodePattern,
-    InsertPreNodeOfMatMulPattern,
     QuantVariableToIntPattern,
     ResetParamLayoutPattern,
 )
@@ -133,7 +133,11 @@ class EspdlExporter(GraphExporter):
             self.export_quantization_config(config_path, graph)
 
         model = self.export_graph(
-            graph=graph, model_version=model_version, values_for_test=values_for_test, metadata_props=metadata_props, **kwargs
+            graph=graph,
+            model_version=model_version,
+            values_for_test=values_for_test,
+            metadata_props=metadata_props,
+            **kwargs,
         )
 
         # Export the information of quantized espdl model.
@@ -187,9 +191,9 @@ class EspdlExporter(GraphExporter):
         for op in [_ for _ in graph.topological_sort()]:
             if op.type in OP_CONVERTERS:
                 exporter = OP_CONVERTERS[op.type]()
-                assert isinstance(
-                    exporter, OperationExporter
-                ), f"Expected an OpExporter here, however {type(exporter)} was given."
+                assert isinstance(exporter, OperationExporter), (
+                    f"Expected an OpExporter here, however {type(exporter)} was given."
+                )
                 op = exporter.export(op=op, graph=graph)
 
         for pattern in exporter_patterns.get("pre_patterns", {}):
@@ -219,9 +223,7 @@ class EspdlExporter(GraphExporter):
             exponents = info.get_var_exponents(variable.name)
             layout = info.get_var_layout(variable.name)
             if exponents and perm:
-                logger.debug(
-                    f"{variable.name} perm: {perm}, exponents: {exponents}, layout:{layout}"
-                )
+                logger.debug(f"{variable.name} perm: {perm}, exponents: {exponents}, layout:{layout}")
             elif not perm:
                 logger.warning(f"{variable.name} does not bind perm parameter")
             elif not exponents:
@@ -234,9 +236,11 @@ class EspdlExporter(GraphExporter):
                 output_exponent = info.get_var_exponents(op.outputs[0].name)
                 # By default, it is per-tensor. Currently, esp-dl does not support per-channel.
                 if (output_exponent[0] - input0_exponent[0] - input1_exponent[0]) < 0:
-                    logger.error(f"When deploying with esp-dl, the calculation result of the {op.name}(type: {op.type}) "
-                                 "operator will cause an exception. Please adjust the model to ensure "
-                                 "that (output_exponent - input0_exponent - input1_exponent) >= 0.")
+                    logger.error(
+                        f"When deploying with esp-dl, the calculation result of the {op.name}(type: {op.type}) "
+                        "operator will cause an exception. Please adjust the model to ensure "
+                        "that (output_exponent - input0_exponent - input1_exponent) >= 0."
+                    )
 
         return graph
 
@@ -285,9 +289,7 @@ class EspdlExporter(GraphExporter):
             else:
                 _value_info.append(tensor_proto)
 
-        test_inputs_value, test_outputs_value = self.build_test_value_proto(
-            values_for_test
-        )
+        test_inputs_value, test_outputs_value = self.build_test_value_proto(values_for_test)
 
         graph_def = helper.make_graph(
             name=name,
@@ -312,9 +314,7 @@ class EspdlExporter(GraphExporter):
 
         return espdl_model
 
-    def build_lut_proto(
-        self, graph: BaseGraph, info: ExporterPatternInfo
-    ) -> List[int]:
+    def build_lut_proto(self, graph: BaseGraph, info: ExporterPatternInfo) -> List[int]:
         """
         Convert torch.Tensor to flatbuffer.Tensor and add them to graph.
         """
@@ -359,20 +359,14 @@ class EspdlExporter(GraphExporter):
                 quant_values_for_test["outputs"] = {}
 
             for var_name in values_for_test.get("inputs", {}):
-                tensor = quantize_and_transpose(
-                    var_name, values_for_test["inputs"][var_name], pattern_info
-                )
+                tensor = quantize_and_transpose(var_name, values_for_test["inputs"][var_name], pattern_info)
                 quant_values_for_test["inputs"][var_name] = tensor
 
             for var_name in values_for_test.get("outputs", {}):
-                tensor = quantize_and_transpose(
-                    var_name, values_for_test["outputs"][var_name], pattern_info
-                )
+                tensor = quantize_and_transpose(var_name, values_for_test["outputs"][var_name], pattern_info)
                 quant_values_for_test["outputs"][var_name] = tensor
 
-        return helper.make_graph_test_value(
-            quant_values_for_test, pattern_info.var_exponents
-        )
+        return helper.make_graph_test_value(quant_values_for_test, pattern_info.var_exponents)
 
     def build_operator_proto(self, operation: Operation) -> int:
         """
@@ -388,9 +382,7 @@ class EspdlExporter(GraphExporter):
                 if value.numel() == 0:
                     attributes[key] = None
                 elif value.numel() == 1:
-                    attributes[key] = convert_any_to_numpy(
-                        [value.item()]
-                    )  # convert to 1d array
+                    attributes[key] = convert_any_to_numpy([value.item()])  # convert to 1d array
                 else:
                     attributes[key] = convert_any_to_numpy(value)
 
@@ -471,7 +463,7 @@ class EspdlExporter(GraphExporter):
                 vals=value,
                 raw=is_raw_format,
                 exponents=var_exponents,
-                doc_string="layout ==> " + layout
+                doc_string="layout ==> " + layout,
             )
         return tensor_proto
 
@@ -522,19 +514,11 @@ class EspdlExporter(GraphExporter):
             if op.type == "ReduceSum" or op.type == "Squeeze" or op.type == "Unsqueeze":
                 if "axes" not in op.attributes:
                     continue  # is already v13
-                axes = convert_any_to_torch_tensor(
-                    op.attributes.pop("axes"), dtype=torch.int64
-                )
-                graph.create_variable(
-                    name=None, value=axes, is_parameter=True, dest_ops=[op]
-                )
+                axes = convert_any_to_torch_tensor(op.attributes.pop("axes"), dtype=torch.int64)
+                graph.create_variable(name=None, value=axes, is_parameter=True, dest_ops=[op])
 
             elif op.type == "Split":
                 if "split" not in op.attributes:
                     continue  # split is already v13
-                split = convert_any_to_torch_tensor(
-                    op.attributes.pop("split"), dtype=torch.int64
-                )
-                graph.create_variable(
-                    name=None, value=split, is_parameter=True, dest_ops=[op]
-                )
+                split = convert_any_to_torch_tensor(op.attributes.pop("split"), dtype=torch.int64)
+                graph.create_variable(name=None, value=split, is_parameter=True, dest_ops=[op])

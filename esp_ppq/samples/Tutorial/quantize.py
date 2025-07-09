@@ -2,19 +2,18 @@ from typing import Iterable, Tuple
 
 import torch
 
-from esp_ppq import (BaseGraph, QuantizationSettingFactory, TargetPlatform,
-                 convert_any_to_numpy, torch_snr_error)
-from esp_ppq.api import (dispatch_graph, export_ppq_graph, load_onnx_graph,
-                     quantize_onnx_model)
+from esp_ppq import BaseGraph, QuantizationSettingFactory, TargetPlatform, convert_any_to_numpy, torch_snr_error
+from esp_ppq.api import dispatch_graph, export_ppq_graph, load_onnx_graph, quantize_onnx_model
 from esp_ppq.core.data import convert_any_to_torch_tensor
 from esp_ppq.executor.torch import TorchExecutor
 from esp_ppq.quantization.analyse.graphwise import graphwise_error_analyse
 
-INPUT_SHAPES     = {'input.1': [1, 3, 224, 224]}
-DEVICE           = 'cuda'
-QUANT_PLATFORM   = TargetPlatform.TRT_INT8
-ONNX_PATH        = 'model.onnx'
+INPUT_SHAPES = {'input.1': [1, 3, 224, 224]}
+DEVICE = 'cuda'
+QUANT_PLATFORM = TargetPlatform.TRT_INT8
+ONNX_PATH = 'model.onnx'
 ONNX_OUTPUT_PATH = 'Output/model.onnx'
+
 
 # ------------------------------------------------------------
 # 在这个例子中我们将向你展示如何量化一个 onnx 模型，执行误差分析，并与 onnxruntime 对齐结果
@@ -26,10 +25,12 @@ def generate_calibration_dataset(graph: BaseGraph, num_of_batches: int = 32) -> 
     for i in range(num_of_batches):
         sample = {name: torch.rand(INPUT_SHAPES[name]) for name in graph.inputs}
         dataset.append(sample)
-    return dataset, sample # last sample
+    return dataset, sample  # last sample
+
 
 def collate_fn(batch: dict) -> torch.Tensor:
     return {k: v.to(DEVICE) for k, v in batch.items()}
+
 
 # ------------------------------------------------------------
 # 在这里，我们仍然创建一个 QuantizationSetting 对象用来管理量化过程
@@ -55,10 +56,17 @@ if len(graph.outputs) != 1:
 # ------------------------------------------------------------
 calibration_dataset, sample = generate_calibration_dataset(graph)
 quantized = quantize_onnx_model(
-    onnx_import_file=ONNX_PATH, calib_dataloader=calibration_dataset,
-    calib_steps=32, input_shape=None, inputs=collate_fn(sample),
-    setting=QSetting, collate_fn=collate_fn, platform=QUANT_PLATFORM,
-    device=DEVICE, verbose=0)
+    onnx_import_file=ONNX_PATH,
+    calib_dataloader=calibration_dataset,
+    calib_steps=32,
+    input_shape=None,
+    inputs=collate_fn(sample),
+    setting=QSetting,
+    collate_fn=collate_fn,
+    platform=QUANT_PLATFORM,
+    device=DEVICE,
+    verbose=0,
+)
 
 # ------------------------------------------------------------
 # 在 PPQ 完成网络量化之后，我们特别地保存一下 PPQ 网络执行的结果
@@ -71,12 +79,9 @@ for sample in calibration_dataset:
 # ------------------------------------------------------------
 # 执行网络误差分析，并导出计算图
 # ------------------------------------------------------------
-graphwise_error_analyse(
-    graph=quantized, running_device=DEVICE, 
-    collate_fn=collate_fn, dataloader=calibration_dataset)
+graphwise_error_analyse(graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=calibration_dataset)
 
-export_ppq_graph(graph=quantized, platform=TargetPlatform.ONNXRUNTIME,
-                 graph_save_to=ONNX_OUTPUT_PATH)
+export_ppq_graph(graph=quantized, platform=TargetPlatform.ONNXRUNTIME, graph_save_to=ONNX_OUTPUT_PATH)
 
 # -----------------------------------------
 # 在最后，我们启动 onnxruntime 并比对结果
@@ -91,9 +96,9 @@ output_name = sess.get_outputs()[0].name
 
 onnxruntime_outputs = []
 for sample in calibration_dataset:
-    onnxruntime_outputs.append(sess.run(
-        output_names=[output_name], 
-        input_feed={k: convert_any_to_numpy(v) for k, v in sample.items()}))
+    onnxruntime_outputs.append(
+        sess.run(output_names=[output_name], input_feed={k: convert_any_to_numpy(v) for k, v in sample.items()})
+    )
 
 y_pred, y_real = [], []
 for reference_output, onnxruntime_output in zip(reference_outputs, onnxruntime_outputs):
@@ -101,4 +106,4 @@ for reference_output, onnxruntime_output in zip(reference_outputs, onnxruntime_o
     y_real.append(convert_any_to_torch_tensor(onnxruntime_output[0], device='cpu').unsqueeze(0))
 y_pred = torch.cat(y_pred, dim=0)
 y_real = torch.cat(y_real, dim=0)
-print(f'Simulating Error For {output_name}: {torch_snr_error(y_pred=y_pred, y_real=y_real).item() * 100 :.4f}%')
+print(f'Simulating Error For {output_name}: {torch_snr_error(y_pred=y_pred, y_real=y_real).item() * 100:.4f}%')

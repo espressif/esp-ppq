@@ -1,7 +1,8 @@
-from esp_ppq.log import NaiveLogger
 from esp_ppq.core.defs import ppq_legacy
+from esp_ppq.log import NaiveLogger
 
 logger = NaiveLogger.get_logger('PPQ')
+
 
 # attribute checker and preprocess
 def process_attribute(attr, input_shape, kernel_shape=None, op_type=None):
@@ -17,8 +18,10 @@ def process_attribute(attr, input_shape, kernel_shape=None, op_type=None):
     if op_type == 'ConvTranspose' and 'output_shape' in attr:
         output_shape = attr['output_shape']
         out_pad = [0, 1] if output_shape % 2 != 0 else [0, 0]
-        pad_needed = [(input_shape[i] - 1) * strides[i] + dilations[i] * (kernels[i] - 1) + 1 + out_pad[i] -
-                      output_shape[i] for i in range(len(input_shape))]
+        pad_needed = [
+            (input_shape[i] - 1) * strides[i] + dilations[i] * (kernels[i] - 1) + 1 + out_pad[i] - output_shape[i]
+            for i in range(len(input_shape))
+        ]
 
     if auto_pad != 'NOTSET':
         if 'pads' in attr:
@@ -30,12 +33,20 @@ def process_attribute(attr, input_shape, kernel_shape=None, op_type=None):
                 # `output_padding` is only used to find output shape, but does not actually add zero-padding to output
                 out_pad = attr.get('output_padding', [0, 0])
                 output_shape = [input_shape[i] * strides[i] for i in range(len(input_shape))]
-                pad_needed = [(input_shape[i] - 1) * strides[i] + dilations[i] * (kernels[i] - 1) + 1 + out_pad[i] -
-                              output_shape[i] for i in range(len(input_shape))]
+                pad_needed = [
+                    (input_shape[i] - 1) * strides[i]
+                    + dilations[i] * (kernels[i] - 1)
+                    + 1
+                    + out_pad[i]
+                    - output_shape[i]
+                    for i in range(len(input_shape))
+                ]
             else:
                 output_shape = [(input_shape[i] + strides[i] - 1) // strides[i] for i in range(len(input_shape))]
-                pad_needed = [(output_shape[i] - 1) * strides[i] + dilations[i] * (kernels[i] - 1) + 1 - input_shape[i]
-                              for i in range(len(input_shape))]
+                pad_needed = [
+                    (output_shape[i] - 1) * strides[i] + dilations[i] * (kernels[i] - 1) + 1 - input_shape[i]
+                    for i in range(len(input_shape))
+                ]
         else:
             raise ValueError(f'Invalid auto_pad value {auto_pad}')
 
@@ -59,7 +70,7 @@ def preprocess_attr(attr, op_type=None):
     if 'pads' in attr:
         # Change pads from start-end to torch format
         pads = attr['pads']
-        assert (len(pads) % 2 == 0)
+        assert len(pads) % 2 == 0
         if len(pads) == 4:
             begin_pad = pads[:2]
             end_pad = pads[2:]

@@ -46,7 +46,7 @@ To quantize a convolution layer with pytorch, a resonable way is to quantize con
     b_fp32 = torch.rand(size=[3])
     o_fp32 = F.conv2d(v_fp32, w_fp32, b_fp32)
     print(o_fp32)
-    
+
     # int8 version
     v_fp32 = torch.rand(size=[1, 3, 96, 96])
     w_fp32 = torch.rand(size=[3, 3, 3, 3])
@@ -81,7 +81,7 @@ PPQLinearQuantFunction and PPQLinearQuant_toInt are quant(dequant) functions use
         policy = (QuantizationPolicy(
             QuantizationProperty.SYMMETRICAL +
             QuantizationProperty.LINEAR +
-            QuantizationProperty.PER_TENSOR 
+            QuantizationProperty.PER_TENSOR
         )),
         rounding = RoundingPolicy.ROUND_HALF_EVEN,
         num_of_bits = 8,
@@ -97,7 +97,7 @@ PPQLinearQuantFunction and PPQLinearQuant_toInt are quant(dequant) functions use
 
 A TensorQuantizationConfig object is initialized here, the attributes of TensorQuantizationConfig are QuantizationPolicy, RoundingPolicy, num_of_bits, quant_min, quant_max, scale, offset and QuantizationStates.
 
-## QuantizationPolicy: 
+## QuantizationPolicy:
 A QuantizationPolicy is a combination of some QuantizationPropertys, QuantizationPolicy is used in PPQ (alone with other configuration) to describe how a tensor is quantized.
 There are 7 different quantization property(s) supported by PPQ now:
 

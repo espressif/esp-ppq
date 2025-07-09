@@ -49,7 +49,7 @@ If you want to install it, we strongly suggest you install TensorRT through [tar
 ```bash
 def happyforward(*args, **kwards):
     return torch.zeros([1, 1], dtype=torch.int32).cuda(), torch.zeros([1, 100, 4],dtype=torch.float32).cuda(), \
-        torch.zeros([1, 100],dtype=torch.float32).cuda(), torch.zeros([1, 100], dtype=torch.int32).cuda() 
+        torch.zeros([1, 100],dtype=torch.float32).cuda(), torch.zeros([1, 100], dtype=torch.int32).cuda()
 register_operation_handler(happyforward, 'EfficientNMS_TRT', platform=TargetPlatform.FP32)
 ```
 - Other parameters are default.
@@ -168,7 +168,7 @@ def alloc_buf_N(engine,data):
         else:
             size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
             host_mem = cuda.pagelocked_empty(size, data_type[0])
-            device_mem = cuda.mem_alloc(host_mem.nbytes)            
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
             bindings.append(int(device_mem))
             outputs.append(HostDeviceMem(host_mem, device_mem))
     return inputs, outputs, bindings, stream
@@ -191,7 +191,7 @@ def do_inference_v2(context, inputs, bindings, outputs, stream, data):
     stream.synchronize()
 
     # Return only the host outputs.
-    return [out.host for out in outputs] 
+    return [out.host for out in outputs]
 
 trt_logger = trt.Logger(trt.Logger.INFO)
 

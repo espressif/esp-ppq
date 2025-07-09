@@ -1,11 +1,13 @@
-import onnxruntime
-from esp_ppq.IR.morph import GraphFormatter
-from tests.tmodel  import *
-from tests.tscheme import *
-from esp_ppq import *
-from esp_ppq.api import *
-from esp_ppq import layerwise_error_analyse
 import sys
+
+import onnxruntime
+
+from esp_ppq import *
+from esp_ppq import layerwise_error_analyse
+from esp_ppq.api import *
+from esp_ppq.IR.morph import GraphFormatter
+from tests.tmodel import *
+from tests.tscheme import *
 
 DEVICE = 'cuda'
 PLATFORM = TargetPlatform.ORT_OOS_INT8
@@ -22,7 +24,8 @@ for case in TORCH_TEST_CASES:
             calib_steps=8,
             input_shape=case.input_generator().shape,
             platform=PLATFORM,
-            setting=QuantizationSettingFactory.default_setting())
+            setting=QuantizationSettingFactory.default_setting(),
+        )
 
         executor = TorchExecutor(quantized)
         sample_output = [(executor(sample)[0].cpu().unsqueeze(0)) for sample in dataset]
@@ -31,13 +34,18 @@ for case in TORCH_TEST_CASES:
             graph=quantized,
             platform=TargetPlatform.ONNXRUNTIME,
             graph_save_to='onnxruntime',
-            config_save_to='export.json')
+            config_save_to='export.json',
+        )
 
         # graph has only 1 input and output.
-        for name in quantized.outputs: output_name = name
-        for name in quantized.inputs: input_name = name
+        for name in quantized.outputs:
+            output_name = name
+        for name in quantized.inputs:
+            input_name = name
         session = onnxruntime.InferenceSession('onnxruntime.onnx', providers=onnxruntime.get_available_providers())
-        onnxruntime_outputs = [session.run([output_name], {input_name: convert_any_to_numpy(sample)}) for sample in dataset]
+        onnxruntime_outputs = [
+            session.run([output_name], {input_name: convert_any_to_numpy(sample)}) for sample in dataset
+        ]
         onnxruntime_outputs = [convert_any_to_torch_tensor(sample) for sample in onnxruntime_outputs]
 
         error = []
@@ -63,7 +71,8 @@ for case in TORCH_TEST_CASES:
             calib_steps=8,
             input_shape=case.input_generator().shape,
             platform=PLATFORM,
-            setting=QuantizationSettingFactory.default_setting())
+            setting=QuantizationSettingFactory.default_setting(),
+        )
 
         '''
         quantized.outputs.clear()
@@ -76,16 +85,18 @@ for case in TORCH_TEST_CASES:
         sample_output = [(executor(sample)[0].cpu().unsqueeze(0)) for sample in dataset]
 
         export_ppq_graph(
-            graph=quantized,
-            platform=TargetPlatform.ORT_OOS_INT8,
-            graph_save_to='onnx',
-            config_save_to='export.json')
+            graph=quantized, platform=TargetPlatform.ORT_OOS_INT8, graph_save_to='onnx', config_save_to='export.json'
+        )
 
         # graph has only 1 input and output.
-        for name in quantized.outputs: output_name = name
-        for name in quantized.inputs: input_name = name
+        for name in quantized.outputs:
+            output_name = name
+        for name in quantized.inputs:
+            input_name = name
         session = onnxruntime.InferenceSession('onnx.onnx', providers=onnxruntime.get_available_providers())
-        onnxruntime_outputs = [session.run([output_name], {input_name: convert_any_to_numpy(sample)}) for sample in dataset]
+        onnxruntime_outputs = [
+            session.run([output_name], {input_name: convert_any_to_numpy(sample)}) for sample in dataset
+        ]
         onnxruntime_outputs = [convert_any_to_torch_tensor(sample) for sample in onnxruntime_outputs]
 
         error = []

@@ -1,18 +1,19 @@
 import torch
 import torchvision
+
 from esp_ppq import *
 from esp_ppq.api import *
+
 
 # ------------------------------------------------------------
 # 在这个脚本中，我们将向你展示如何自由调度算子，并实现混合精度推理
 # 在开始之前，我们首先设计一个支持混合精度的量化器
 # ------------------------------------------------------------
 class MyQuantizer(BaseQuantizer):
-    
     # ------------------------------------------------------------
     # quant_operation_types 是一个类型枚举，在这里你需要写下所有该量化器所需要量化的算子
     # ------------------------------------------------------------
-    @ property
+    @property
     def quant_operation_types(self) -> set:
         return {'Conv'}
 
@@ -27,23 +28,23 @@ class MyQuantizer(BaseQuantizer):
         # ------------------------------------------------------------
         if operation.type == 'Conv':
             config = self.create_default_quant_config(
-                op                 = operation, 
-                num_of_bits        = 4,
-                quant_max          = 15, 
-                quant_min          = -16,
-                observer_algorithm = 'percentile', 
-                policy             = QuantizationPolicy(
-                    QuantizationProperty.PER_TENSOR +
-                    QuantizationProperty.LINEAR +
-                    QuantizationProperty.SYMMETRICAL),
-                rounding           = RoundingPolicy.ROUND_HALF_EVEN)
+                op=operation,
+                num_of_bits=4,
+                quant_max=15,
+                quant_min=-16,
+                observer_algorithm='percentile',
+                policy=QuantizationPolicy(
+                    QuantizationProperty.PER_TENSOR + QuantizationProperty.LINEAR + QuantizationProperty.SYMMETRICAL
+                ),
+                rounding=RoundingPolicy.ROUND_HALF_EVEN,
+            )
 
             # ------------------------------------------------------------
             # 关闭所有输出量化，状态设置为fp32
             # ------------------------------------------------------------
             for tensor_quant_config in config.output_quantization_config:
                 tensor_quant_config.state = QuantizationStates.FP32
-                
+
             # ------------------------------------------------------------
             # 关闭 bias 量化，状态设置为fp32
             # ------------------------------------------------------------
@@ -56,12 +57,12 @@ class MyQuantizer(BaseQuantizer):
             if operation.platform == TargetPlatform.ACADEMIC_INT8:
                 print(f'{operation.name} has been dispatched to INT8')
                 config.input_quantization_config[0].num_of_bits = 8
-                config.input_quantization_config[0].quant_max   = 127
-                config.input_quantization_config[0].quant_min   = -128
+                config.input_quantization_config[0].quant_max = 127
+                config.input_quantization_config[0].quant_min = -128
 
                 config.input_quantization_config[1].num_of_bits = 8
-                config.input_quantization_config[1].quant_max   = 127
-                config.input_quantization_config[1].quant_min   = -128
+                config.input_quantization_config[1].quant_max = 127
+                config.input_quantization_config[1].quant_min = -128
 
             return config
         else:
@@ -71,7 +72,7 @@ class MyQuantizer(BaseQuantizer):
     # 当前量化器进行量化的算子都将被发往一个指定的目标平台
     # 这里我们选择 TargetPlatform.ACADEMIC_INT4 作为目标平台
     # ------------------------------------------------------------
-    @ property
+    @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ACADEMIC_INT4
 
@@ -84,12 +85,16 @@ register_network_quantizer(MyQuantizer, platform=TargetPlatform.ACADEMIC_INT4)
 # 我们仍然以 MobilenetV2 举例，向你展示如何完成混合精度调度
 # ------------------------------------------------------------
 
-BATCHSIZE   = 32
+BATCHSIZE = 32
 INPUT_SHAPE = [BATCHSIZE, 3, 224, 224]
-DEVICE      = 'cuda'
-PLATFORM    = TargetPlatform.ACADEMIC_INT4
+DEVICE = 'cuda'
+PLATFORM = TargetPlatform.ACADEMIC_INT4
 CALIBRATION = [torch.rand(size=INPUT_SHAPE) for _ in range(32)]
-def collate_fn(batch: torch.Tensor) -> torch.Tensor: return batch.to(DEVICE)
+
+
+def collate_fn(batch: torch.Tensor) -> torch.Tensor:
+    return batch.to(DEVICE)
+
 
 model = torchvision.models.mobilenet.mobilenet_v2(pretrained=True)
 model = model.to(DEVICE)
@@ -119,28 +124,35 @@ QS = QuantizationSettingFactory.default_setting()
 # 这将显著降低 PPQ 的运算速度；但即使你无法编译这些算子，你仍然可以使用 pytorch 的 gpu 算子完成量化
 # ------------------------------------------------------------
 with ENABLE_CUDA_KERNEL():
-    dump_torch_to_onnx(model=model, onnx_export_file='Output/model.onnx', 
-                       input_shape=INPUT_SHAPE, input_dtype=torch.float32)
+    dump_torch_to_onnx(
+        model=model, onnx_export_file='Output/model.onnx', input_shape=INPUT_SHAPE, input_dtype=torch.float32
+    )
     graph = load_onnx_graph(onnx_import_file='Output/model.onnx')
     quantized = quantize_native_model(
-        model=graph, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        collate_fn=collate_fn, platform=PLATFORM,
-        device=DEVICE, verbose=0, setting=QS)
+        model=graph,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        device=DEVICE,
+        verbose=0,
+        setting=QS,
+    )
 
     # ------------------------------------------------------------
     # 使用 graphwise_analyse 衡量调度前的量化误差
     # ------------------------------------------------------------
     reports = graphwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION
+    )
 
     # ------------------------------------------------------------
     # 执行逐层分析，结果是一个字典，该字典内写入了所有算子的单层量化误差
     # ------------------------------------------------------------
     reports = layerwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION, verbose=False)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION, verbose=False
+    )
 
     # 从大到小排序单层误差
     sensitivity = [(op_name, error) for op_name, error in reports.items()]
@@ -149,18 +161,24 @@ with ENABLE_CUDA_KERNEL():
     # ------------------------------------------------------------
     # 将前十个误差最大的层送上INT8，并重新量化
     # ------------------------------------------------------------
-    for op_name, _ in sensitivity[: 10]:
+    for op_name, _ in sensitivity[:10]:
         QS.dispatching_table.append(operation=op_name, platform=TargetPlatform.ACADEMIC_INT8)
     graph = load_onnx_graph(onnx_import_file='Output/model.onnx')
     quantized = quantize_native_model(
-        model=graph, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        collate_fn=collate_fn, platform=PLATFORM,
-        device=DEVICE, verbose=0, setting=QS)
+        model=graph,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        device=DEVICE,
+        verbose=0,
+        setting=QS,
+    )
 
     # ------------------------------------------------------------
     # 使用 graphwise_analyse 衡量最终的量化误差
     # ------------------------------------------------------------
     reports = graphwise_error_analyse(
-        graph=quantized, running_device=DEVICE, collate_fn=collate_fn,
-        dataloader=CALIBRATION)
+        graph=quantized, running_device=DEVICE, collate_fn=collate_fn, dataloader=CALIBRATION
+    )

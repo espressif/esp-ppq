@@ -54,7 +54,7 @@ std::map<std::string, Weights> loadWeights(const std::string file)
             input >> std::hex >> val[x];
         }
         wt.values = val;
-        
+
         wt.count = size;
         weightMap[name] = wt;
     }
@@ -71,14 +71,14 @@ bool setDynamicRange(SampleUniquePtr<nvinfer1::INetworkDefinition>& network, con
 
     std::ifstream fin(json_file);
     assert(fin.is_open() && "Unable to load json file.");
-    
+
     json range_dict;
     fin >> range_dict;
     fin.close();
 
-    for (auto& act_quant : range_dict) 
+    for (auto& act_quant : range_dict)
     {
-        for (auto& el : act_quant.items()) 
+        for (auto& el : act_quant.items())
         {
             mPerTensorDynamicRangeMap[el.key()] = el.value();
         }
@@ -128,7 +128,7 @@ bool setDynamicRange(SampleUniquePtr<nvinfer1::INetworkDefinition>& network, con
             }
         }
     }
-    
+
     for (auto iter = mPerTensorDynamicRangeMap.begin(); iter != mPerTensorDynamicRangeMap.end(); ++iter)
     {
         sample::gLogInfo << "Tensor: " << iter->first << ". Max Absolute Dynamic Range: " << iter->second
@@ -144,19 +144,19 @@ bool createLenetEngine(const std::string& weight_file, const std::string& json_f
     assert(quant_param.is_open() && "Unable to load json file.");
 
     auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(sample::gLogger.getTRTLogger()));
-    if (!builder) 
+    if (!builder)
     {
         return false;
     }
     const auto explicitBatch = 1U << static_cast<uint32_t>(NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
     auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(explicitBatch));
-    if (!network) 
+    if (!network)
     {
         return false;
     }
 
     auto config = SampleUniquePtr<nvinfer1::IBuilderConfig>(builder->createBuilderConfig());
-    if (!config) 
+    if (!config)
     {
         return false;
     }
@@ -226,7 +226,7 @@ bool createLenetEngine(const std::string& weight_file, const std::string& json_f
     IFullyConnectedLayer* fc3 = network->addFullyConnected(*relu4->getOutput(0), OUTPUT_SIZE, weightMap["fc3.weight"], weightMap["fc3.bias"]);
     assert(fc3);
     fc3->getOutput(0)->setName("onnx::Gemm_30");
-    
+
 
     // Add softmax layer to determine the probability.
     ISoftMaxLayer* prob = network->addSoftMax(*fc3->getOutput(0));
@@ -261,12 +261,12 @@ bool createLenetEngine(const std::string& weight_file, const std::string& json_f
 
 
     auto profileStream = samplesCommon::makeCudaStream();
-    if (!profileStream) 
+    if (!profileStream)
     {
         return false;
     }
     config->setProfileStream(*profileStream);
-    
+
     SampleUniquePtr<IHostMemory> plan{builder->buildSerializedNetwork(*network, *config)};
     if (!plan)
     {
@@ -281,7 +281,7 @@ bool createLenetEngine(const std::string& weight_file, const std::string& json_f
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine = std::shared_ptr<nvinfer1::ICudaEngine>(
         runtime->deserializeCudaEngine(plan->data(), plan->size()), samplesCommon::InferDeleter());
-    if (!mEngine) 
+    if (!mEngine)
     {
         return false;
     }

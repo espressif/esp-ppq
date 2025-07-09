@@ -1,9 +1,7 @@
-
 import os
 from typing import List
 
-from esp_ppq.core import (DataType, NetworkFramework, QuantizationProperty,
-                      QuantizationStates, ppq_warning)
+from esp_ppq.core import DataType, NetworkFramework, QuantizationProperty, QuantizationStates, ppq_warning
 from esp_ppq.IR import BaseGraph, GraphExporter
 
 from .onnx_exporter import OnnxExporter
@@ -12,6 +10,7 @@ from .util import convert_value
 ASCEND_QUANT_OP = {"Conv", "ConvTranspose", "Gemm", "AveragePool"}
 
 FLT_EPSILON = 1.1920929e-7
+
 
 def adapt_scale(op, scale):
     min = FLT_EPSILON
@@ -24,9 +23,11 @@ def adapt_scale(op, scale):
         ppq_warning(f'{op.name} scale is too large: {scale}.')
     return scale
 
+
 def check_offset(offset):
-    if offset>127 or offset < -128:
+    if offset > 127 or offset < -128:
         raise RuntimeError(f'This offset value {offset} does not belong to the range [-128,127].')
+
 
 def generate_shape(shape):
     channels = ""
@@ -39,8 +40,9 @@ def generate_shape(shape):
     elif len(shape) == 4:
         _, channels, height, width = shape
     else:
-        raise RuntimeError(f'Please design this shape yourself.')
+        raise RuntimeError('Please design this shape yourself.')
     return channels, height, width
+
 
 class AscendExporter(GraphExporter):
     def export_quantization_config(self, config_path: str, graph: BaseGraph):
@@ -59,8 +61,9 @@ class AscendExporter(GraphExporter):
                 quant_unit_list.append("  value {\n")
 
                 input_cfg = op.config.input_quantization_config[0]
-                assert input_cfg.state == QuantizationStates.ACTIVATED and\
-                    input_cfg.policy.has_property(QuantizationProperty.PER_TENSOR)
+                assert input_cfg.state == QuantizationStates.ACTIVATED and input_cfg.policy.has_property(
+                    QuantizationProperty.PER_TENSOR
+                )
 
                 scale_d = input_cfg.scale.item()
                 offset_d = int(input_cfg.offset.item()) - 128
@@ -73,7 +76,7 @@ class AscendExporter(GraphExporter):
                 scale_list = convert_value(weight_config.scale, False, DataType.FP32)
 
                 if op.type == "Gemm":
-                    assert isinstance(scale_list,float), 'Gemm can only have one scale.'
+                    assert isinstance(scale_list, float), 'Gemm can only have one scale.'
                     scale_list = [scale_list]
 
                 for scale_w in scale_list:
@@ -91,7 +94,6 @@ class AscendExporter(GraphExporter):
                 quant_unit_list.append("}" + "\n")
                 matched_nodes.append(quant_unit_list)
 
-
             elif op.type == "AveragePool":
                 if not hasattr(op, 'config'):
                     ppq_warning(f'This op does not write quantization parameters: {op.name}.')
@@ -102,10 +104,11 @@ class AscendExporter(GraphExporter):
                 quant_unit_list.append("  key: " + op_name + "\n")
                 quant_unit_list.append("  value {\n")
                 input_cfg = op.config.input_quantization_config[0]
-                assert input_cfg.state == QuantizationStates.ACTIVATED and\
-                    input_cfg.policy.has_property(QuantizationProperty.PER_TENSOR)
+                assert input_cfg.state == QuantizationStates.ACTIVATED and input_cfg.policy.has_property(
+                    QuantizationProperty.PER_TENSOR
+                )
                 scale_d = input_cfg.scale.item()
-                
+
                 offset_d = int(input_cfg.offset.item()) - 128
                 check_offset(offset_d)
                 quant_unit_list.append("    scale_d: " + str(adapt_scale(op, scale_d)) + "\n")
@@ -125,7 +128,13 @@ class AscendExporter(GraphExporter):
                 fd.write(tem_str)
         fd.close()
 
-    def export(self, file_path: str, graph: BaseGraph, config_path: str = None, input_shapes: List[List[int]] = [[1, 3, 224, 224]]):
+    def export(
+        self,
+        file_path: str,
+        graph: BaseGraph,
+        config_path: str = None,
+        input_shapes: List[List[int]] = [[1, 3, 224, 224]],
+    ):
         if config_path is not None:
             self.export_quantization_config(config_path, graph)
 

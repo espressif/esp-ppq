@@ -8,7 +8,7 @@ from .graph import Operation, Variable
 class GraphCommandType(Enum):
     # convert value inside graph to torch.tensor(usually from numpy)
     CONVERT_TO_TENSOR = 0
-    
+
     # 图上权重部署到 GPU(tensor)，由 RunnableGraph 进行处理
     # deploy graph weights to GPU
     DEPLOY_TO_CUDA = 1
@@ -100,7 +100,7 @@ class GraphCommandType(Enum):
     FORMAT_SLICE = 29
     # 从一个指定位置将图截断
     TRUNCATE_ON_VAR = 30
-    
+
     # 升级图中的 resize 到 opset 11
     FORMAT_RESIZE = 31
 
@@ -118,10 +118,12 @@ class GraphCommandType(Enum):
     # Fuse splited swish
     FUSE_SWISH = 36
 
-class GraphCommand():
+
+class GraphCommand:
     def __init__(self, command_type: GraphCommandType, **kwargs) -> None:
-        assert isinstance(command_type, GraphCommandType), \
+        assert isinstance(command_type, GraphCommandType), (
             f'Command Type must be a GraphCommandType object, but {type(command_type)} received.'
+        )
         self.command_type = command_type
         self.kwargs = kwargs
 

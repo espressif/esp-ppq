@@ -1,16 +1,14 @@
 from abc import ABCMeta
 from typing import Dict, List
 
-from esp_ppq.core import (QuantizationStates, TensorQuantizationConfig,
-                      ppq_debug_function)
+from esp_ppq.core import QuantizationStates, TensorQuantizationConfig, ppq_debug_function
 from esp_ppq.executor import QuantOPRuntimeHook
 from esp_ppq.IR import QuantableOperation, Variable
 
 from .base import BaseTensorObserver
-from .order import TorchIsotoneObserver
-from .range import (TorchHistObserver, TorchMinMaxObserver, TorchMSEObserver,
-                    TorchPercentileObserver)
 from .floating import ConstantObserver, DirectMSEObserver
+from .order import TorchIsotoneObserver
+from .range import TorchHistObserver, TorchMinMaxObserver, TorchMSEObserver, TorchPercentileObserver
 
 OBSERVER_TABLE = {
     'minmax': TorchMinMaxObserver,
@@ -19,36 +17,34 @@ OBSERVER_TABLE = {
     'mse': TorchMSEObserver,
     'isotone': TorchIsotoneObserver,
     'constant': ConstantObserver,
-    'floating': DirectMSEObserver
+    'floating': DirectMSEObserver,
 }
 
-class TensorObserverFactroy():
+
+class TensorObserverFactroy:
     def __init__(self) -> None:
         raise NotImplementedError(
-            'Observer Factory can not be initialized, use TensorObserverFactroy.build_observer instead.')
+            'Observer Factory can not be initialized, use TensorObserverFactroy.build_observer instead.'
+        )
 
-    @ classmethod
+    @classmethod
     def build_observer(cls, variable: Variable, config: TensorQuantizationConfig) -> BaseTensorObserver:
         algorithm = str(config.observer_algorithm.lower())
         if algorithm not in OBSERVER_TABLE:
             raise ValueError(
-                f'Observer type not understand, Except one of {OBSERVER_TABLE.keys()}, '\
-                f'while {str(algorithm)} was given.')
+                f'Observer type not understand, Except one of {OBSERVER_TABLE.keys()}, '
+                f'while {str(algorithm)} was given.'
+            )
         return OBSERVER_TABLE[algorithm](watch_on=variable, quant_cfg=config)
 
 
 class CalibrationHook(QuantOPRuntimeHook):
-    def __init__(
-        self,
-        operation: QuantableOperation,
-        observer_table: Dict[Variable, BaseTensorObserver]
-    ) -> None:
+    def __init__(self, operation: QuantableOperation, observer_table: Dict[Variable, BaseTensorObserver]) -> None:
         self._operation = operation
         self._observer_table = observer_table
         super().__init__(operation)
 
-    def pre_forward_hook(
-        self, inputs: list, quant_inputs: list, quant_configs: List[TensorQuantizationConfig]) -> list:
+    def pre_forward_hook(self, inputs: list, quant_inputs: list, quant_configs: List[TensorQuantizationConfig]) -> list:
         for input_var, quant_config in zip(inputs, quant_configs):
             if quant_config in self._observer_table:
                 observer = self._observer_table[quant_config]
@@ -56,7 +52,8 @@ class CalibrationHook(QuantOPRuntimeHook):
         return quant_inputs
 
     def post_forward_hook(
-        self, outputs: list, quant_outputs: list, quant_configs: List[TensorQuantizationConfig]) -> list:
+        self, outputs: list, quant_outputs: list, quant_configs: List[TensorQuantizationConfig]
+    ) -> list:
         for output_var, quant_config in zip(outputs, quant_configs):
             if quant_config in self._observer_table:
                 observer = self._observer_table[quant_config]
@@ -77,30 +74,24 @@ class OperationObserver(metaclass=ABCMeta):
         self,
         operation: QuantableOperation,
         monitor_parameter: bool = True,
-        monitor_outputs  : bool = True,
-        monitor_inputs   : bool = True
+        monitor_outputs: bool = True,
+        monitor_inputs: bool = True,
     ) -> None:
-
         if not isinstance(operation, QuantableOperation):
-            raise TypeError(f'Only QuantableOP instance can apply an Observer, '\
-                f'while {type(operation)} was given.')
+            raise TypeError(f'Only QuantableOP instance can apply an Observer, while {type(operation)} was given.')
 
         self._operation = operation
         self._hook = self.build_hook(
-            monitor_parameter = monitor_parameter,
-            monitor_outputs   = monitor_outputs,
-            monitor_inputs    = monitor_inputs
+            monitor_parameter=monitor_parameter, monitor_outputs=monitor_outputs, monitor_inputs=monitor_inputs
         )
 
     def render_quantization_config(self):
         self.hook.render_quantization_config()
 
-    def build_hook(self, monitor_parameter: bool,
-        monitor_outputs: bool, monitor_inputs: bool) -> CalibrationHook:
+    def build_hook(self, monitor_parameter: bool, monitor_outputs: bool, monitor_inputs: bool) -> CalibrationHook:
         assert isinstance(self._operation, QuantableOperation)
         observer_table = {}
-        for var, config in zip(
-            self._operation.inputs, self._operation.config.input_quantization_config):
+        for var, config in zip(self._operation.inputs, self._operation.config.input_quantization_config):
             if config.state == QuantizationStates.INITIAL:
                 if var in self._operation.parameters and monitor_parameter:
                     observer_table[config] = TensorObserverFactroy.build_observer(var, config)
@@ -108,17 +99,16 @@ class OperationObserver(metaclass=ABCMeta):
                     observer_table[config] = TensorObserverFactroy.build_observer(var, config)
 
         if monitor_outputs:
-            for var, config in zip(
-                self._operation.outputs, self._operation.config.output_quantization_config):
+            for var, config in zip(self._operation.outputs, self._operation.config.output_quantization_config):
                 if config.state == QuantizationStates.INITIAL:
                     observer_table[config] = TensorObserverFactroy.build_observer(var, config)
 
         return CalibrationHook(operation=self._operation, observer_table=observer_table)
 
-    @ property
+    @property
     def hook(self) -> CalibrationHook:
         return self._hook
 
-    @ ppq_debug_function
+    @ppq_debug_function
     def report(self) -> str:
         return str(self._hook)

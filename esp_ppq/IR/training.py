@@ -9,7 +9,7 @@ from .processer import GraphCommandProcessor
 
 
 class TrainableGraph(GraphCommandProcessor):
-    """ Trainable Graph offers a bunch of functions that provide training interfaces. """
+    """Trainable Graph offers a bunch of functions that provide training interfaces."""
 
     def __init__(self, graph_or_processor: Union[BaseGraph, Callable]) -> None:
         super().__init__(graph_or_processor)
@@ -34,5 +34,8 @@ class TrainableGraph(GraphCommandProcessor):
                 parameters[var.name] = var.value
         return parameters
 
-    def _acceptable_command_types(self): return None
-    def process(self): return None
+    def _acceptable_command_types(self):
+        return None
+
+    def process(self):
+        return None

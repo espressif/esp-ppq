@@ -21,21 +21,22 @@ import os
 import sys
 import time
 from collections import defaultdict
-from typing import Iterable, Callable
+from typing import Callable, Iterable
 
 import pycuda.driver as cuda
 import tensorrt as trt
 import torch
 from tqdm import tqdm
 
+from esp_ppq import TorchExecutor, convert_any_to_numpy, convert_any_to_torch_tensor, torch_snr_error
 from esp_ppq.api import ENABLE_CUDA_KERNEL
-from esp_ppq import convert_any_to_numpy, convert_any_to_torch_tensor, TorchExecutor, torch_snr_error
 from esp_ppq.IR import BaseGraph
 from esp_ppq.quantization.analyse.util import MeasurePrinter
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("EngineBuilder").setLevel(logging.INFO)
 log = logging.getLogger("EngineBuilder")
+
 
 # Simple helper data class that's a little nicer to use than a 2-tuple.
 class HostDeviceMem(object):
@@ -48,6 +49,7 @@ class HostDeviceMem(object):
 
     def __repr__(self):
         return self.__str__()
+
 
 # Allocates all buffers required for an engine, i.e. host/device inputs/outputs.
 def allocate_buffers(engine):
@@ -70,6 +72,7 @@ def allocate_buffers(engine):
             outputs.append(HostDeviceMem(host_mem, device_mem))
     return inputs, outputs, bindings, stream
 
+
 # This function is generalized for multiple inputs/outputs.
 # inputs and outputs are expected to be lists of HostDeviceMem objects.
 def do_inference(context, bindings, inputs, outputs, stream):
@@ -83,6 +86,7 @@ def do_inference(context, bindings, inputs, outputs, stream):
     stream.synchronize()
     # Return only the host outputs.
     return [out.host for out in outputs]
+
 
 # This function is generalized for multiple inputs/outputs for full dimension networks.
 # inputs and outputs are expected to be lists of HostDeviceMem objects.
@@ -116,7 +120,7 @@ class EngineBuilder:
 
         self.builder = trt.Builder(self.trt_logger)
         self.config = self.builder.create_builder_config()
-        self.config.max_workspace_size = 8 * (2 ** 30)  # 8 GB
+        self.config.max_workspace_size = 8 * (2**30)  # 8 GB
 
         self.batch_size = None
         self.network = None
@@ -127,7 +131,7 @@ class EngineBuilder:
         Parse the ONNX graph and create the corresponding TensorRT network definition.
         :param onnx_path: The path to the ONNX graph to load.
         """
-        network_flags = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 
         self.network = self.builder.create_network(network_flags)
         self.parser = trt.OnnxParser(self.network, self.trt_logger)
@@ -152,8 +156,16 @@ class EngineBuilder:
         assert self.batch_size > 0
         self.builder.max_batch_size = self.batch_size
 
-    def create_engine(self, engine_path, precision, calib_input=None, calib_cache=None, calib_num_images=25000,
-                      calib_batch_size=8, calib_preprocessor=None):
+    def create_engine(
+        self,
+        engine_path,
+        precision,
+        calib_input=None,
+        calib_cache=None,
+        calib_num_images=25000,
+        calib_batch_size=8,
+        calib_preprocessor=None,
+    ):
         """
         Build the TensorRT engine and serialize it to disk.
         :param engine_path: The path where to serialize the engine to.
@@ -210,12 +222,14 @@ def setDynamicRange(network, json_file: str):
 
 
 def build_engine(
-    onnx_file: str, engine_file: str,
-    fp16: bool = True, int8: bool = False, 
+    onnx_file: str,
+    engine_file: str,
+    fp16: bool = True,
+    int8: bool = False,
     int8_scale_file: str = None,
-    explicit_batch: bool = True, 
-    workspace: int = 4294967296, # 4GB
-    ):
+    explicit_batch: bool = True,
+    workspace: int = 4294967296,  # 4GB
+):
     TRT_LOGGER = trt.Logger()
     """
     Build a TensorRT Engine with given onnx model.
@@ -229,14 +243,17 @@ def build_engine(
 
     if int8 is True:
         if int8_scale_file is None:
-            raise ValueError('Build Quantized TensorRT Engine Requires a JSON file which specifies variable scales, '
-                             'however int8_scale_file is None now.')
+            raise ValueError(
+                'Build Quantized TensorRT Engine Requires a JSON file which specifies variable scales, '
+                'however int8_scale_file is None now.'
+            )
 
     builder = trt.Builder(TRT_LOGGER)
     if explicit_batch:
         network = builder.create_network(1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-    else: network = builder.create_network()
-    
+    else:
+        network = builder.create_network()
+
     config = builder.create_builder_config()
 
     parser = trt.OnnxParser(network, TRT_LOGGER)
@@ -252,7 +269,8 @@ def build_engine(
                 print(parser.get_error(error))
             return None
 
-    if fp16: config.set_flag(trt.BuilderFlag.FP16)
+    if fp16:
+        config.set_flag(trt.BuilderFlag.FP16)
     if int8_scale_file is not None and int8:
         config.set_flag(trt.BuilderFlag.INT8)
         setDynamicRange(network, int8_scale_file)
@@ -273,7 +291,7 @@ class MyProfiler(trt.IProfiler):
     def report_layer_time(self, layer_name: str, ms: float):
         self.total_runtime += ms * 1000 / self.steps
         self.recorder[layer_name] += ms * 1000 / self.steps
-    
+
     def report(self):
         MeasurePrinter(data=self.recorder, measure='RUNNING TIME(us)', order=None).print()
         print(f'\nTotal Inference Time: {self.total_runtime:.4f}(us)')
@@ -281,10 +299,10 @@ class MyProfiler(trt.IProfiler):
 
 
 def Benchmark(engine_file: str, steps: int = 10000) -> float:
-    """ Benckmark TensorRT Engine """
+    """Benckmark TensorRT Engine"""
     logger = trt.Logger(trt.Logger.INFO)
     import pycuda.autoinit
-    
+
     with open(engine_file, 'rb') as f, trt.Runtime(logger) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
 
@@ -295,19 +313,17 @@ def Benchmark(engine_file: str, steps: int = 10000) -> float:
 
         tick = time.time()
         for _ in tqdm(range(steps), desc='TensorRT is running...'):
-            do_inference_v2(
-                context, bindings=bindings, inputs=inputs, 
-                outputs=outputs, stream=stream)
-        tok  = time.time()
-        print(f'Time span: {tok - tick  : .4f} sec')
+            do_inference_v2(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
+        tok = time.time()
+        print(f'Time span: {tok - tick: .4f} sec')
     return tick - tok
 
 
 def Profiling(engine_file: str, steps: int = 1000):
-    """ Profiling TensorRT Engine """
+    """Profiling TensorRT Engine"""
     logger = trt.Logger(trt.Logger.ERROR)
     import pycuda.autoinit
-    
+
     with open(engine_file, 'rb') as f, trt.Runtime(logger) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
 
@@ -319,19 +335,18 @@ def Profiling(engine_file: str, steps: int = 1000):
             input.host = convert_any_to_numpy(torch.rand(input.host.shape).float())
 
         for _ in tqdm(range(steps), desc='TensorRT is running...'):
-            do_inference_v2(
-                context, bindings=bindings, inputs=inputs, 
-                outputs=outputs, stream=stream)
+            do_inference_v2(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
         context.profiler.report()
 
 
 def TestAlignment(engine_file: str, graph: BaseGraph, samples: Iterable, collate_fn: Callable = None) -> dict:
-    """ Test Alignment with TensorRT Engine and PPQ Graph. """
+    """Test Alignment with TensorRT Engine and PPQ Graph."""
     logger = trt.Logger(trt.Logger.ERROR)
 
     feed_dicts = []
     for sample in samples:
-        if collate_fn is not None: sample = collate_fn(sample)
+        if collate_fn is not None:
+            sample = collate_fn(sample)
         feed_dict = {}
         if isinstance(sample, torch.Tensor):
             assert len(graph.inputs) == 1, 'Graph Needs More than 1 input tensor, however only 1 was given.'
@@ -345,14 +360,15 @@ def TestAlignment(engine_file: str, graph: BaseGraph, samples: Iterable, collate
         else:
             raise TypeError('Given Sample is Invalid.')
         feed_dicts.append(feed_dict)
-    
+
     TensorRT_Results, PPQ_Results = [], []
     with ENABLE_CUDA_KERNEL():
         executor = TorchExecutor(graph)
         for feed_dict in tqdm(feed_dicts, desc='PPQ Infer...'):
             PPQ_Results.append([value.cpu() for value in executor.forward(feed_dict)])
-    
+
     import pycuda.autoinit
+
     with open(engine_file, 'rb') as f, trt.Runtime(logger) as runtime:
         engine = runtime.deserialize_cuda_engine(f.read())
 
@@ -363,15 +379,14 @@ def TestAlignment(engine_file: str, graph: BaseGraph, samples: Iterable, collate
             for name, input in zip(graph.inputs, inputs):
                 input.host = convert_any_to_numpy(feed_dict[name])
 
-            results = do_inference_v2(
-                context, bindings=bindings, inputs=inputs, 
-                outputs=outputs, stream=stream)
-            
+            results = do_inference_v2(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
+
             TensorRT_Results.append([convert_any_to_torch_tensor(value) for value in results])
 
     collector = {}
     for ref, pred in zip(TensorRT_Results, PPQ_Results):
-        for name in graph.outputs: collector[name] = 0.0
+        for name in graph.outputs:
+            collector[name] = 0.0
         for name, ref_, pred_ in zip(graph.outputs, ref, pred):
             collector[name] += torch_snr_error(pred_.reshape([1, -1]), ref_.reshape([1, -1])).item()
 

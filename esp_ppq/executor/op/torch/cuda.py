@@ -1,13 +1,14 @@
 from typing import List
 
-from esp_ppq.IR import Operation
-
 import torch
+
+from esp_ppq.IR import Operation
 
 from .base import ASSERT_NUM_OF_INPUT, TorchBackendContext
 from .default import DEFAULT_BACKEND_TABLE
 
 PPL_GPU_BACKEND_TABLE = DEFAULT_BACKEND_TABLE.copy()
+
 
 # When you trying to implement a custimized function for ppl_gpu platform
 # Be aware that you can just overwrite part of DEFAULT_DISPATCHING_TABLE
@@ -16,7 +17,10 @@ PPL_GPU_BACKEND_TABLE = DEFAULT_BACKEND_TABLE.copy()
 def Sample_Forward():
     return None
 
-def AveragePool_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
+
+def AveragePool_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
     """AveragePool-11 AveragePool consumes an input tensor X and applies
     average pooling across the tensor according to kernel sizes, stride sizes,
     and pad lengths. average pooling consisting of computing the average on all
@@ -97,5 +101,6 @@ def AveragePool_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBac
     #
     # output = F.avg_pool2d(input_value, **op_attr)
     # return output
+
 
 PPL_GPU_BACKEND_TABLE['Sample_Function'] = Sample_Forward

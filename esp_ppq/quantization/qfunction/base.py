@@ -1,12 +1,13 @@
 from abc import ABCMeta, abstractmethod
-from esp_ppq.core import TensorQuantizationConfig
 from typing import Any, Callable
+
+from esp_ppq.core import TensorQuantizationConfig
 
 
 class BaseQuantFunction(Callable, metaclass=ABCMeta):
     def __init__(self) -> None:
         pass
 
-    @ abstractmethod
+    @abstractmethod
     def __call__(self, input_tensor: Any, quantization_config: TensorQuantizationConfig, **kwargs) -> Any:
-        raise NotImplemented('Implement this first.')
+        raise NotImplementedError('Implement this first.')

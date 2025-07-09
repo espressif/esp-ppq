@@ -1,6 +1,6 @@
 ## Layer-wise Equalization Pass(层间权重均衡过程)
 
-With only one quantization scale, per-tensor quantization has its trouble for representing the value among channels cause weight distributions can differ strongly between output channels. For example, in the case where one channel has weights in the range [−128, 128] and another channel has weights in the range (−0.5, 0.5), 
+With only one quantization scale, per-tensor quantization has its trouble for representing the value among channels cause weight distributions can differ strongly between output channels. For example, in the case where one channel has weights in the range [−128, 128] and another channel has weights in the range (−0.5, 0.5),
 the weights in the latter channel will all be quantized to 0 when quantizing to 8-bits.
 
 Hopefully, the performance can be improved by adjusting the weights for each output channel such that their ranges are more similar.
@@ -30,7 +30,7 @@ https://openaccess.thecvf.com/content_ICCV_2019/papers/Nagel_Data-Free_Quantizat
         More iterations will give more plainness in your weight distribution,
         iteration like 100 can flatten all the parameter in your network to a same level.
 
-        You are not recommended to iterate until value converges, 
+        You are not recommended to iterate until value converges,
         in some cases stop iteration earlier will give you a better performance.
 
 * weight_threshold(float)
@@ -78,13 +78,13 @@ https://openaccess.thecvf.com/content_ICCV_2019/papers/Nagel_Data-Free_Quantizat
 
         level - 2: equalization will cross ('Relu', 'MaxPool', 'GlobalMaxPool', 'Add', 'Sub', 'PRelu', 'AveragePool', 'GlobalAveragePool')
 
-        Here is an example for illustrating the difference, if we got a graph like: 
+        Here is an example for illustrating the difference, if we got a graph like:
 
             Conv1 - Relu - Conv2
 
         Both level - 1 and level - 2 optimization can find there is a equalization pair: (Conv1 - Conv2).
 
-        however for a complex graph like: 
+        however for a complex graph like:
 
             Conv1 - Add - Conv2
 
@@ -126,7 +126,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)
 
 You can manually create this optimization by:

@@ -1,6 +1,6 @@
 from typing import List
-from esp_ppq.IR import BaseGraph
-from esp_ppq.IR import GraphFormatter
+
+from esp_ppq.IR import BaseGraph, GraphFormatter
 
 
 def truncate_graph(graph: BaseGraph, outputs: List[str]):

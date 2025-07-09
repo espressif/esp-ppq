@@ -156,8 +156,8 @@ __host__ void Histogram_Asymmetric_T(
     CheckTensor(hist, at::kInt, "Histogram(Expect to be INT32)");
 
     _Histogram_Asymmetric_T<<<
-        NUM_OF_BLOCK(NUM_OF_ELEMENT(value), CUDA_NUM_THREADS), 
-        CUDA_NUM_THREADS, 
+        NUM_OF_BLOCK(NUM_OF_ELEMENT(value), CUDA_NUM_THREADS),
+        CUDA_NUM_THREADS,
         0, at::cuda::getCurrentCUDAStream()>>>(
         min, max, NUM_OF_ELEMENT(value), NUM_OF_ELEMENT(hist), PTR<float>(value),
         clip_outliers, PTR<int>(hist)

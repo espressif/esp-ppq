@@ -1,7 +1,7 @@
 import torch
-from esp_ppq.core import (PPQ_CONFIG, QuantizationProperty, QuantizationStates,
-                      RoundingPolicy, TensorQuantizationConfig)
 from torch.autograd import Function
+
+from esp_ppq.core import PPQ_CONFIG, QuantizationProperty, QuantizationStates, RoundingPolicy, TensorQuantizationConfig
 
 
 class TensorwiseFloatingQuantImpl(Function):
@@ -17,17 +17,24 @@ class TensorwiseFloatingQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
-    def forward(ctx, tensor: torch.Tensor, scales: torch.Tensor, offsets: torch.Tensor,
-                exponet_bits: int, mantissa_bits: int,
-                quant_min: float, quant_max: float,
-                rounding: RoundingPolicy) -> torch.Tensor:
 
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        exponet_bits: int,
+        mantissa_bits: int,
+        quant_min: float,
+        quant_max: float,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
         scales, offsets = scales.to(tensor.device), offsets.to(tensor.device)
         if not PPQ_CONFIG.USING_CUDA_KERNEL or not tensor.is_cuda:
             # quantization function, pytorch implementation
             raise NotImplementedError('This Feature must run with PPQ Cuda Kernel.')
-        
+
         else:
             from esp_ppq.core import CUDA
 
@@ -40,11 +47,11 @@ class TensorwiseFloatingQuantImpl(Function):
                 mantissa=mantissa_bits,
                 minimum=quant_min,
                 maximum=quant_max,
-                rounding=rounding.value
+                rounding=rounding.value,
             )
             return quantized
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         return dy, None, None, None, None, None, None, None, None
 
@@ -62,19 +69,27 @@ class ChannelwiseFloatingQuantImpl(Function):
     Notice this function will always clone your tensor value first.
     This function never quantize your tensor value inplace.
     """
-    @ staticmethod
-    def forward(ctx, tensor: torch.Tensor, scales: torch.Tensor,
-                offsets: torch.Tensor, channel_axis: int,
-                exponet_bits: int, mantissa_bits: int, 
-                quant_min: float, quant_max: float,
-                rounding: RoundingPolicy) -> torch.Tensor:
 
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        channel_axis: int,
+        exponet_bits: int,
+        mantissa_bits: int,
+        quant_min: float,
+        quant_max: float,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
         scales, offsets = scales.to(tensor.device), offsets.to(tensor.device)
         if not PPQ_CONFIG.USING_CUDA_KERNEL or not tensor.is_cuda:
             # generate a shape that likes [1, 1, -1, 1], the only -1 is at channel axe.
             raise NotImplementedError('This Feature must run with PPQ Cuda Kernel.')
         else:
             from esp_ppq.core import CUDA
+
             quantized = CUDA.FloatingQuantize_C(
                 tensor=tensor,
                 scales=scales,
@@ -84,37 +99,55 @@ class ChannelwiseFloatingQuantImpl(Function):
                 mantissa=mantissa_bits,
                 minimum=quant_min,
                 maximum=quant_max,
-                rounding=rounding.value)
+                rounding=rounding.value,
+            )
             return quantized
 
-    @ staticmethod
+    @staticmethod
     def backward(ctx, dy: torch.Tensor):
         return dy, None, None, None, None, None, None, None, None, None
 
 
-def PPQFloatingQuantFunction(
-    tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
+def PPQFloatingQuantFunction(tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
     if not PPQ_CONFIG.USING_CUDA_KERNEL:
         raise PermissionError('PPQ Floating Quant Function require PPQ_CONFIG.USING_CUDA_KERNEL = True')
     if not tensor.is_cuda:
-        raise PermissionError('PPQ Floating Quant Function requires tensor device to be cuda, '
-                              'CPU floating quantization is not implemented yet.')
+        raise PermissionError(
+            'PPQ Floating Quant Function requires tensor device to be cuda, '
+            'CPU floating quantization is not implemented yet.'
+        )
 
     """PPQ 核心量化函数，没啥好说的了吧，这个玩意既做 quant 也做 dequant"""
-    if not QuantizationStates.is_activated(config.state): return tensor
+    if not QuantizationStates.is_activated(config.state):
+        return tensor
     if not config.policy.has_property(QuantizationProperty.FLOATING):
-        raise ValueError('Critical Quantization Error! Unexpected policy detected. '
-                         'PPQFloatingQuantFunction except a Floating Quantization Config.')
+        raise ValueError(
+            'Critical Quantization Error! Unexpected policy detected. '
+            'PPQFloatingQuantFunction except a Floating Quantization Config.'
+        )
     if config.policy.has_property(QuantizationProperty.DYNAMIC):
         raise ValueError('Unexpected Dynamic Flag in Quantization Policy.')
 
     if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
         return ChannelwiseFloatingQuantImpl.apply(
-            tensor, config.scale, config.offset, config.channel_axis,
-            config.exponent_bits, config.mantissa_bits,
-            config.quant_min, config.quant_max, config.rounding)
+            tensor,
+            config.scale,
+            config.offset,
+            config.channel_axis,
+            config.exponent_bits,
+            config.mantissa_bits,
+            config.quant_min,
+            config.quant_max,
+            config.rounding,
+        )
     elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
         return TensorwiseFloatingQuantImpl.apply(
-            tensor, config.scale, config.offset,
-            config.exponent_bits, config.mantissa_bits,
-            config.quant_min, config.quant_max, config.rounding)
+            tensor,
+            config.scale,
+            config.offset,
+            config.exponent_bits,
+            config.mantissa_bits,
+            config.quant_min,
+            config.quant_max,
+            config.rounding,
+        )

@@ -1,6 +1,6 @@
 ## PPQ Quant Alignment Pass(通用量化对齐过程)
 
-When deploy on real hardware and inference framework, 
+When deploy on real hardware and inference framework,
     we will find that there are various restrictions or rules that we have to follow.
 
 * AVERAGE_POOL_2D: Input and outputs must all have same scale/zero_point
@@ -10,8 +10,8 @@ When deploy on real hardware and inference framework,
 * SLICE: Input and outputs must all have same scale/zero_point
 
 More detailed restrictions please refer to: https://www.tensorflow.org/lite/performance/quantization_spec
-    
-Those restrictions, can be concluded as some quantization should share 
+
+Those restrictions, can be concluded as some quantization should share
     the same quantization parameter with others. PPQ Quant Alignment Pass is designed
     for dealing with problems like this.
 
@@ -54,7 +54,7 @@ That is tqc1 and tqc2 are bonuded with statement "tqc1.set_master(master=tqc2)".
 
         For subgraph like this:
 
-        Conv1 ---     
+        Conv1 ---
                 + --- Add1
         Conv2 ---
                 + --- Conv3
@@ -79,5 +79,5 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)

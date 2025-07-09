@@ -12,14 +12,14 @@ Tensor QuantizeTensor_FC(
     const Rounding rounding);
 
 std::vector<Tensor> QuantizeTensor_FT_B(
-    const Tensor &value, const Tensor &scales, 
+    const Tensor &value, const Tensor &scales,
     const Tensor &offsets, const Tensor &grad_y,
     const int exponent, const int mantissa,
-    const float clip_min, const float clip_max, 
+    const float clip_min, const float clip_max,
     const Rounding rounding);
 
 std::vector<Tensor> QuantizeTensor_FC_B(
-    const Tensor &value, const Tensor &scales, 
+    const Tensor &value, const Tensor &scales,
     const Tensor &offsets, const Tensor &grad_y,
     const int exponent, const int mantissa,
     const float clip_min, const float clip_max,

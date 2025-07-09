@@ -4,18 +4,19 @@ from typing import Iterable, List, Union
 
 import numpy as np
 import torch
+from tqdm import tqdm
+
 from esp_ppq.core import *
+from esp_ppq.core import ppq_warning
 from esp_ppq.executor import TorchExecutor
 from esp_ppq.IR import BaseGraph, QuantableVariable
 from esp_ppq.quantization.analyse.util import MeasurePrinter, MeasureRecorder
 from esp_ppq.utils.fetch import tensor_random_fetch
-from tqdm import tqdm
-from esp_ppq.core import ppq_warning
 
 
 def load_calibration_dataset(
-    directory: str, input_shape: List[int],
-    batchsize: int, input_format: str = 'chw') -> Iterable:
+    directory: str, input_shape: List[int], batchsize: int, input_format: str = 'chw'
+) -> Iterable:
     """使用这个函数来加载校准数据集，校准数据集将被用来量化你的模型。这个函数只被用来加载图像数据集。
     你需要给出校准数据集位置，我们建议你将每张图片都单独保存到文件中，这个函数会自己完成后续的打包处理工作。
     校准数据集不应过大，这个函数会将所有数据加载到内存中，同时过大的校准数据集也不利于后续的量化处理操作。
@@ -43,8 +44,7 @@ def load_calibration_dataset(
     """
 
     if not os.path.exists(directory) or not os.path.isdir(directory):
-        raise FileNotFoundError(f'无法从指定位置加载数据集 {directory}. '
-                                 '目录不存在或无法访问，检查你的输入路径')
+        raise FileNotFoundError(f'无法从指定位置加载数据集 {directory}. 目录不存在或无法访问，检查你的输入路径')
     if input_format not in {'chw', 'hwc'}:
         raise ValueError(f'无法理解的数据格式，对于图片数据，数据格式只能是 chw 或 hwc，而你输入了 {input_format}')
 
@@ -65,14 +65,17 @@ def load_calibration_dataset(
         sample = convert_any_to_torch_tensor(sample)
         sample = sample.float()
 
-        if sample.ndim == 3: sample = sample.unsqueeze(0)
-        if input_format == 'hwc': sample = sample.permute([0, 3, 1, 2])
+        if sample.ndim == 3:
+            sample = sample.unsqueeze(0)
+        if input_format == 'hwc':
+            sample = sample.permute([0, 3, 1, 2])
 
         if sample.shape[1] not in {1, 3, 4}:
             ppq_warning(f'Quantized data is not a regular channel, which channel is {sample.shape[1]}.')
 
         assert sample.shape[0] == 1 or batchsize == 1, (
-            f'你的输入图像似乎已经有了预设好的 batchsize, 因此我们不会再尝试对你的输入进行打包。')
+            '你的输入图像似乎已经有了预设好的 batchsize, 因此我们不会再尝试对你的输入进行打包。'
+        )
 
         sizes.add((sample.shape[-2], sample.shape[-1]))
         samples.append(sample)
@@ -96,7 +99,7 @@ def load_calibration_dataset(
         batches = samples
 
     print(f'{num_of_file} File(s) Loaded.')
-    for idx, tensor in enumerate(samples[: 5]):
+    for idx, tensor in enumerate(samples[:5]):
         print(f'Loaded sample {idx}, shape: {tensor.shape}')
     assert len(batches) > 0, '你送入了空的数据集'
 
@@ -105,30 +108,25 @@ def load_calibration_dataset(
 
 
 def load_from_file(
-    filename: str, dtype: np.dtype = np.float32,
-    shape: List[int] = None, format: str = '.npy') -> np.ndarray:
+    filename: str, dtype: np.dtype = np.float32, shape: List[int] = None, format: str = '.npy'
+) -> np.ndarray:
     if not os.path.exists(filename) or os.path.isdir(filename):
-        raise FileNotFoundError(f'Can not load data from file: {filename}. '
-                                'File not exist or it is a directory.')
+        raise FileNotFoundError(f'Can not load data from file: {filename}. File not exist or it is a directory.')
 
     if format == '.npy':
         return np.load(filename)
     elif format == '.dat':
         raw = np.fromfile(file=filename, dtype=dtype)
-        if shape is not None: raw = np.reshape(raw, shape)
+        if shape is not None:
+            raw = np.reshape(raw, shape)
         return raw
     else:
-        raise ValueError(
-            'file format not understand, support .npy and .dat only, '
-            f'{format} was given.')
+        raise ValueError(f'file format not understand, support .npy and .dat only, {format} was given.')
 
 
-def dump_to_file(
-    filename: str, data: Union[torch.Tensor, np.ndarray],
-    format: str = '.npy') -> None:
+def dump_to_file(filename: str, data: Union[torch.Tensor, np.ndarray], format: str = '.npy') -> None:
     if os.path.isdir(filename):
-        raise FileExistsError(f'Can not dump data to file: {filename}',
-                              ' Cause it is a directory.')
+        raise FileExistsError(f'Can not dump data to file: {filename}', ' Cause it is a directory.')
     if os.path.exists(filename):
         ppq_warning(f'Overwriting file {filename} ...')
 
@@ -138,21 +136,20 @@ def dump_to_file(
     elif format == '.dat':
         data.tofile(os.path.join(filename))
     else:
-        raise ValueError(
-            'file format not understand, support .npy and .dat only, '
-            f'{format} was given.')
+        raise ValueError(f'file format not understand, support .npy and .dat only, {format} was given.')
 
 
 def create_dir(dir: str):
-    try: os.mkdir(dir)
-    except Exception as e: pass
+    try:
+        os.mkdir(dir)
+    except Exception as e:
+        pass
     finally:
         if not os.path.isdir(dir):
             raise FileNotFoundError(f'Can not create directory at {dir}')
 
 
-def compare_cosine_similarity_between_results(
-    ref_dir: str, target_dir: str, method: str = 'cosine'):
+def compare_cosine_similarity_between_results(ref_dir: str, target_dir: str, method: str = 'cosine'):
     print(f'正从 {ref_dir} 与 {target_dir} 加载数据 ...')
     if not os.path.exists(ref_dir) or not os.path.isdir(ref_dir):
         raise FileNotFoundError(f'找不到路径 {ref_dir}')
@@ -172,34 +169,35 @@ def compare_cosine_similarity_between_results(
 
     for sample_name in samples:
         for output in outputs:
-
-            ref_file    = os.path.join(ref_dir, sample_name, output)
+            ref_file = os.path.join(ref_dir, sample_name, output)
             target_file = os.path.join(target_dir, sample_name, output)
 
-            ref    = load_from_file(filename=ref_file, format='.dat')[:1000]
+            ref = load_from_file(filename=ref_file, format='.dat')[:1000]
             target = load_from_file(filename=target_file, format='.dat')[:1000]
 
             recorders[output].update(
-                y_real=convert_any_to_torch_tensor(ref),
-                y_pred=convert_any_to_torch_tensor(target))
+                y_real=convert_any_to_torch_tensor(ref), y_pred=convert_any_to_torch_tensor(target)
+            )
 
     results = {}
     for output, recorder in recorders.items():
         results[output] = recorder.measure
 
     method_str = 'MEASUREMENT'
-    if method == 'snr': method_str = 'NOISE:SIGNAL POWER RATIO'
-    if method == 'cosine': method_str = 'COSINE SIMILARITY'
-    if method == 'mse': method_str = 'MSE LOSS(UNSCALED)'
+    if method == 'snr':
+        method_str = 'NOISE:SIGNAL POWER RATIO'
+    if method == 'cosine':
+        method_str = 'COSINE SIMILARITY'
+    if method == 'mse':
+        method_str = 'MSE LOSS(UNSCALED)'
     MeasurePrinter(results, order='large_to_small', measure=method_str, percentage=method in {'snr', 'cosine'}).print()
 
 
 def dump_internal_results(
-    graph: BaseGraph, dataloader: Iterable,
-    dump_dir: str, executing_device: str, sample: bool = True):
-
-    i_dir  = os.path.join(dump_dir, 'inputs')
-    o_dir  = os.path.join(dump_dir, 'outputs')
+    graph: BaseGraph, dataloader: Iterable, dump_dir: str, executing_device: str, sample: bool = True
+):
+    i_dir = os.path.join(dump_dir, 'inputs')
+    o_dir = os.path.join(dump_dir, 'outputs')
 
     create_dir(i_dir)
     create_dir(o_dir)
@@ -207,32 +205,27 @@ def dump_internal_results(
     # 找出所有量化点，抽出所有中间结果.
     for var in graph.variables.values():
         if isinstance(var, QuantableVariable):
-            if (var.source_op_config is not None and
-                var.source_op_config.state == QuantizationStates.ACTIVATED):
-                graph.outputs[var.name] = var # 直接标记为网络输出
+            if var.source_op_config is not None and var.source_op_config.state == QuantizationStates.ACTIVATED:
+                graph.outputs[var.name] = var  # 直接标记为网络输出
 
     executor = TorchExecutor(graph, device=executing_device)
-    for batch_idx, batch in tqdm(enumerate(dataloader),
-                                 total=len(dataloader), desc='Dumping Results ...'):
+    for batch_idx, batch in tqdm(enumerate(dataloader), total=len(dataloader), desc='Dumping Results ...'):
         batch = batch.to(executing_device)
         outputs = executor.forward(batch)
 
         create_dir(os.path.join(o_dir, str(batch_idx)))
         for name, output in zip(graph.outputs, outputs):
-
             # 如果数字太多就抽样
             if output.numel() > 10000 and sample:
                 output = tensor_random_fetch(
-                    tensor=output, seed=10086, # 保证随机种子一致才能比对结果
-                    num_of_fetches=4096)
+                    tensor=output,
+                    seed=10086,  # 保证随机种子一致才能比对结果
+                    num_of_fetches=4096,
+                )
 
-            dump_to_file(
-                filename=os.path.join(o_dir, str(batch_idx), name + '.dat'),
-                data=output, format='.dat')
+            dump_to_file(filename=os.path.join(o_dir, str(batch_idx), name + '.dat'), data=output, format='.dat')
 
-        dump_to_file(
-            filename=os.path.join(i_dir, str(batch_idx) + '.npy'),
-            data=batch, format='.npy')
+        dump_to_file(filename=os.path.join(i_dir, str(batch_idx) + '.npy'), data=batch, format='.npy')
 
 
 def split_result_to_directory(raw_dir: str, to_dir: str):
@@ -250,5 +243,5 @@ def split_result_to_directory(raw_dir: str, to_dir: str):
         create_dir(os.path.join(to_dir, sample_name))
     for sample_name, file_name in tqdm(data_files, total=len(data_files), desc='正复制文件中 ...'):
         file_path = os.path.join(raw_dir, file_name)
-        processed = os.path.join(to_dir, sample_name, file_name[file_name.index('_') + 1: ])
+        processed = os.path.join(to_dir, sample_name, file_name[file_name.index('_') + 1 :])
         shutil.copy(file_path, processed)

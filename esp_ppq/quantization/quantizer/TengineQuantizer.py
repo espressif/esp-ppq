@@ -1,18 +1,23 @@
 from typing import Union
 
 import torch
-from esp_ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
-                      QuantizationPolicy, QuantizationProperty,
-                      QuantizationStates, RoundingPolicy, TargetPlatform)
+
+from esp_ppq.core import (
+    PASSIVE_OPERATIONS,
+    OperationQuantizationConfig,
+    QuantizationPolicy,
+    QuantizationProperty,
+    QuantizationStates,
+    RoundingPolicy,
+    TargetPlatform,
+)
 from esp_ppq.IR import BaseGraph, GraphCommandProcessor, Operation
 
 from .base import BaseQuantizer
 
 
 class TengineQuantizer(BaseQuantizer):
-    def __init__(
-        self, graph: Union[BaseGraph, GraphCommandProcessor]
-    ) -> Union[torch.Tensor, list, dict]:
+    def __init__(self, graph: Union[BaseGraph, GraphCommandProcessor]) -> Union[torch.Tensor, list, dict]:
         super().__init__(graph=graph)
         self._num_of_bits = 8
         self._quant_min = 0
@@ -43,9 +48,7 @@ class TengineQuantizer(BaseQuantizer):
                 bias_config.quant_max = int(pow(2, 30 - 1) - 1)
                 bias_config.quant_min = -int(pow(2, 30 - 1))
                 bias_config.policy = QuantizationPolicy(
-                    QuantizationProperty.SYMMETRICAL
-                    + QuantizationProperty.LINEAR
-                    + QuantizationProperty.PER_TENSOR
+                    QuantizationProperty.SYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
                 )
                 bias_config.state = QuantizationStates.PASSIVE_INIT
             for config in base_quant_config.input_quantization_config[1:]:
@@ -85,9 +88,7 @@ class TengineQuantizer(BaseQuantizer):
     @property
     def quantize_policy(self) -> QuantizationPolicy:
         return QuantizationPolicy(
-            QuantizationProperty.ASYMMETRICAL
-            + QuantizationProperty.LINEAR
-            + QuantizationProperty.PER_TENSOR
+            QuantizationProperty.ASYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
         )
 
     @property

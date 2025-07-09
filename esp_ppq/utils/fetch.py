@@ -1,10 +1,7 @@
 import torch
 
 
-def generate_indexer(
-    num_of_fetches: int,
-    num_of_elements: int,
-    seed: int = 0x20211230) -> torch.Tensor:
+def generate_indexer(num_of_fetches: int, num_of_elements: int, seed: int = 0x20211230) -> torch.Tensor:
     """Sample with a given seed. This function will generates a indexer based
     on your seed.
 
@@ -23,15 +20,12 @@ def generate_indexer(
         seed = (0x343FD * seed + 0x269EC3) % (2 << 31)
     return torch.tensor(indexer, dtype=torch.int32)
 
-def generate_torch_indexer(
-    num_of_fetches: int,
-    num_of_elements: int) -> torch.Tensor:
+
+def generate_torch_indexer(num_of_fetches: int, num_of_elements: int) -> torch.Tensor:
     return torch.randint(low=0, high=num_of_elements, size=[num_of_fetches])
 
 
-def tensor_random_fetch(
-    tensor: torch.Tensor, seed: int = None,
-    num_of_fetches: int = 1024) -> torch.Tensor:
+def tensor_random_fetch(tensor: torch.Tensor, seed: int = None, num_of_fetches: int = 1024) -> torch.Tensor:
     """Fetch some elements from tensor randomly. if a valid seed is given,
     elements will be sampled based on your seed, otherwise a random seed will
     be generated.
@@ -42,19 +36,18 @@ def tensor_random_fetch(
     """
     tensor = tensor.flatten()
     num_of_elements = tensor.numel()
-    assert num_of_elements > 0, ('Can not fetch data from empty tensor(0 element).')
+    assert num_of_elements > 0, 'Can not fetch data from empty tensor(0 element).'
 
     if seed is None:
         indexer = generate_torch_indexer(num_of_fetches=num_of_fetches, num_of_elements=num_of_elements)
-    else: indexer = generate_indexer(num_of_fetches=num_of_fetches, num_of_elements=num_of_elements, seed=seed)
+    else:
+        indexer = generate_indexer(num_of_fetches=num_of_fetches, num_of_elements=num_of_elements, seed=seed)
     return tensor.index_select(dim=0, index=indexer.to(tensor.device).long())
 
 
 def channel_random_fetch(
-    tensor: torch.Tensor,
-    fetchs_per_channel: int = 1024,
-    seed: int = None,
-    channel_axis: int = 0) -> torch.Tensor:
+    tensor: torch.Tensor, fetchs_per_channel: int = 1024, seed: int = None, channel_axis: int = 0
+) -> torch.Tensor:
     """Fetch some elements from tensor randomly by each channel. if a valid
     seed is given, elements will be sampled based on your seed, otherwise a
     random seed will be generated.
@@ -72,19 +65,16 @@ def channel_random_fetch(
     tensor = tensor.transpose(0, channel_axis)
     tensor = tensor.flatten(start_dim=1)
     num_of_elements = tensor.shape[-1]
-    assert num_of_elements > 0, ('Can not fetch data from empty tensor(0 element).')
+    assert num_of_elements > 0, 'Can not fetch data from empty tensor(0 element).'
 
     if seed is None:
         indexer = generate_torch_indexer(num_of_fetches=fetchs_per_channel, num_of_elements=num_of_elements)
-    else: indexer = generate_indexer(num_of_fetches=fetchs_per_channel, num_of_elements=num_of_elements, seed=seed)
+    else:
+        indexer = generate_indexer(num_of_fetches=fetchs_per_channel, num_of_elements=num_of_elements, seed=seed)
     return tensor.index_select(dim=-1, index=indexer.to(tensor.device).long())
 
 
-def batch_random_fetch(
-    tensor: torch.Tensor,
-    fetches_per_batch: int = 1024,
-    seed: int = None
-    ) -> torch.Tensor:
+def batch_random_fetch(tensor: torch.Tensor, fetches_per_batch: int = 1024, seed: int = None) -> torch.Tensor:
     """Fetch some elements from each sample in a batched tensor. if a valid
     seed is given, elements will be sampled based on your seed, otherwise a
     random seed will be generated.
@@ -100,9 +90,10 @@ def batch_random_fetch(
     """
     tensor = tensor.flatten(start_dim=1)
     num_of_elements = tensor.shape[-1]
-    assert num_of_elements > 0, ('Can not fetch data from empty tensor(0 element).')
+    assert num_of_elements > 0, 'Can not fetch data from empty tensor(0 element).'
 
     if seed is None:
         indexer = generate_torch_indexer(num_of_fetches=fetches_per_batch, num_of_elements=num_of_elements)
-    else: indexer = generate_indexer(num_of_fetches=fetches_per_batch, num_of_elements=num_of_elements, seed=seed)
+    else:
+        indexer = generate_indexer(num_of_fetches=fetches_per_batch, num_of_elements=num_of_elements, seed=seed)
     return tensor.index_select(dim=-1, index=indexer.to(tensor.device).long())

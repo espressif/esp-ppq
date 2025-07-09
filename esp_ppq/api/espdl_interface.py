@@ -29,7 +29,13 @@ from esp_ppq.quantization.optim import *
 
 logger = NaiveLogger.get_logger('ESPDL')
 
-def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False, **kwargs: Any,):
+
+def get_target_platform(
+    target: str,
+    num_of_bits: int = 8,
+    float: bool = False,
+    **kwargs: Any,
+):
     """Quantize onnx model and return quantized ppq graph and executor .
 
     Args:
@@ -67,18 +73,16 @@ def get_target_platform(target: str, num_of_bits: int = 8, float: bool = False, 
         else:
             platform = TargetPlatform.FP32
             logger.warning(f"Do not support num_of_bits:{num_of_bits}, will change to TargetPlatform.FP32")
-    
+
     return platform
+
 
 def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu') -> List[Any]:
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
 
-    inputs = [
-        torch.randn(size=shape, device=device, dtype=dtype)
-        for shape in input_shape
-    ]
-    
+    inputs = [torch.randn(size=shape, device=device, dtype=dtype) for shape in input_shape]
+
     return inputs
 
 
@@ -102,24 +106,19 @@ def generate_test_value(
                 logger.error(f"Can not find input {name} in your graph inputs, please check.")
     else:
         inputs_tmp = executor.prepare_input(inputs=inputs)
-        test_inputs_value = {
-            name: value.clone().detach().cpu() for name, value in inputs_tmp.items()
-        }
+        test_inputs_value = {name: value.clone().detach().cpu() for name, value in inputs_tmp.items()}
 
     # get test_outputs_value
     if output_names is None:
         outputs_dictionary = graph.outputs
-        test_outputs_value = {
-            key: outputs[idx].clone().detach().cpu()
-            for idx, key in enumerate(outputs_dictionary)
-        }
+        test_outputs_value = {key: outputs[idx].clone().detach().cpu() for idx, key in enumerate(outputs_dictionary)}
     else:
         test_outputs_value = {
-            output_name: output.clone().detach().cpu()
-            for output_name, output in zip(output_names, outputs)
+            output_name: output.clone().detach().cpu() for output_name, output in zip(output_names, outputs)
         }
 
     return {"inputs": test_inputs_value, "outputs": test_outputs_value}
+
 
 def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=torch.float32, device='cpu'):
     if isinstance(batch, list) and isinstance(batch[0], torch.Tensor):
@@ -129,6 +128,7 @@ def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=to
     else:
         logger.error("please provide a valid collate_fn.")
 
+
 @empty_ppq_cache
 def espdl_quantize_onnx(
     onnx_import_file: str,
@@ -137,7 +137,7 @@ def espdl_quantize_onnx(
     calib_steps: int,
     input_shape: List[Any],
     inputs: List[Any] = None,
-    target:str = "esp32p4",
+    target: str = "esp32p4",
     num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
@@ -151,9 +151,9 @@ def espdl_quantize_onnx(
     test_output_names: List[str] = None,
     verbose: int = 0,
     **kwargs: Any,
-) -> BaseGraph :
+) -> BaseGraph:
     """Quantize onnx model and return quantized ppq graph and executor .
-    
+
     Args:
         onnx_import_file (str): onnx model file path
         calib_dataloader (DataLoader): calibration data loader
@@ -183,8 +183,8 @@ def espdl_quantize_onnx(
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
-    """    
-    
+    """
+
     model = onnx.load(onnx_import_file)
     model_sim, check = simplify(model)
     if check:
@@ -199,12 +199,10 @@ def espdl_quantize_onnx(
     #
     #  ------------------------------------------------------------
     if calib_dataloader is None or calib_steps is None:
-        raise TypeError(
-            "Quantization needs a valid calib_dataloader and calib_steps setting."
-        )
+        raise TypeError("Quantization needs a valid calib_dataloader and calib_steps setting.")
     target_platform = get_target_platform(target, num_of_bits, **kwargs)
     input_dtype = torch.float32
-    
+
     if not collate_fn:
         collate_fn = partial(collate_fn_template, dtype=input_dtype, device=device)
 
@@ -216,7 +214,9 @@ def espdl_quantize_onnx(
 
     if target_platform != TargetPlatform.FP32:
         if dispatching_override is not None or dispatching_method != "conservative":
-            logger.warning(f"It is recommended to use the setting parameter. The dispatching_override and dispatching_method will be deprecated.")
+            logger.warning(
+                "It is recommended to use the setting parameter. The dispatching_override and dispatching_method will be deprecated."
+            )
 
         if setting is None:
             setting = QuantizationSettingFactory.espdl_setting()
@@ -229,19 +229,19 @@ def espdl_quantize_onnx(
                 setting.dispatching_table.append(opname, platform)
 
         ppq_graph = quantize_onnx_model(
-                        onnx_import_file=onnx_import_file,
-                        calib_dataloader=calib_dataloader,
-                        calib_steps=calib_steps,
-                        input_shape=None,
-                        platform=target_platform,
-                        input_dtype=input_dtype,
-                        inputs=dummy_inputs,
-                        setting=setting,
-                        collate_fn=collate_fn,
-                        device=device,
-                        verbose=verbose,
-                        do_quantize=True,
-                    )
+            onnx_import_file=onnx_import_file,
+            calib_dataloader=calib_dataloader,
+            calib_steps=calib_steps,
+            input_shape=None,
+            platform=target_platform,
+            input_dtype=input_dtype,
+            inputs=dummy_inputs,
+            setting=setting,
+            collate_fn=collate_fn,
+            device=device,
+            verbose=verbose,
+            do_quantize=True,
+        )
 
         # ------------------------------------------------------------
         #
@@ -268,14 +268,13 @@ def espdl_quantize_onnx(
         executor = TorchExecutor(graph=ppq_graph, device=device)
         executor.tracing_operation_meta(inputs=dummy_inputs)
         target_platform = TargetPlatform.ESPDL_INT8
-    
+
     # ------------------------------------------------------------
     #
     # 3: Export ESPDL Model.
     #
     # ------------------------------------------------------------
     if not skip_export:
-
         values_for_test = None
         if export_test_values:
             values_for_test = generate_test_value(ppq_graph, device, dummy_inputs, test_output_names)
@@ -285,7 +284,7 @@ def espdl_quantize_onnx(
             graph=ppq_graph,
             values_for_test=values_for_test,
             export_config=export_config,
-            **kwargs
+            **kwargs,
         )
     return ppq_graph
 
@@ -297,7 +296,7 @@ def espdl_quantize_torch(
     calib_steps: int,
     input_shape: List[Any],
     inputs: List[Any] = None,
-    target:str = "esp32p4",
+    target: str = "esp32p4",
     num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
@@ -313,7 +312,7 @@ def espdl_quantize_torch(
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
-    
+
     Args:
         model (torch.nn.Module): torch model
         calib_dataloader (DataLoader): calibration data loader
@@ -343,13 +342,13 @@ def espdl_quantize_torch(
 
     Returns:
         BaseGraph:      The Quantized Graph, containing all information needed for backend execution
-    """   
+    """
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
     export_path = os.path.dirname(os.path.abspath(espdl_export_file))
     os.makedirs(export_path, exist_ok=True)
 
-    # step1: export onnx model    
+    # step1: export onnx model
     model = model.eval()
     model = model.to(device)
 
@@ -371,7 +370,7 @@ def espdl_quantize_torch(
         opset_version=13,
         do_constant_folding=True,
     )
-    
+
     # step2: quantize onnx model and export espdl model
     return espdl_quantize_onnx(
         onnx_import_file=onnx_file_path,
@@ -393,5 +392,5 @@ def espdl_quantize_torch(
         export_test_values=export_test_values,
         test_output_names=test_output_names,
         verbose=verbose,
-        **kwargs
+        **kwargs,
     )

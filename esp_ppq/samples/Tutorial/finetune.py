@@ -3,8 +3,7 @@ from typing import Iterable
 import torch
 import torchvision
 
-from esp_ppq import (QuantizationSettingFactory, TargetPlatform,
-                 graphwise_error_analyse)
+from esp_ppq import TargetPlatform, graphwise_error_analyse
 from esp_ppq.api import QuantizationSettingFactory, quantize_torch_model
 from esp_ppq.api.interface import ENABLE_CUDA_KERNEL
 from esp_ppq.executor.torch import TorchExecutor
@@ -17,10 +16,11 @@ from esp_ppq.executor.torch import TorchExecutor
 # 3. 训练过程的缓存数据将被贮存在 gpu 上，这可能导致你显存溢出，你可以修改参数将缓存设备改为 cpu
 # ------------------------------------------------------------
 
-BATCHSIZE   = 32
+BATCHSIZE = 32
 INPUT_SHAPE = [BATCHSIZE, 3, 224, 224]
-DEVICE      = 'cuda'
-PLATFORM    = TargetPlatform.PPL_CUDA_INT8
+DEVICE = 'cuda'
+PLATFORM = TargetPlatform.PPL_CUDA_INT8
+
 
 def load_calibration_dataset() -> Iterable:
     # ------------------------------------------------------------
@@ -29,10 +29,14 @@ def load_calibration_dataset() -> Iterable:
     # 你应当保证校准数据是经过正确预处理的、有代表性的数据，否则量化将会失败；校准数据不需要标签；数据集不能乱序
     # ------------------------------------------------------------
     return [torch.rand(size=INPUT_SHAPE) for _ in range(32)]
+
+
 CALIBRATION = load_calibration_dataset()
+
 
 def collate_fn(batch: torch.Tensor) -> torch.Tensor:
     return batch.to(DEVICE)
+
 
 # ------------------------------------------------------------
 # 我们使用 mobilenet v2 作为一个样例模型
@@ -47,12 +51,12 @@ model = model.to(DEVICE)
 # 你将使用 Quant Setting 来调用微调过程，并调整微调参数
 # ------------------------------------------------------------
 QSetting = QuantizationSettingFactory.default_setting()
-QSetting.lsq_optimization                            = True
-QSetting.lsq_optimization_setting.block_size         = 4
-QSetting.lsq_optimization_setting.lr                 = 1e-5
-QSetting.lsq_optimization_setting.gamma              = 0
+QSetting.lsq_optimization = True
+QSetting.lsq_optimization_setting.block_size = 4
+QSetting.lsq_optimization_setting.lr = 1e-5
+QSetting.lsq_optimization_setting.gamma = 0
 QSetting.lsq_optimization_setting.is_scale_trainable = True
-QSetting.lsq_optimization_setting.collecting_device  = 'cuda'
+QSetting.lsq_optimization_setting.collecting_device = 'cuda'
 
 # ------------------------------------------------------------
 # 如果你使用 ENABLE_CUDA_KERNEL 方法
@@ -62,21 +66,24 @@ QSetting.lsq_optimization_setting.collecting_device  = 'cuda'
 # ------------------------------------------------------------
 with ENABLE_CUDA_KERNEL():
     quantized = quantize_torch_model(
-        model=model, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        setting=QSetting, collate_fn=collate_fn, platform=PLATFORM,
-        onnx_export_file='Output/model.onnx', device=DEVICE, verbose=0)
+        model=model,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        setting=QSetting,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        onnx_export_file='Output/model.onnx',
+        device=DEVICE,
+        verbose=0,
+    )
 
     # ------------------------------------------------------------
     # 当我们完成训练后，我们将调用 graphwise_error_analyse 方法分析网络误差
     # 经过训练的中间层误差可能很大，但这不是我们所关心的 —— 训练方法只优化最终输出的误差
     # 一个量化良好的网络，最后输出层的误差不应大于 10%
     # ------------------------------------------------------------
-    graphwise_error_analyse(
-        graph=quantized, 
-        running_device=DEVICE, 
-        dataloader=CALIBRATION,
-        collate_fn=collate_fn)
+    graphwise_error_analyse(graph=quantized, running_device=DEVICE, dataloader=CALIBRATION, collate_fn=collate_fn)
 
 
 model = torchvision.models.mobilenet.mobilenet_v2(pretrained=True)
@@ -86,13 +93,16 @@ QSetting = QuantizationSettingFactory.default_setting()
 
 with ENABLE_CUDA_KERNEL():
     quantized = quantize_torch_model(
-        model=model, calib_dataloader=CALIBRATION,
-        calib_steps=32, input_shape=INPUT_SHAPE,
-        setting=QSetting, collate_fn=collate_fn, platform=PLATFORM,
-        onnx_export_file='Output/model.onnx', device=DEVICE, verbose=0)
+        model=model,
+        calib_dataloader=CALIBRATION,
+        calib_steps=32,
+        input_shape=INPUT_SHAPE,
+        setting=QSetting,
+        collate_fn=collate_fn,
+        platform=PLATFORM,
+        onnx_export_file='Output/model.onnx',
+        device=DEVICE,
+        verbose=0,
+    )
 
-    graphwise_error_analyse(
-        graph=quantized, 
-        running_device=DEVICE, 
-        dataloader=CALIBRATION,
-        collate_fn=collate_fn)
+    graphwise_error_analyse(graph=quantized, running_device=DEVICE, dataloader=CALIBRATION, collate_fn=collate_fn)

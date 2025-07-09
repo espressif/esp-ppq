@@ -1,14 +1,19 @@
 from typing import Callable, List
 
 import torch
-from esp_ppq.core import (NetworkFramework, QuantizationPolicy,
-                      QuantizationProperty, RoundingPolicy, TargetPlatform,
-                      TensorQuantizationConfig)
+
+from esp_ppq.core import (
+    NetworkFramework,
+    QuantizationPolicy,
+    QuantizationProperty,
+    RoundingPolicy,
+    TargetPlatform,
+    TensorQuantizationConfig,
+)
 from esp_ppq.executor.torch import OPERATION_FORWARD_TABLE
 from esp_ppq.IR import BaseGraph, GraphExporter, Variable
 from esp_ppq.quantization.observer import BaseTensorObserver, TensorObserverFactroy
-from esp_ppq.quantization.optim import (QuantizationOptimizationPass,
-                                    QuantizationOptimizationPipeline)
+from esp_ppq.quantization.optim import QuantizationOptimizationPass, QuantizationOptimizationPipeline
 from esp_ppq.quantization.qfunction import PPQuantFunction as QuantFunction
 from esp_ppq.quantization.quantizer import BaseQuantizer
 from esp_ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
@@ -21,13 +26,13 @@ def Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer:
     Get a pre-defined Quantizer corresponding to your platform.
     Quantizer in PPQ initializes Tensor Quantization Config for each Operation,
         - it describes how operations are going to be quantized.
-    
+
     根据目标平台获取一个系统预定义的量化器。
-    
+
     ## 量化器
     在 PPQ 中，量化器是一个用于为算子初始化量化信息 Tensor Quantization Config 的对象
         - 量化器决定了你的算子是如何被量化的，你也可以设计新的量化器来适配不同的后端推理框架
-    
+
     在 PPQ 中我们为不同的推理后端设计好了一些预定义的量化器，你可以通过 esp_ppq.lib.Quantizer 来访问它们
     """
     if platform not in __QUANTIZER_COLLECTION__:
@@ -38,18 +43,16 @@ def Quantizer(platform: TargetPlatform, graph: BaseGraph) -> BaseQuantizer:
 def Pipeline(optims: List[QuantizationOptimizationPass]) -> QuantizationOptimizationPipeline:
     """
     Build a Pipeline with given Optimization Passes Collection
-    
+
     使用给定的量化过程集合创建量化管线。
     """
     return QuantizationOptimizationPipeline(optims)
 
 
-def Observer(
-    quant_config: TensorQuantizationConfig, 
-    variable: Variable = None) -> BaseTensorObserver:
+def Observer(quant_config: TensorQuantizationConfig, variable: Variable = None) -> BaseTensorObserver:
     """
     Get a Calibration Observer based on quant_config.observer_algorithm attribute.
-    
+
     根据 TQC 中 observer_algorithm 属性获取对应的 Observer.
     """
     return TensorObserverFactroy.build_observer(variable=variable, config=quant_config)
@@ -64,16 +67,16 @@ class TensorQuant(torch.nn.Module):
             quant_config (TensorQuantizationConfig): _description_
             name (str, optional): _description_. Defaults to 'PPQ Quant Stub'.
         """
-        self._quant_config   = quant_config
-        self._delegator      = None
+        self._quant_config = quant_config
+        self._delegator = None
         self._batch_observed = 0
-        self._observer       = Observer(quant_config=quant_config)
+        self._observer = Observer(quant_config=quant_config)
 
-    @ property
+    @property
     def delegator(self) -> Callable:
         return self._delegator
 
-    @ delegator.setter
+    @delegator.setter
     def delegator(self, func: Callable):
         self._delegator = func
 
@@ -88,8 +91,9 @@ class TensorQuant(torch.nn.Module):
 
     def render(self):
         if self._batch_observed == 0:
-            raise PermissionError('You have not provide any data to this QuantStub, '
-                                  'PPQ can not render its quant config yet.')
+            raise PermissionError(
+                'You have not provide any data to this QuantStub, PPQ can not render its quant config yet.'
+            )
         self._observer.render_quantization_config()
 
 
@@ -97,7 +101,7 @@ class ParameterQuant(TensorQuant):
     def __init__(self, quant_config: TensorQuantizationConfig, parameter: torch.Tensor) -> None:
         if not isinstance(parameter, torch.Tensor):
             raise TypeError(f'Expect a torch.Tensor here. However {type(parameter)} was given.')
-        
+
         super().__init__(quant_config)
         self.observe(parameter)
         self.render()
@@ -110,12 +114,13 @@ def LinearQuantizationConfig(
     channel_axis: int = None,
     quant_min: int = -128,
     quant_max: int = 127,
-    num_of_bits = 8,
+    num_of_bits=8,
     calibration: str = 'minmax',
-    rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN) -> TensorQuantizationConfig:
+    rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN,
+) -> TensorQuantizationConfig:
     """
     Create a Linear Quantization Config.
-    
+
     创建线性量化配置信息。
     """
 
@@ -125,13 +130,14 @@ def LinearQuantizationConfig(
     chn = QuantizationProperty.PER_TENSOR if channel_axis is None else QuantizationProperty.PER_CHANNEL
 
     return TensorQuantizationConfig(
-        policy = QuantizationPolicy(sym + dyn + pw2 + chn + QuantizationProperty.LINEAR),
-        rounding = rounding,
-        num_of_bits = num_of_bits,
-        quant_min = quant_min,
-        quant_max = quant_max,
-        observer_algorithm = calibration,
-        channel_axis=channel_axis)
+        policy=QuantizationPolicy(sym + dyn + pw2 + chn + QuantizationProperty.LINEAR),
+        rounding=rounding,
+        num_of_bits=num_of_bits,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        observer_algorithm=calibration,
+        channel_axis=channel_axis,
+    )
 
 
 def FloatingQuantizationConfig(
@@ -143,10 +149,11 @@ def FloatingQuantizationConfig(
     exponent: int = 4,
     mantissa: int = 3,
     calibration: str = 'constant',
-    rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN) -> TensorQuantizationConfig:
+    rounding: RoundingPolicy = RoundingPolicy.ROUND_HALF_EVEN,
+) -> TensorQuantizationConfig:
     """
     Create a Floating Quantization Config.
-    
+
     创建浮点量化配置信息。
     """
 
@@ -155,19 +162,20 @@ def FloatingQuantizationConfig(
     chn = QuantizationProperty.PER_TENSOR if channel_axis is None else QuantizationProperty.PER_CHANNEL
 
     return TensorQuantizationConfig(
-        policy = QuantizationPolicy(sym + pw2 + chn + QuantizationProperty.FLOATING),
-        rounding = rounding,
-        num_of_bits = exponent + mantissa + 1,
-        exponent_bits = exponent,
-        quant_min = quant_min,
-        quant_max = quant_max,
-        observer_algorithm = calibration)
+        policy=QuantizationPolicy(sym + pw2 + chn + QuantizationProperty.FLOATING),
+        rounding=rounding,
+        num_of_bits=exponent + mantissa + 1,
+        exponent_bits=exponent,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        observer_algorithm=calibration,
+    )
 
 
-def Dispatcher(graph: BaseGraph, method: str='conservative') -> GraphDispatcher:
+def Dispatcher(graph: BaseGraph, method: str = 'conservative') -> GraphDispatcher:
     """
     Get a Graph Dispatcher.
-    
+
     获取一个指定的调度器。
     """
     if method not in DISPATCHER_TABLE:
@@ -179,22 +187,23 @@ def OperationForwardFunction(optype: str, platform: TargetPlatform = TargetPlatf
     """
     Get an Operation forward function. Same Op are allows to have different forward function on different platform,
     to get a default forward function, use platform=TargetPlatform.FP32.
-    
+
     获取一个算子前向传播执行函数。在 PPQ 中，相同的算子可以在不同的平台上注册成不同的执行逻辑，
     使用 platform = TargetPlatform.FP32 来获取默认执行逻辑。
     """
     if not isinstance(platform, TargetPlatform):
         raise TypeError('Wrong parameter type for invoking this function.')
     if optype not in OPERATION_FORWARD_TABLE[platform]:
-        raise KeyError(f'Can not find a forward function related to optype {optype}({platform.name}),'
-                       ' Register it first.')
+        raise KeyError(
+            f'Can not find a forward function related to optype {optype}({platform.name}), Register it first.'
+        )
     return OPERATION_FORWARD_TABLE[platform][optype]
 
 
 def Exporter(platform: TargetPlatform) -> GraphExporter:
     """
     Get an network Exporter.
-    
+
     获取一个网络导出器。
     """
     if not isinstance(platform, TargetPlatform):
@@ -207,7 +216,7 @@ def Exporter(platform: TargetPlatform) -> GraphExporter:
 def Parser(framework: NetworkFramework) -> GraphExporter:
     """
     Get an network Parser.
-    
+
     获取一个网络解析器。
     """
     if not isinstance(framework, NetworkFramework):
@@ -218,6 +227,15 @@ def Parser(framework: NetworkFramework) -> GraphExporter:
 
 
 __all__ = [
-    'Parser', 'Exporter', 'OperationForwardFunction', 
-    'Dispatcher', 'FloatingQuantizationConfig', 'LinearQuantizationConfig', 
-    'QuantStub', 'Quantizer', 'Observer', 'Pipeline', 'QuantFunction']
+    'Parser',
+    'Exporter',
+    'OperationForwardFunction',
+    'Dispatcher',
+    'FloatingQuantizationConfig',
+    'LinearQuantizationConfig',
+    'TensorQuant',
+    'Quantizer',
+    'Observer',
+    'Pipeline',
+    'QuantFunction',
+]

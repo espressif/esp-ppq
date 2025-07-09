@@ -48,7 +48,7 @@ __global__ void _QuantizeTensor_LT(
 ){
     const int32_t index_offset = blockIdx.x * TPB + threadIdx.x;
     if (index_offset < num_of_element){
-        float s = __ldg(&scale[0]); 
+        float s = __ldg(&scale[0]);
         int   o = std::round(__ldg(&offset[0]));
         float qt = QuantizeScalar<float, float, int>(
             __ldg(&value[index_offset]), s, o, clip_min, clip_max, rounding);
@@ -105,8 +105,8 @@ __host__ Tensor QuantizeTensor_LT(
     CheckTensor(offset, at::kFloat, "Offset(Expect to be FP32)");
     auto v_contiguous = value.contiguous();
     auto num_of_elements = value.numel();
-    if(num_of_elements > 0x7fffffff) 
-        throw InvalidValueException("There are too many element in your tensor(more than 2*10^9)"); 
+    if(num_of_elements > 0x7fffffff)
+        throw InvalidValueException("There are too many element in your tensor(more than 2*10^9)");
 
     Tensor quantized = at::empty_like(v_contiguous);
     constexpr int32_t TPB = 256;
@@ -205,7 +205,7 @@ __host__ Tensor QuantizeTensor_LC(
     CheckTensor(scale, at::kFloat, "Scale(Expect to be FP32)");
     CheckTensor(offset, at::kFloat, "Offset(Expect to be FP32)");
     auto v_contiguous = value.contiguous();
-    if(value.numel() > 0x7fffffff) throw InvalidValueException("There are too many element in your tensor(more than 2*10^9)"); 
+    if(value.numel() > 0x7fffffff) throw InvalidValueException("There are too many element in your tensor(more than 2*10^9)");
 
     constexpr int32_t TPB = 256;
     constexpr int32_t VPT = 4;
@@ -247,7 +247,7 @@ void _QuantizeTensor_LT_B(
     float* grad_s,
     float* grad_x
 ){
-    int32_t index = blockIdx.x * VPT + threadIdx.x; 
+    int32_t index = blockIdx.x * VPT + threadIdx.x;
 
     if (index < num_of_elements){
         float o = std::round(__ldg(&offset[0]));
@@ -297,9 +297,9 @@ __host__ std::vector<Tensor> QuantizeTensor_LT_B(
     auto grad_contiguous = grad_y.contiguous();
 
     int32_t num_of_element = NUM_OF_ELEMENT(v_contiguous);
-    if(num_of_element > 0x7fffffff) 
+    if(num_of_element > 0x7fffffff)
         throw InvalidValueException("There are too many element in your tensor(more than 2*10^9)");
-    
+
     constexpr int TPB = 1024;
     Tensor grad_s = at::zeros_like(scale);
     Tensor grad_x = at::empty_like(grad_contiguous);
@@ -381,7 +381,7 @@ void _QuantizeTensor_LC_B(
 
 
 __host__ std::vector<Tensor> QuantizeTensor_LC_B(
-    const Tensor &value, const Tensor &scale, const Tensor &offset, 
+    const Tensor &value, const Tensor &scale, const Tensor &offset,
     const Tensor &grad_y, const int clip_min, const int clip_max,
     const Rounding rounding, const int channel_axis
 ){

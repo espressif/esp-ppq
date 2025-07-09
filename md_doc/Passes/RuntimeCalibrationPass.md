@@ -8,14 +8,14 @@ Formula:
 
         Dequant(Y, scale_Y) = Y * scale_Y
 
-Only activations that have quantization state = INITIAL are going to be calibrated via this optimization pass. 
+Only activations that have quantization state = INITIAL are going to be calibrated via this optimization pass.
 While if the parameter "override" is set to True, activations with quantization state = ACTIVATED will also be re-calibrated.
 
 Runtime Calibration Pass will write estimated scales and offsets to tensor quantization configs, and set their state to ACTIVATED.
 
-Unlike constant tensors such as weights and biases, variable tensors such as model input, activations (outputs of intermediate layers) and model output cannot be calibrated unless we run a few inference cycles. 
+Unlike constant tensors such as weights and biases, variable tensors such as model input, activations (outputs of intermediate layers) and model output cannot be calibrated unless we run a few inference cycles.
 
-As a result, PPQ Runtime Calibration Pass requires a representative dataset to calibrate them. 
+As a result, PPQ Runtime Calibration Pass requires a representative dataset to calibrate them.
 
 This dataset is supposed to be a small subset (around ~100-500 samples) of the training or validation data.
 
@@ -31,7 +31,7 @@ This dataset is supposed to be a small subset (around ~100-500 samples) of the t
 
 * override(bool)
 
-        if this parameter is set to True, activations with quantization state = ACTIVATED will also be re-calibrated, 
+        if this parameter is set to True, activations with quantization state = ACTIVATED will also be re-calibrated,
         runtime calibration pass will overwrite their scales and offsets.
 
         This parameter is introduced since ppq 0.6.4
@@ -60,7 +60,7 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
     # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)
 
 You can manually create this optimization by:

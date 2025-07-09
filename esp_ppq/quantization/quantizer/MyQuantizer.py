@@ -5,9 +5,16 @@
 from typing import Union
 
 import torch
-from esp_ppq.core import (PASSIVE_OPERATIONS, OperationQuantizationConfig,
-                      QuantizationPolicy, QuantizationProperty,
-                      QuantizationStates, RoundingPolicy, TargetPlatform)
+
+from esp_ppq.core import (
+    PASSIVE_OPERATIONS,
+    OperationQuantizationConfig,
+    QuantizationPolicy,
+    QuantizationProperty,
+    QuantizationStates,
+    RoundingPolicy,
+    TargetPlatform,
+)
 from esp_ppq.IR import BaseGraph, Operation
 
 from .base import BaseQuantizer
@@ -27,16 +34,15 @@ class ExtQuantizer(BaseQuantizer):
     Args:
         BaseQuantizer ([type]): [description]
     """
-    def __init__(
-        self, graph: BaseGraph
-    ) -> Union[torch.Tensor, list, dict]:
-        super().__init__(graph=graph) # do not forget to initialize super class.
-        
+
+    def __init__(self, graph: BaseGraph) -> Union[torch.Tensor, list, dict]:
+        super().__init__(graph=graph)  # do not forget to initialize super class.
+
         # Quantization basic setting -------------------------
         # update following properties:
-        self._num_of_bits = 8        # platform bit width.
-        self._quant_min = -128       # int value min
-        self._quant_max = +127       # int value max
+        self._num_of_bits = 8  # platform bit width.
+        self._quant_min = -128  # int value min
+        self._quant_max = +127  # int value max
         # ----------------------------------------------------
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
@@ -67,9 +73,13 @@ class ExtQuantizer(BaseQuantizer):
 
         # create a basic quantization configuration.
         config = self.create_default_quant_config(
-            op=operation, num_of_bits=self._num_of_bits, exponent_bits=0,
-            quant_max=self._quant_max, quant_min=self._quant_min,
-            observer_algorithm='percentile', policy=self.quantize_policy,
+            op=operation,
+            num_of_bits=self._num_of_bits,
+            exponent_bits=0,
+            quant_max=self._quant_max,
+            quant_min=self._quant_min,
+            observer_algorithm='percentile',
+            policy=self.quantize_policy,
             rounding=self.rounding_policy,
         )
 
@@ -86,13 +96,12 @@ class ExtQuantizer(BaseQuantizer):
                 # here we give bias a 30 bits precision, which is pettery enough in all cases
                 bias_config.num_of_bits = 30
                 bias_config.quant_max = int(pow(2, 30 - 1) - 1)
-                bias_config.quant_min = - int(pow(2, 30 - 1))
+                bias_config.quant_min = -int(pow(2, 30 - 1))
                 bias_config.policy = QuantizationPolicy(
-                    QuantizationProperty.SYMMETRICAL +
-                    QuantizationProperty.LINEAR +
-                    QuantizationProperty.PER_TENSOR)
+                    QuantizationProperty.SYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
+                )
                 bias_config.state = QuantizationStates.PASSIVE_INIT
-            for tensor_config in config.input_quantization_config[1: ]:
+            for tensor_config in config.input_quantization_config[1:]:
                 tensor_config.observer_algorithm = 'minmax'
 
         # mark some operation as passive op.
@@ -102,7 +111,7 @@ class ExtQuantizer(BaseQuantizer):
             config.is_active_quant_op = False
         return config
 
-    @ property
+    @property
     def target_platform(self) -> TargetPlatform:
         """target_platform 属性是提供给子图切分使用的， 所有量化区的算子将被调度到这个设备上。
 
@@ -111,7 +120,7 @@ class ExtQuantizer(BaseQuantizer):
         """
         return TargetPlatform.EXTENSION
 
-    @ property
+    @property
     def quant_operation_types(self) -> set:
         """quant_operation_types 指明了所有可以被量化的算子类型。
 
@@ -129,14 +138,30 @@ class ExtQuantizer(BaseQuantizer):
             quantized even their type is listed here.
         """
         return {
-            'Conv', 'ConvTranspose', 'Gemm', 'Relu', 'PRelu',
-            'Clip', 'Pad', 'Resize', 'MaxPool', 'AveragePool',
-            'GlobalMaxPool', 'GlobalAveragePool',
-            'Mul', 'Add', 'Max', 'Sub', 'Div',
-            'LeakyRelu', 'Concat', 'Sigmoid', 'Slice'
+            'Conv',
+            'ConvTranspose',
+            'Gemm',
+            'Relu',
+            'PRelu',
+            'Clip',
+            'Pad',
+            'Resize',
+            'MaxPool',
+            'AveragePool',
+            'GlobalMaxPool',
+            'GlobalAveragePool',
+            'Mul',
+            'Add',
+            'Max',
+            'Sub',
+            'Div',
+            'LeakyRelu',
+            'Concat',
+            'Sigmoid',
+            'Slice',
         }
 
-    @ property
+    @property
     def quantize_policy(self) -> QuantizationPolicy:
         """quantize_policy 指明了默认量化策略 被函数 create_default_quant_config 所使用.
 
@@ -147,12 +172,10 @@ class ExtQuantizer(BaseQuantizer):
             QuantizationPolicy: [description]
         """
         return QuantizationPolicy(
-            QuantizationProperty.SYMMETRICAL +
-            QuantizationProperty.LINEAR +
-            QuantizationProperty.PER_TENSOR
+            QuantizationProperty.SYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
         )
 
-    @ property
+    @property
     def rounding_policy(self) -> RoundingPolicy:
         """rounding_policy 指明了默认取整策略 被函数 create_default_quant_config 所使用.
 
@@ -167,7 +190,7 @@ class ExtQuantizer(BaseQuantizer):
         """
         return RoundingPolicy.ROUND_HALF_EVEN
 
-    @ property
+    @property
     def activation_fusion_types(self) -> set:
         """activation_fusion_types 指明了所有要参与图融合的激活函数类型 被后续 activation fustion pass 所使用的
         所有被列举在此的激活函数将会尝试和之前的计算节点进行联合定点。

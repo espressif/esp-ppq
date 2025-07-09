@@ -1,8 +1,8 @@
 from typing import Any, List
 
 import torch
-from esp_ppq.core import (TargetPlatform, convert_any_to_numpy,
-                      convert_any_to_torch_tensor)
+
+from esp_ppq.core import TargetPlatform, convert_any_to_numpy, convert_any_to_torch_tensor
 
 from .base.command import GraphCommand, GraphCommandType, GraphDeployCommand
 from .base.graph import BaseGraph, Operation, Variable
@@ -25,7 +25,6 @@ class RunnableGraph(GraphCommandProcessor):
         self._device = device  # only used in "with RunnableGraph(graph, device):"
 
     def process(self, command: GraphCommand) -> Any:
-
         if command.command_type == GraphCommandType.DEPLOY_TO_CPU:
             return self.deploy('cpu')
 
@@ -53,88 +52,90 @@ class RunnableGraph(GraphCommandProcessor):
             GraphCommandType.DEPLOY_TO_CPU,
             GraphCommandType.DEPLOY_TO_CUDA,
             GraphCommandType.DEPLOY_TO_NUMPY,
-            GraphCommandType.DEPLOY_TO_MPS
+            GraphCommandType.DEPLOY_TO_MPS,
         ]
 
     def retrieve(self):
-
         for _, operator in self._graph.operations.items():
-
-            assert isinstance(operator, Operation), \
+            assert isinstance(operator, Operation), (
                 f'Failed to retrieve graph to numpy, incorrect operator {operator} found.'
+            )
 
             # in onnx format, some constant values are warpped with operation's attributes['value']
             # To move those constant value from numpy to device,
             # we have to move all the attributes['value'] of operation to device(if there is any).
             if operator.type == 'Constant':
-                operator.attributes['value'] = \
-                    convert_any_to_numpy(operator.attributes['value'])
+                operator.attributes['value'] = convert_any_to_numpy(operator.attributes['value'])
 
         for _, variable in self._graph.variables.items():
-            assert isinstance(variable, Variable), \
+            assert isinstance(variable, Variable), (
                 f'Failed to send graph to device, incorrect variable {variable} found.'
+            )
             variable.value = convert_any_to_numpy(variable.value, accept_none=True)
 
         return self
 
     def deploy(self, device: str):
-
         for _, operator in self._graph.operations.items():
-            assert isinstance(operator, Operation), \
+            assert isinstance(operator, Operation), (
                 f'Failed to send graph to device, incorrect operator {operator} found.'
+            )
 
             # in onnx format, some constant values are warpped with operation's attributes['value']
             # To move those constant value from device to numpy,
             # we have to move all the attributes['value'] of operation to numpy(if there is any).
             if operator.type == 'Constant' and operator.platform != TargetPlatform.SOI:
-                operator.attributes['value'] = \
-                    convert_any_to_torch_tensor(
-                        operator.attributes['value'], accept_none=False).to(device)
+                operator.attributes['value'] = convert_any_to_torch_tensor(
+                    operator.attributes['value'], accept_none=False
+                ).to(device)
 
             if operator.type == 'Constant' and operator.platform == TargetPlatform.SOI:
                 value = operator.attributes['value']
-                operator.attributes['value'] = convert_any_to_torch_tensor(
-                    value, accept_none=False, device='cpu')
+                operator.attributes['value'] = convert_any_to_torch_tensor(value, accept_none=False, device='cpu')
 
             # PATCH 20220706, send quantization config to device.
             if isinstance(operator, QuantableOperation):
                 for cfg, var in operator.config_with_variable:
-                    if isinstance(cfg._scale, torch.Tensor): cfg._scale = cfg._scale.to(device)
-                    if isinstance(cfg._offset, torch.Tensor): cfg._offset = cfg._offset.to(device)
+                    if isinstance(cfg._scale, torch.Tensor):
+                        cfg._scale = cfg._scale.to(device)
+                    if isinstance(cfg._offset, torch.Tensor):
+                        cfg._offset = cfg._offset.to(device)
 
         for _, variable in self._graph.variables.items():
-            assert isinstance(variable, Variable), \
+            assert isinstance(variable, Variable), (
                 f'Failed to send graph to device, incorrect variable {variable} found.'
+            )
             # graph output variable has no destinations
-            if len(variable.dest_ops) == 0: continue
-            if variable.value is None: continue
+            if len(variable.dest_ops) == 0:
+                continue
+            if variable.value is None:
+                continue
 
             # check all destination operations platform are same.
             platforms = [op.platform for op in variable.dest_ops]
             if all([_ == platforms[0] for _ in platforms]) and platforms[0] == TargetPlatform.SOI:
                 platform = TargetPlatform.SOI
-            else: platform = TargetPlatform.UNSPECIFIED
+            else:
+                platform = TargetPlatform.UNSPECIFIED
 
             # if all downstream operations are shape related operations, send value to cpu
             if platform == TargetPlatform.SOI:
-                variable.value = convert_any_to_torch_tensor(
-                    variable.value, accept_none=True).to('cpu')
+                variable.value = convert_any_to_torch_tensor(variable.value, accept_none=True).to('cpu')
             else:
-                variable.value = convert_any_to_torch_tensor(
-                    variable.value, accept_none=True).to(device=device)
+                variable.value = convert_any_to_torch_tensor(variable.value, accept_none=True).to(device=device)
 
             # if variable is a shape-related variable, send it to cpu.
             if variable.is_parameter:
                 if len(variable.dest_ops) > 1:
                     raise PermissionError(
                         f'PPQ can not process parameter variable({variable.name})'
-                        f' with multiple destinations({[op.name for op in variable.dest_ops]}), split it first.')
-                dest_op  = variable.dest_ops[0]
+                        f' with multiple destinations({[op.name for op in variable.dest_ops]}), split it first.'
+                    )
+                dest_op = variable.dest_ops[0]
                 dest_idx = dest_op.inputs.index(variable)
 
                 assert isinstance(dest_op, Operation)
                 socket = dest_op.socket
                 if socket.in_plat[dest_idx] == TargetPlatform.SOI:
-                    variable.value = convert_any_to_torch_tensor(
-                        variable.value, accept_none=True).to('cpu')
+                    variable.value = convert_any_to_torch_tensor(variable.value, accept_none=True).to('cpu')
         return self

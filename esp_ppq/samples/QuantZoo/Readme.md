@@ -15,21 +15,21 @@
 
 请注意，如果你在ubuntu下载rar格式的数据集，请先安装unrar确保能够正常解析及解压数据集。
 
-1. 图像分类: 
+1. 图像分类:
     * https://pan.baidu.com/s/1VdMp9fPxPwh2sVPd1ikFKQ?pwd=lebu
 2. 图像超分:
     * https://pan.baidu.com/s/1u7ZAVNtlaMHBzDzzq-1eCw?pwd=gzsb
     * https://drive.google.com/file/d/1ILJu4Y5RifqOuYCKjnVRe5MCkaXkJpoo/view?usp=sharing
-3. 图像分割: 
+3. 图像分割:
     * https://pan.baidu.com/s/1LAS8LYyklz7kgkVUuxDlLg?pwd=db6s
     * https://drive.google.com/file/d/1U87xZwF39M6jr-k4QGrJ6e5sruZw_xAv/view?usp=sharing
-4. 目标检测: 
+4. 目标检测:
     * https://pan.baidu.com/s/1uBvK-Wm1AKVrNgvA9E4lhA?pwd=9n06(还在努力补档)
     * https://drive.google.com/file/d/1fiu3VYvIb1L7fpI0T1EXggvxIE4mtxk8/view?usp=sharing
-5. 姿态检测: 
+5. 姿态检测:
     * https://pan.baidu.com/s/1F4Ui1j1AqsjfV5OOS-Fd4A?pwd=scff
     * https://drive.google.com/file/d/1HoJtpwHXfivO8imgIVJW1wnWBuF0jdZR/view?usp=sharing
-6. 图像-文字识别: 
+6. 图像-文字识别:
     * https://pan.baidu.com/s/1GyYvLbhibLL6kPIA1J0X7Q?pwd=vpxi
     * https://drive.google.com/file/d/1_WjP2a8g6fQubFNT63bx1oo98Cm347Py/view?usp=sharing
 7. NLP:
@@ -202,8 +202,8 @@ OnnxQuant 关注以下三类量化细则下的模型性能：
 | INT8 PERCHANNEL | INT8 PERTENSOR POWER-OF-2 | GRAPHCORE FP8 |
 |:---|:---|:---|
 | 权重使用 PERCHANNEL 量化 | 权重使用 PERTENSOR 量化，Scale 附加 POWER-OF-2 限制 | 权重使用 PERTENSOR FP8 量化 |
-| 激活值使用 PERTENSOR 量化 | 激活值使用 PERTENSOR 量化，Scale 附加 POWER-OF-2 限制 |  激活值使用 PERTENSOR FP8 量化 | 
-| 量化范围为[-128, 127] | 量化范围为[-128, 127] |  量化范围为[-448.0, 448.0] | 
+| 激活值使用 PERTENSOR 量化 | 激活值使用 PERTENSOR 量化，Scale 附加 POWER-OF-2 限制 |  激活值使用 PERTENSOR FP8 量化 |
+| 量化范围为[-128, 127] | 量化范围为[-128, 127] |  量化范围为[-448.0, 448.0] |
 
 ## 5. OnnxQuant Baseline
 

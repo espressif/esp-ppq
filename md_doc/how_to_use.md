@@ -18,7 +18,7 @@ note that you don't have to turn on the above option if your environment fails t
 it's just for accelration and PPQ will do fine without it turning on.
 
 ## Prepare Your DataLoader
-First thing first, you need to prepare your model and calibration data folder, note that only onnx 
+First thing first, you need to prepare your model and calibration data folder, note that only onnx
 models are supported in PPQ for now, and you may need to preprocess your calibration data in advance and store
 them in your calibration data folder in npy or binary files. If your model is in onnx format
 
@@ -83,7 +83,7 @@ different quantization schemes and exported file formats.
 
 
 ## Prepare Your Setting
-Quantization setting acts as a guider which conducts the quantization process. PPQ has provided default 
+Quantization setting acts as a guider which conducts the quantization process. PPQ has provided default
 settings for some backend platforms, see [esp_ppq.api.setting](../esp_ppq/api/setting.py) for more details
 ```python
 from esp_ppq import QuantizationSettingFactory

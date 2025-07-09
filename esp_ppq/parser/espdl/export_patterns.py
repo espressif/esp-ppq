@@ -48,24 +48,16 @@ class EspdlQuantHelper:
     """Helper class for processing onnx qdq format"""
 
     @staticmethod
-    def TQC_Exportable_Check(
-        TQC: TensorQuantizationConfig, bounded_var: Variable
-    ) -> bool:
+    def TQC_Exportable_Check(TQC: TensorQuantizationConfig, bounded_var: Variable) -> bool:
         if not TQC.can_export(True):
-            logger.info(
-                f"Skip {bounded_var.name} because it's not exportable"
-            )
+            logger.info(f"Skip {bounded_var.name} because it's not exportable")
             return False
 
         if TQC.visibility == QuantizationVisibility.INTERNAL:
-            logger.info(
-                f"Skip {bounded_var.name} because TAC visibility is internal"
-            )
+            logger.info(f"Skip {bounded_var.name} because TAC visibility is internal")
             return False
 
-        if TQC.num_of_bits == 8 and TQC.policy.has_property(
-            QuantizationProperty.LINEAR
-        ):
+        if TQC.num_of_bits == 8 and TQC.policy.has_property(QuantizationProperty.LINEAR):
             if TQC.policy.has_property(QuantizationProperty.ASYMMETRICAL):
                 range_check = TQC.quant_max <= 255 and TQC.quant_min >= 0
             else:
@@ -87,9 +79,14 @@ class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         if op.platform in [TargetPlatform.ESPDL_INT8, TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8]:
             op.attributes["quant_type"] = EspQuantType.S8
-        elif (op.platform in [TargetPlatform.ESPDL_INT16, TargetPlatform.ESPDL_S3_INT16,
-                              TargetPlatform.ESPDL_H_PRE_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16,
-                              TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+        elif op.platform in [
+            TargetPlatform.ESPDL_INT16,
+            TargetPlatform.ESPDL_S3_INT16,
+            TargetPlatform.ESPDL_H_PRE_INT16,
+            TargetPlatform.ESPDL_S3_H_PRE_INT16,
+            TargetPlatform.ESPDL_C_INT16,
+            TargetPlatform.ESPDL_C_H_PRE_INT16,
+        ]:
             op.attributes["quant_type"] = EspQuantType.S16
         else:
             op.attributes["quant_type"] = EspQuantType.F32
@@ -110,20 +107,16 @@ class InsertQuantNodePattern(OperationExporter):
             if not var.is_parameter:
                 if var.source_op:
                     if var.source_op.type in QUANT_OP_SET:
-                        assert (
-                            var.source_op.num_of_input == 3
-                        ), "Quantize Node Format Error, need as least 3 inputs."
+                        assert var.source_op.num_of_input == 3, "Quantize Node Format Error, need as least 3 inputs."
                         assert isinstance(var.source_op, Operation)
                         continue
                     elif var in op.inputs:
                         if (
-                            (not isinstance(var.source_op, QuantableOperation) 
-                            or var.source_op.output_quant_config[var.source_op.outputs.index(var)].state == QuantizationStates.FP32)
-                            and var.source_op.type not in QUANT_EXCLUDE_OP_SET
-                        ):
-                            logger.debug(
-                                f"Insert Quantize Node for {op.name}:{var.name}"
-                            )
+                            not isinstance(var.source_op, QuantableOperation)
+                            or var.source_op.output_quant_config[var.source_op.outputs.index(var)].state
+                            == QuantizationStates.FP32
+                        ) and var.source_op.type not in QUANT_EXCLUDE_OP_SET:
+                            logger.debug(f"Insert Quantize Node for {op.name}:{var.name}")
                             insert_quantize_node(
                                 graph=graph,
                                 var=inserting_var,
@@ -146,24 +139,14 @@ class InsertRequantNodePattern(OperationExporter):
             if not var.is_parameter:
                 if var.source_op:
                     if var.source_op.type in QUANT_OP_SET:
-                        assert (
-                            var.source_op.num_of_input == 3
-                        ), "Quantize Node Format Error, need as least 3 inputs."
+                        assert var.source_op.num_of_input == 3, "Quantize Node Format Error, need as least 3 inputs."
                         assert isinstance(var.source_op, Operation)
                         continue
-                    elif var in op.inputs and isinstance(
-                        var.source_op, QuantableOperation
-                    ):
+                    elif var in op.inputs and isinstance(var.source_op, QuantableOperation):
                         source_op_output_var_index = var.source_op.outputs.index(var)
-                        source_op_output_config = var.source_op.output_quant_config[
-                            source_op_output_var_index
-                        ]
-                        scale_diff = torch.max(
-                            torch.abs(source_op_output_config.scale - config.scale)
-                        ).item()
-                        zeropoint_diff = torch.max(
-                            torch.abs(source_op_output_config.offset - config.offset)
-                        ).item()
+                        source_op_output_config = var.source_op.output_quant_config[source_op_output_var_index]
+                        scale_diff = torch.max(torch.abs(source_op_output_config.scale - config.scale)).item()
+                        zeropoint_diff = torch.max(torch.abs(source_op_output_config.offset - config.offset)).item()
 
                         if (
                             source_op_output_config.num_of_bits != config.num_of_bits
@@ -171,9 +154,7 @@ class InsertRequantNodePattern(OperationExporter):
                             or zeropoint_diff >= 1e-1
                         ):
                             # if config
-                            logger.debug(
-                                f"Insert Requantize Node for {op.name}:{var.name}"
-                            )
+                            logger.debug(f"Insert Requantize Node for {op.name}:{var.name}")
                             insert_requantize_node(
                                 graph=graph,
                                 var=inserting_var,
@@ -204,9 +185,7 @@ class InsertDequantNodePattern(OperationExporter):
                             and not isinstance(dest_op, QuantableOperation)
                             and dest_op.type not in QUANT_EXCLUDE_OP_SET
                         ):
-                            logger.debug(
-                                f"Insert Dequantize Node for {op.name}:{var.name}"
-                            )
+                            logger.debug(f"Insert Dequantize Node for {op.name}:{var.name}")
                             insert_dequantize_node(
                                 graph=graph,
                                 var=inserting_var,
@@ -239,90 +218,86 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
         input1_orig_shape = input1.shape
         align = 16 if input1_num_of_bits == 8 else 8
 
-        if (op.platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+        if op.platform in [
+            TargetPlatform.ESPDL_C_INT8,
+            TargetPlatform.ESPDL_C_INT16,
+            TargetPlatform.ESPDL_C_H_PRE_INT16,
+        ]:
             if input1_dims >= 2:
-                    # *CN -> *NC
-                    # Because esp-dl's Conv2D implementation in C requires the filter layout to be NHWC.
-                    insert_transpose_node(graph = graph,
-                                        var = op.inputs[1],
-                                        op = op,
-                                        perm = list(range(len(input1.shape) - 2)) + [-1, -2])
-                    insert_reshape_node(graph = graph,
-                                    var = op.inputs[1],
-                                    op = op,
-                                    shape = input1_orig_shape)
+                # *CN -> *NC
+                # Because esp-dl's Conv2D implementation in C requires the filter layout to be NHWC.
+                insert_transpose_node(
+                    graph=graph, var=op.inputs[1], op=op, perm=list(range(len(input1.shape) - 2)) + [-1, -2]
+                )
+                insert_reshape_node(graph=graph, var=op.inputs[1], op=op, shape=input1_orig_shape)
         else:
             # align
             if input1_n_size % align == 0:
                 if input1_dims >= 2:
                     # *CN -> *(N/align)C(align) = *(N/align)HWC(align)
                     c, n = input1.shape[-2:]
-                    insert_reshape_node(graph = graph, 
-                                    var = op.inputs[1],
-                                    op = op, 
-                                    shape = input1.shape[: -2] + [c, n // align, align])
-                    insert_transpose_node(graph = graph, 
-                                        var = op.inputs[1],
-                                        op = op, 
-                                        perm = list(range(len(input1.shape) - 2)) + [-2, -3, -1])
-                    insert_reshape_node(graph = graph, 
-                                    var = op.inputs[1],
-                                    op = op, 
-                                    shape = input1_orig_shape)
+                    insert_reshape_node(
+                        graph=graph, var=op.inputs[1], op=op, shape=input1.shape[:-2] + [c, n // align, align]
+                    )
+                    insert_transpose_node(
+                        graph=graph, var=op.inputs[1], op=op, perm=list(range(len(input1.shape) - 2)) + [-2, -3, -1]
+                    )
+                    insert_reshape_node(graph=graph, var=op.inputs[1], op=op, shape=input1_orig_shape)
             # unalign
             else:
                 aligned_len = input1_n_size // align * align
 
                 if input1_dims >= 2:
                     c, n = input1.shape[-2:]
-                    trans_op = insert_transpose_node(graph = graph,
-                                                var = op.inputs[1],
-                                                op = op,
-                                                perm = list(range(len(input1.shape) - 2)) + [-1, -2])
+                    trans_op = insert_transpose_node(
+                        graph=graph, var=op.inputs[1], op=op, perm=list(range(len(input1.shape) - 2)) + [-1, -2]
+                    )
                     if aligned_len > 0:
-                        insert_slice_node(graph = graph, 
-                                        var = op.inputs[1],
-                                        op = op, 
-                                        starts = [0] * len(input1.shape),
-                                        ends = input1.shape[:-2] + [aligned_len, c],
-                                        axes = list(range(len(input1.shape))),
-                                        steps = [1] * len(input1.shape))
-                        insert_reshape_node(graph = graph,
-                                        var = op.inputs[1],
-                                        op = op,
-                                        shape = input1.shape[:-2] + [n // align, align, c])
-                        insert_transpose_node(graph = graph,
-                                            var = op.inputs[1],
-                                            op = op,
-                                            perm = list(range(len(input1.shape) - 2)) + [-3, -1, -2])
-                        insert_reshape_node(graph = graph,
-                                        var = op.inputs[1],
-                                        op = op,
-                                        shape = input1.shape[:-2] + [aligned_len, c])
+                        insert_slice_node(
+                            graph=graph,
+                            var=op.inputs[1],
+                            op=op,
+                            starts=[0] * len(input1.shape),
+                            ends=input1.shape[:-2] + [aligned_len, c],
+                            axes=list(range(len(input1.shape))),
+                            steps=[1] * len(input1.shape),
+                        )
+                        insert_reshape_node(
+                            graph=graph, var=op.inputs[1], op=op, shape=input1.shape[:-2] + [n // align, align, c]
+                        )
+                        insert_transpose_node(
+                            graph=graph, var=op.inputs[1], op=op, perm=list(range(len(input1.shape) - 2)) + [-3, -1, -2]
+                        )
+                        insert_reshape_node(
+                            graph=graph, var=op.inputs[1], op=op, shape=input1.shape[:-2] + [aligned_len, c]
+                        )
                         # concat align and unalign
-                        concat_op = insert_concat_node(graph = graph,
-                                                    insert_op_var = op.inputs[1],
-                                                    insert_op = op,
-                                                    link_vars = [trans_op.outputs[0]], 
-                                                    link_vars_src_op = [trans_op],
-                                                    axis = -2)
+                        concat_op = insert_concat_node(
+                            graph=graph,
+                            insert_op_var=op.inputs[1],
+                            insert_op=op,
+                            link_vars=[trans_op.outputs[0]],
+                            link_vars_src_op=[trans_op],
+                            axis=-2,
+                        )
                         # insert unalign
-                        insert_slice_node(graph = graph,
-                                        var = concat_op.inputs[1],
-                                        op = concat_op,
-                                        starts = [0] * (len(input1.shape) - 2) + [aligned_len, 0],
-                                        ends = input1.shape[:-2] + [input1_n_size, c],
-                                        axes = list(range(len(input1.shape))),
-                                        steps = [1] * len(input1.shape))
+                        insert_slice_node(
+                            graph=graph,
+                            var=concat_op.inputs[1],
+                            op=concat_op,
+                            starts=[0] * (len(input1.shape) - 2) + [aligned_len, 0],
+                            ends=input1.shape[:-2] + [input1_n_size, c],
+                            axes=list(range(len(input1.shape))),
+                            steps=[1] * len(input1.shape),
+                        )
                         concat_axis = concat_op.attributes["axis"]
                         concat_op.outputs[0].shape[concat_axis] = 0
                         for input in concat_op.inputs:
-                            concat_op.outputs[0].shape[concat_axis] = concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+                            concat_op.outputs[0].shape[concat_axis] = (
+                                concat_op.outputs[0].shape[concat_axis] + input.shape[concat_axis]
+                            )
 
-                    insert_reshape_node(graph = graph,
-                                    var = op.inputs[1],
-                                    op = op,
-                                    shape = input1_orig_shape)
+                    insert_reshape_node(graph=graph, var=op.inputs[1], op=op, shape=input1_orig_shape)
 
         return op
 
@@ -339,14 +314,10 @@ class FuseReluLikePattern(OperationExporter):
         if op.type in ["Conv", "Gemm", "MatMul"]:
             op.attributes["activation"] = "Linear"
             downstream_op = graph.get_downstream_operations(op)
-            if (
-                len(downstream_op) == 1
-            ):  # the downstream op have only one op and this op is relu
+            if len(downstream_op) == 1:  # the downstream op have only one op and this op is relu
                 # if downstream_op[0].type in ["Relu", "Clip"]:
                 if downstream_op[0].type in ["Relu"]:
-                    logger.debug(
-                        f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}"
-                    )
+                    logger.debug(f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}")
                     conv_quant_config = op.config
                     relu_quant_config = downstream_op[0].config
                     new_config = OperationQuantizationConfig(
@@ -355,9 +326,7 @@ class FuseReluLikePattern(OperationExporter):
                     )
 
                     # graph.remove_operation(downstream_op[0], keep_coherence=True)
-                    graph = fuse_downstream_operation(
-                        graph, downstream_op[0], keep_coherence=True
-                    )
+                    graph = fuse_downstream_operation(graph, downstream_op[0], keep_coherence=True)
                     op.config = new_config
                     op.attributes["activation"] = downstream_op[0].type
 
@@ -370,22 +339,20 @@ class QuantVariableToIntPattern(OperationExporter):
         if not config.policy.has_property(QuantizationProperty.LINEAR):
             raise ValueError("Critical Quantization Error! Non-linear config detected.")
         if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
-            raise ValueError(
-                "Critical Quantization Error! Asymmetrical config detected."
-            )
+            raise ValueError("Critical Quantization Error! Asymmetrical config detected.")
 
         if not config.scale:
             return None
 
         exponent = None
-        if config.policy.has_property(
-            QuantizationProperty.PER_TENSOR
-        ) and config.policy.has_property(QuantizationProperty.POWER_OF_2):
+        if config.policy.has_property(QuantizationProperty.PER_TENSOR) and config.policy.has_property(
+            QuantizationProperty.POWER_OF_2
+        ):
             scale = convert_any_to_numpy(config.scale)
             exponent = [int(np.log2(scale))]
-        elif config.policy.has_property(
-            QuantizationProperty.PER_CHANNEL
-        ) and config.policy.has_property(QuantizationProperty.POWER_OF_2):
+        elif config.policy.has_property(QuantizationProperty.PER_CHANNEL) and config.policy.has_property(
+            QuantizationProperty.POWER_OF_2
+        ):
             scale = convert_any_to_numpy(config.scale)
             exponent = np.log2(scale).astype(int).tolist()
         return exponent
@@ -417,8 +384,7 @@ class QuantVariableToIntPattern(OperationExporter):
                     logger.debug(f"{var.name} exponent: {exponent}")
                 else:
                     logger.info(
-                        "Skip %s from (op name:%s, type:%s) because it's not quantized"
-                        % (var.name, op.name, op.type)
+                        "Skip %s from (op name:%s, type:%s) because it's not quantized" % (var.name, op.name, op.type)
                     )
             else:
                 continue
@@ -436,10 +402,14 @@ class QuantVariableToIntPattern(OperationExporter):
                     config.state = QuantizationStates.PASSIVE
 
                 if config.policy.has_property(QuantizationProperty.LINEAR):
-                    if ((op.platform in [TargetPlatform.ESPDL_H_PRE_INT16,
-                                         TargetPlatform.ESPDL_S3_H_PRE_INT16,
-                                         TargetPlatform.ESPDL_C_H_PRE_INT16])
-                        and config.num_of_bits >= 16):
+                    if (
+                        op.platform
+                        in [
+                            TargetPlatform.ESPDL_H_PRE_INT16,
+                            TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                            TargetPlatform.ESPDL_C_H_PRE_INT16,
+                        ]
+                    ) and config.num_of_bits >= 16:
                         var.value = PPQLinearQuant_toInt(tensor=var.value.type(dtype=torch.float64), config=config)
                     else:
                         var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
@@ -461,16 +431,18 @@ class ResetParamLayoutPattern(OperationExporter):
         layout = LayoutAnnotation.NCHW
 
         if len(tensor.shape) != 3 and len(tensor.shape) != 4:
-            logger.error(
-                f"Conv filter don't support {len(tensor.shape)}D tensor."
-            )
+            logger.error(f"Conv filter don't support {len(tensor.shape)}D tensor.")
             return tensor, layout
 
         if len(tensor.shape) == 3:
             n, c, w = tensor.shape  # n denotes output channels, c denotes input channels,
             tensor = tensor.permute(0, 2, 1)  # NCW -> NWC
 
-            if (platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+            if platform in [
+                TargetPlatform.ESPDL_C_INT8,
+                TargetPlatform.ESPDL_C_INT16,
+                TargetPlatform.ESPDL_C_H_PRE_INT16,
+            ]:
                 layout = LayoutAnnotation.NWC
                 if group > 1:
                     tensor = tensor.permute(1, 2, 0)  # depthwise: NWC -> WCN
@@ -479,9 +451,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 align = 16 if quant_type == EspQuantType.S8 else 8
                 aligned_len = n // align * align
                 aligned_tensor = tensor[0:aligned_len, ...]
-                aligned_tensor = aligned_tensor.reshape(
-                    n // align, align, w, c
-                )  # NWC -> (N/align,align)WC
+                aligned_tensor = aligned_tensor.reshape(n // align, align, w, c)  # NWC -> (N/align,align)WC
                 # (N/align,align)WC -> (N/align)WC(align)
                 aligned_tensor = aligned_tensor.permute(0, 2, 3, 1)
                 # (N/align)WC(align) -> (aligned_len)WC
@@ -516,12 +486,14 @@ class ResetParamLayoutPattern(OperationExporter):
                 tensor = tensor.reshape(w, n, c)  # reshape to WNC
 
         elif len(tensor.shape) == 4:
-            n, c, h, w = (
-                tensor.shape
-            )  # n denotes output channels, c denotes input channels,
+            n, c, h, w = tensor.shape  # n denotes output channels, c denotes input channels,
             tensor = tensor.permute(0, 2, 3, 1)  # NCHW -> NHWC
 
-            if (platform in [TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
+            if platform in [
+                TargetPlatform.ESPDL_C_INT8,
+                TargetPlatform.ESPDL_C_INT16,
+                TargetPlatform.ESPDL_C_H_PRE_INT16,
+            ]:
                 layout = LayoutAnnotation.NHWC
                 if group is not None and group > 1:
                     tensor = tensor.permute(1, 2, 3, 0)  # depthwise: NHWC -> HWCN
@@ -530,9 +502,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 align = 16 if quant_type == EspQuantType.S8 else 8
                 aligned_len = n // align * align
                 aligned_tensor = tensor[0:aligned_len, ...]
-                aligned_tensor = aligned_tensor.reshape(
-                    n // align, align, h, w, c
-                )  # NHWC -> (N/align,align)HWC
+                aligned_tensor = aligned_tensor.reshape(n // align, align, h, w, c)  # NHWC -> (N/align,align)HWC
                 # (N/align,align)HWC -> (N/align)HWC(align)
                 aligned_tensor = aligned_tensor.permute(0, 2, 3, 4, 1)
                 # (N/align)HWC(align) -> (aligned_len)HWC
@@ -544,9 +514,7 @@ class ResetParamLayoutPattern(OperationExporter):
                         aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
                     else:
                         n_remain = n - aligned_len
-                        unaligned_tensor = unaligned_tensor.permute(
-                            3, 1, 2, 0
-                        )  # depthwise unaligned: NHWC -> CHWN
+                        unaligned_tensor = unaligned_tensor.permute(3, 1, 2, 0)  # depthwise unaligned: NHWC -> CHWN
                         unaligned_tensor = unaligned_tensor.reshape(n_remain, h, w, c)
                         aligned_tensor = torch.cat((aligned_tensor, unaligned_tensor), 0)
 
@@ -572,11 +540,7 @@ class ResetParamLayoutPattern(OperationExporter):
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         quant_type = op.attributes.get("quant_type", None)
-        if (
-            quant_type == None
-            or quant_type == EspQuantType.F32
-            or not isinstance(op, QuantableOperation)
-        ):
+        if quant_type == None or quant_type == EspQuantType.F32 or not isinstance(op, QuantableOperation):
             return op
 
         info = ExporterPatternInfo()
@@ -589,14 +553,10 @@ class ResetParamLayoutPattern(OperationExporter):
                 tensor = var.value
                 if len(tensor.shape) == 3 or len(tensor.shape) == 4:  # Conv1d/Conv2d Filter
                     group = op.attributes.get("group", None)
-                    aligned_tensor, layout = self.reset_conv_filter_layout(
-                        tensor, quant_type, group, op.platform
-                    )
+                    aligned_tensor, layout = self.reset_conv_filter_layout(tensor, quant_type, group, op.platform)
                     info.add_var_layout(var.name, layout)
                     var.value = aligned_tensor
-                    logger.debug(
-                        f"reset {op.type}:{op.name}, shape:{tensor.shape}, layout to {layout}"
-                    )
+                    logger.debug(f"reset {op.type}:{op.name}, shape:{tensor.shape}, layout to {layout}")
 
         elif op.type == "Gemm":
             for var in op.inputs:
@@ -607,30 +567,22 @@ class ResetParamLayoutPattern(OperationExporter):
                 tensor = var.value
                 alpha = op.attributes.get("alpha", 1.0)
                 beta = op.attributes.get("beta", 1.0)
-                assert (
-                    alpha == 1.0 and beta == 1.0
-                ), "alpha and beta must be 1.0 and 0.0"
+                assert alpha == 1.0 and beta == 1.0, "alpha and beta must be 1.0 and 0.0"
 
                 if len(tensor.shape) == 2:  # Gemm Filter
                     trans_filter = op.attributes.get("transB", 0)
                     if trans_filter != 0:
-                        logger.debug(
-                            "transB is not 0, transpose the filter and reset transB"
-                        )
+                        logger.debug("transB is not 0, transpose the filter and reset transB")
                         op.attributes["transB"] = 0  # update 'transB'
                         tensor = tensor.transpose(1, 0)  # [N, C] -> [C, N]
                     tensor = tensor.unsqueeze(-1).unsqueeze(-1)  # CN -> CNHW
                     # CNHW -> NCHW, same with conv2d filter
                     tensor = tensor.permute(1, 0, 2, 3)
 
-                    aligned_tensor, layout = self.reset_conv_filter_layout(
-                        tensor, quant_type, None, op.platform
-                    )
+                    aligned_tensor, layout = self.reset_conv_filter_layout(tensor, quant_type, None, op.platform)
                     info.add_var_layout(var.name, layout)
                     var.value = aligned_tensor
-                    logger.debug(
-                        f"reset {op.type}:{op.name}, shape:{var.value.shape}, layout to {layout}"
-                    )
+                    logger.debug(f"reset {op.type}:{op.name}, shape:{var.value.shape}, layout to {layout}")
 
         elif op.type == "MatMul" and op.inputs[1].is_parameter and len(op.inputs[1].shape) >= 2:
             tensor = op.inputs[1].value
@@ -645,9 +597,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 # CNHW -> NCHW, same with conv2d filter
                 tensor_tmp = tensor_tmp.permute(1, 0, 2, 3)
 
-                tensor_tmp, layout = self.reset_conv_filter_layout(
-                    tensor_tmp, quant_type, None, op.platform
-                )
+                tensor_tmp, layout = self.reset_conv_filter_layout(tensor_tmp, quant_type, None, op.platform)
                 # HWCN -> CN
                 tensor_tmp.squeeze(0).squeeze(0)
                 tensor_reset.append(tensor_tmp)
@@ -732,11 +682,7 @@ class AddLUTPattern(OperationExporter):
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         quant_type = op.attributes.get("quant_type", None)
-        if (
-            quant_type == None
-            or quant_type == EspQuantType.F32
-            or not isinstance(op, QuantableOperation)
-        ):
+        if quant_type == None or quant_type == EspQuantType.F32 or not isinstance(op, QuantableOperation):
             return op
 
         info = ExporterPatternInfo()
@@ -746,7 +692,7 @@ class AddLUTPattern(OperationExporter):
             if quant_type == EspQuantType.S8:
                 lut = self.calculate_lut(op, info, 127, -128, 1)
             elif quant_type == EspQuantType.S16 and self.int16_step > 0:
-                lut = self.calculate_lut(op, info, 2**15 - 1, - 2**15, self.int16_step)
+                lut = self.calculate_lut(op, info, 2**15 - 1, -(2**15), self.int16_step)
 
             if lut != None:
                 lut_name = self.get_lut_name(op, info)

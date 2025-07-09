@@ -6,31 +6,40 @@ import torch
 from torch.utils.data import DataLoader
 
 import esp_ppq.lib as PFL
-from esp_ppq.api.setting import (DispatchingTable, QuantizationSetting,
-                             QuantizationSettingFactory)
-from esp_ppq.core import (PPQ_CONFIG, NetworkFramework, TargetPlatform,
-                      empty_ppq_cache, ppq_warning)
-from esp_ppq.core.common import (FORMATTER_FORMAT_CONSTANT_INPUT,
-                             FORMATTER_FUSE_BIAS_ADD, FORMATTER_FUSE_BN,
-                             FORMATTER_REPLACE_BN_TO_CONV,
-                             FORMATTER_REMOVE_IDENTITY,
-                             FORMATTER_REMOVE_ISOLATED,
-                             FORMATTER_FUSE_SWISH)
+from esp_ppq.api.setting import DispatchingTable, QuantizationSetting, QuantizationSettingFactory
+from esp_ppq.core import PPQ_CONFIG, NetworkFramework, TargetPlatform, empty_ppq_cache, ppq_warning
+from esp_ppq.core.common import (
+    FORMATTER_FORMAT_CONSTANT_INPUT,
+    FORMATTER_FUSE_BIAS_ADD,
+    FORMATTER_FUSE_BN,
+    FORMATTER_FUSE_SWISH,
+    FORMATTER_REMOVE_IDENTITY,
+    FORMATTER_REMOVE_ISOLATED,
+    FORMATTER_REPLACE_BN_TO_CONV,
+)
 from esp_ppq.executor import TorchExecutor
 from esp_ppq.executor.base import BaseGraphExecutor
-from esp_ppq.IR import (BaseGraph, GraphBuilder, GraphCommand, GraphCommandType,
-                    GraphFormatter, GraphMerger, GraphReplacer)
+from esp_ppq.IR import (
+    BaseGraph,
+    GraphBuilder,
+    GraphCommand,
+    GraphCommandType,
+    GraphFormatter,
+    GraphMerger,
+    GraphReplacer,
+)
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.quantization.optim.base import QuantizationOptimizationPass
 from esp_ppq.quantization.quantizer import BaseQuantizer
 from esp_ppq.scheduler import DISPATCHER_TABLE, GraphDispatcher
 
 
-def load_graph(file_path: str, from_framework: NetworkFramework=NetworkFramework.ONNX, **kwargs) -> BaseGraph:
+def load_graph(file_path: str, from_framework: NetworkFramework = NetworkFramework.ONNX, **kwargs) -> BaseGraph:
     parser = PFL.Parser(from_framework)
     assert isinstance(parser, GraphBuilder), 'Unexpected Parser found.'
     graph = parser.build(file_path)
     return graph
+
 
 def load_onnx_graph(onnx_import_file: str) -> BaseGraph:
     """
@@ -45,6 +54,7 @@ def load_onnx_graph(onnx_import_file: str) -> BaseGraph:
     ppq_ir = load_graph(onnx_import_file, from_framework=NetworkFramework.ONNX)
     return format_graph(graph=ppq_ir)
 
+
 def load_native_graph(import_file: str) -> BaseGraph:
     """
         从一个指定位置加载 原生计算图，原生计算图中包含了所有量化与调度信息
@@ -57,42 +67,49 @@ def load_native_graph(import_file: str) -> BaseGraph:
     """
     return load_graph(import_file, from_framework=NetworkFramework.NATIVE)
 
+
 def load_torch_model(
-    model: torch.nn.Module, onnx_file_name: str = 'MyModel.onnx', 
-    sample: Union[dict, list, torch.Tensor] = None, device = 'cuda', 
-    verbose: bool = False, opset: int = 11, do_constant_folding: bool = None, 
-    dynamic_axes: dict = None, training: bool = False) -> BaseGraph:
+    model: torch.nn.Module,
+    onnx_file_name: str = 'MyModel.onnx',
+    sample: Union[dict, list, torch.Tensor] = None,
+    device='cuda',
+    verbose: bool = False,
+    opset: int = 11,
+    do_constant_folding: bool = None,
+    dynamic_axes: dict = None,
+    training: bool = False,
+) -> BaseGraph:
     """
-    Convert a Pytorch Module to PPQ graph, 
+    Convert a Pytorch Module to PPQ graph,
         this conversation exports pytorch model to onnx first,
         then PPQ will read from onnx file to build graph.
 
     Args:
         model (torch.nn.Module): Converting Model.
-    
+
         onnx_file_name (str, optional): Exporting Onnx File name, by default it is 'MyModel.onnx'.
-        
-        sample (Union[dict, list, torch.Tensor], optional): 
+
+        sample (Union[dict, list, torch.Tensor], optional):
             A sample input for tracing your pytorch model.
-            
+
             Pytorch will feed this sample input to your model,
             recording record every layer and functions during executing.
-            
+
             Each function recorded will be translated into onnx.
             The input and output shape will also depends on this sample input.
 
         device (str, optional): _description_. Defaults to 'cuda'.
-        
+
         verbose (bool, optional): _description_. Defaults to True.
-        
+
         opset (int, optional): _description_. Defaults to 11.
-        
-        do_constant_folding (bool, optional): 
+
+        do_constant_folding (bool, optional):
             Apply the constant-folding optimization.
             Constant-folding will replace some of the ops that have all constant inputs
             with pre-computed constant nodes.
-        
-        dynamic_axes (dict, optional): 
+
+        dynamic_axes (dict, optional):
             (dict<string, dict<int, string>> or dict<string, list(int)>, default empty dict):
             By default the exported model will have the shapes of all input and output tensors
             set to exactly match those given in ``args``. To specify axes of tensors as
@@ -101,22 +118,27 @@ def load_torch_model(
     Returns:
         BaseGraph: Converted PPQ Graph Instance.
     """
-    
+
     if opset not in {11, 13}:
         ppq_warning(f'The Opset of Exporting Model should be 11 or 13, however {opset} was given.')
 
     model = model.eval()
     model = model.to(device)
-    
+
     _training = torch.onnx.TrainingMode.TRAINING if training else torch.onnx.TrainingMode.EVAL
     torch.onnx.export(
-        model=model, args=sample,
-        verbose=verbose, f=onnx_file_name, opset_version=opset,
+        model=model,
+        args=sample,
+        verbose=verbose,
+        f=onnx_file_name,
+        opset_version=opset,
         do_constant_folding=do_constant_folding,
-        dynamic_axes=dynamic_axes, 
-        training=_training)
-    
+        dynamic_axes=dynamic_axes,
+        training=_training,
+    )
+
     return load_onnx_graph(onnx_import_file=onnx_file_name)
+
 
 def dump_torch_to_onnx(
     model: torch.nn.Module,
@@ -124,7 +146,8 @@ def dump_torch_to_onnx(
     input_shape: List[int],
     input_dtype: torch.dtype = torch.float,
     inputs: List[Any] = None,
-    device: str = 'cuda'):
+    device: str = 'cuda',
+):
     """
         转换一个 torch 模型到 onnx，并保存到指定位置
         convert a torch model to onnx and save to the specified location
@@ -151,19 +174,25 @@ def dump_torch_to_onnx(
 
     # set model to eval mode, stabilize normalization weights.
     assert isinstance(model, torch.nn.Module), (
-        f'Model must be instance of torch.nn.Module, however {type(model)} is given.')
+        f'Model must be instance of torch.nn.Module, however {type(model)} is given.'
+    )
     model.eval()
 
     if inputs is None:
         dummy_input = torch.zeros(size=input_shape, device=device, dtype=input_dtype)
-    else: dummy_input = inputs
+    else:
+        dummy_input = inputs
 
     torch.onnx.export(
-        model=model, args=dummy_input,
-        verbose=False, f=onnx_export_file, opset_version=11,
+        model=model,
+        args=dummy_input,
+        verbose=False,
+        f=onnx_export_file,
+        opset_version=11,
     )
 
-@ empty_ppq_cache
+
+@empty_ppq_cache
 def quantize_onnx_model(
     onnx_import_file: str,
     calib_dataloader: DataLoader,
@@ -231,13 +260,14 @@ def quantize_onnx_model(
         setting = QuantizationSettingFactory.default_setting()
 
     ppq_ir = load_onnx_graph(onnx_import_file=onnx_import_file)
-    ppq_ir = dispatch_graph(graph=ppq_ir, platform=platform, 
-                            dispatcher=setting.dispatcher, 
-                            dispatching_table=setting.dispatching_table)
-    
+    ppq_ir = dispatch_graph(
+        graph=ppq_ir, platform=platform, dispatcher=setting.dispatcher, dispatching_table=setting.dispatching_table
+    )
+
     if inputs is None:
         dummy_input = torch.zeros(size=input_shape, device=device, dtype=input_dtype)
-    else: dummy_input = inputs
+    else:
+        dummy_input = inputs
 
     quantizer = PFL.Quantizer(platform, ppq_ir)
     executor = TorchExecutor(graph=quantizer._graph, device=device)
@@ -248,16 +278,18 @@ def quantize_onnx_model(
             executor=executor,
             setting=setting,
             calib_steps=calib_steps,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
         )
-        if verbose: quantizer.report()
+        if verbose:
+            quantizer.report()
         return quantizer._graph
     else:
         executor = TorchExecutor(graph=ppq_ir, device=device)
         executor.tracing_operation_meta(inputs=dummy_input)
         return quantizer._graph
 
-@ empty_ppq_cache
+
+@empty_ppq_cache
 def quantize_torch_model(
     model: torch.nn.Module,
     calib_dataloader: DataLoader,
@@ -272,7 +304,7 @@ def quantize_torch_model(
     onnx_export_file: str = 'onnx.model',
     device: str = 'cuda',
     verbose: int = 0,
-    ) -> BaseGraph:
+) -> BaseGraph:
     """量化一个 Pytorch 原生的模型 输入一个 torch.nn.Module 返回一个量化后的 esp_ppq.IR.BaseGraph.
 
         quantize a pytorch model, input pytorch model and return quantized ppq IR graph
@@ -318,16 +350,32 @@ def quantize_torch_model(
                    The quantized IR, containing all information needed for backend execution
     """
     # dump pytorch model to onnx
-    dump_torch_to_onnx(model=model, onnx_export_file=onnx_export_file,
-        input_shape=input_shape, input_dtype=input_dtype,
-        inputs=inputs, device=device)
+    dump_torch_to_onnx(
+        model=model,
+        onnx_export_file=onnx_export_file,
+        input_shape=input_shape,
+        input_dtype=input_dtype,
+        inputs=inputs,
+        device=device,
+    )
 
-    return quantize_onnx_model(onnx_import_file=onnx_export_file,
-        calib_dataloader=calib_dataloader, calib_steps=calib_steps, collate_fn=collate_fn,
-        input_shape=input_shape, input_dtype=input_dtype, inputs=inputs, setting=setting,
-        platform=platform, device=device, verbose=verbose, do_quantize=do_quantize)
+    return quantize_onnx_model(
+        onnx_import_file=onnx_export_file,
+        calib_dataloader=calib_dataloader,
+        calib_steps=calib_steps,
+        collate_fn=collate_fn,
+        input_shape=input_shape,
+        input_dtype=input_dtype,
+        inputs=inputs,
+        setting=setting,
+        platform=platform,
+        device=device,
+        verbose=verbose,
+        do_quantize=do_quantize,
+    )
 
-@ empty_ppq_cache
+
+@empty_ppq_cache
 def quantize_native_model(
     model: BaseGraph,
     calib_dataloader: DataLoader,
@@ -393,17 +441,18 @@ def quantize_native_model(
 
     if setting is None:
         setting = QuantizationSettingFactory.default_setting()
-    ppq_ir = dispatch_graph(graph=model, platform=platform, 
-                            dispatcher=setting.dispatcher, 
-                            dispatching_table=setting.dispatching_table)
+    ppq_ir = dispatch_graph(
+        graph=model, platform=platform, dispatcher=setting.dispatcher, dispatching_table=setting.dispatching_table
+    )
 
     if inputs is None:
         dummy_input = torch.zeros(size=input_shape, device=device, dtype=input_dtype)
-    else: dummy_input = inputs
+    else:
+        dummy_input = inputs
 
     quantizer = PFL.Quantizer(platform=platform, graph=ppq_ir)
     executor = TorchExecutor(graph=quantizer._graph, device=device)
-    
+
     if do_quantize:
         quantizer.quantize(
             inputs=dummy_input,
@@ -411,9 +460,10 @@ def quantize_native_model(
             executor=executor,
             setting=setting,
             calib_steps=calib_steps,
-            collate_fn=collate_fn
+            collate_fn=collate_fn,
         )
-        if verbose: quantizer.report()
+        if verbose:
+            quantizer.report()
         return quantizer._graph
     else:
         executor = TorchExecutor(graph=ppq_ir, device=device)
@@ -427,7 +477,8 @@ def export_ppq_graph(
     graph_save_to: str,
     config_save_to: str = None,
     copy_graph: bool = True,
-    **kwargs) -> None:
+    **kwargs,
+) -> None:
     """使用这个函数将 PPQ ir 保存到文件，同时导出 PPQ 的量化配置信息。 该函数可以将 PPQ ir 保存为不同格式的模型文件。 this
     func dumps ppq IR to file, and exports quantization setting information
     simultaneously.
@@ -450,21 +501,24 @@ def export_ppq_graph(
             note that some of platforms requires to write quantization setting
             directly into the model file, this parameter won't have effect at
             this situation
-            
+
         copy_graph (bool): 导出图的时候是否需要把图复制一份
             Whether to copy graph when export.
     """
     for save_path in [graph_save_to, config_save_to]:
-        if save_path is None: continue
+        if save_path is None:
+            continue
         if os.path.exists(save_path):
             if os.path.isfile(save_path):
                 ppq_warning(f'File {save_path} is already existed, Exporter will overwrite it.')
             if os.path.isdir(save_path):
-                raise FileExistsError(f'File {save_path} is already existed, and it is a directory, '
-                                    'Exporter can not create file here.')
+                raise FileExistsError(
+                    f'File {save_path} is already existed, and it is a directory, Exporter can not create file here.'
+                )
 
     exporter = PFL.Exporter(platform)
-    if copy_graph: graph = graph.copy()
+    if copy_graph:
+        graph = graph.copy()
     exporter.export(file_path=graph_save_to, config_path=config_save_to, graph=graph, **kwargs)
 
 
@@ -487,20 +541,20 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     We do not expect there is any shared parameter in your network, all of them will be copied and spilted.
     We do not expect any isolated operation in your network, all of them will be removed.
     """
-    
+
     # do graph level optimization
     formatter = GraphReplacer(GraphFormatter(GraphMerger(graph)))
     if FORMATTER_FORMAT_CONSTANT_INPUT:
         formatter(GraphCommand(GraphCommandType.FORMAT_CONSTANT_INPUT))
     formatter(GraphCommand(GraphCommandType.CONVERT_TO_TENSOR))
     formatter(GraphCommand(GraphCommandType.FORMAT_PARAMETERS))
-    
+
     if FORMATTER_FUSE_BIAS_ADD:
         formatter(GraphCommand(GraphCommandType.FUSE_BIAS_ADD))
-    
+
     if FORMATTER_FUSE_BN:
         formatter(GraphCommand(GraphCommandType.FUSE_BN))
-    
+
     if FORMATTER_REPLACE_BN_TO_CONV:
         formatter(GraphCommand(GraphCommandType.REPLACE_BATCHNORM_TO_CONV))
 
@@ -512,10 +566,10 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     formatter(GraphCommand(GraphCommandType.FORMAT_CLIP))
     formatter(GraphCommand(GraphCommandType.FORMAT_PAD))
     formatter(GraphCommand(GraphCommandType.FORMAT_RESIZE))
-    
+
     if FORMATTER_REMOVE_IDENTITY:
         formatter(GraphCommand(GraphCommandType.REMOVE_IDENTITY))
-    
+
     if FORMATTER_REMOVE_ISOLATED:
         formatter(GraphCommand(GraphCommandType.DELETE_ISOLATED))
 
@@ -523,10 +577,12 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
 
 
 def dispatch_graph(
-    graph: BaseGraph, platform: TargetPlatform, 
-    dispatcher: Union[str, GraphDispatcher] = 'conservative', 
-    dispatching_table: DispatchingTable = None) -> BaseGraph:
-    """这个函数执行图切分与调度，你的计算图将被切分成一系列子图，并被调度到不同设备上。 
+    graph: BaseGraph,
+    platform: TargetPlatform,
+    dispatcher: Union[str, GraphDispatcher] = 'conservative',
+    dispatching_table: DispatchingTable = None,
+) -> BaseGraph:
+    """这个函数执行图切分与调度，你的计算图将被切分成一系列子图，并被调度到不同设备上。
     调度的逻辑分为自动控制的部分以及手动覆盖的部分，你可以使用 QuantizationSetting 来向这个函数传递手动调度表 从而覆盖 PPQ 的调度逻辑。
 
     注意：这个函数依据调度器和 TargetPlatform 平台的不同而产生行为差异，生成不同的调度计划。
@@ -537,7 +593,7 @@ def dispatch_graph(
         the default dispatching logic of ppq dispatcher manually.
     """
     dispatching_override = dispatching_table
-    quantizer = PFL.Quantizer(platform=platform, graph=graph) # 初始化一个 quantizer 没有很大代价...
+    quantizer = PFL.Quantizer(platform=platform, graph=graph)  # 初始化一个 quantizer 没有很大代价...
 
     if isinstance(dispatcher, str):
         dispatcher = dispatcher.lower()
@@ -546,36 +602,45 @@ def dispatch_graph(
         dispatcher = DISPATCHER_TABLE[dispatcher](graph)
     else:
         if not isinstance(dispatcher, GraphDispatcher):
-            raise TypeError('Parameter "dispachter" of function esp_ppq.api.dispatch_graph must be String or GraphDispatcher, '
-                            f'however {type(dispatcher)} was given.')
+            raise TypeError(
+                'Parameter "dispachter" of function esp_ppq.api.dispatch_graph must be String or GraphDispatcher, '
+                f'however {type(dispatcher)} was given.'
+            )
         dispatcher = dispatcher
 
     assert isinstance(dispatcher, GraphDispatcher)
     assert isinstance(quantizer, BaseQuantizer)
     quant_types = quantizer.quant_operation_types
     dispatching_table = dispatcher.dispatch(
-        graph=graph, quant_types=quant_types,
-        quant_platform=TargetPlatform.UNSPECIFIED, # MUST BE UNSPECIFIED, 这里的意思是交由 Quantizer 决定是否量化这个算子
+        graph=graph,
+        quant_types=quant_types,
+        quant_platform=TargetPlatform.UNSPECIFIED,  # MUST BE UNSPECIFIED, 这里的意思是交由 Quantizer 决定是否量化这个算子
         fp32_platform=TargetPlatform.FP32,
-        SOI_platform=TargetPlatform.SOI)
+        SOI_platform=TargetPlatform.SOI,
+    )
 
     # override dispatching result
     if dispatching_override is not None:
         if not isinstance(dispatching_override, DispatchingTable):
-            raise TypeError('Parameter "dispatching_table" of function esp_ppq.api.dispatch_graph must be DispatchingTable, '
-                            f'however {type(dispatching_override)} was given.')
+            raise TypeError(
+                'Parameter "dispatching_table" of function esp_ppq.api.dispatch_graph must be DispatchingTable, '
+                f'however {type(dispatching_override)} was given.'
+            )
 
         for opname, platform in dispatching_override.dispatchings.items():
-            if opname not in graph.operations: continue
+            if opname not in graph.operations:
+                continue
             assert isinstance(platform, int), (
                 f'Your dispatching table contains a invalid setting of operation {opname}, '
                 'All platform setting given in dispatching table is expected given as int, '
-                f'however {type(platform)} was given.')
+                f'however {type(platform)} was given.'
+            )
             dispatching_table[opname] = TargetPlatform(platform)
 
     for operation in graph.operations.values():
         assert operation.name in dispatching_table, (
-            f'Internal Error, Can not find operation {operation.name} in dispatching table.')
+            f'Internal Error, Can not find operation {operation.name} in dispatching table.'
+        )
         operation.platform = dispatching_table[operation.name]
     return graph
 
@@ -587,9 +652,16 @@ class UnbelievableUserFriendlyQuantizationSetting:
     这个文件包含了最基本的量化配置。
     """
 
-    def __init__(self, platform: TargetPlatform, finetune_steps: int = 500, finetune_lr: float = 3e-5,
-                 interested_outputs: List[str] = None, calibration: str = 'percentile', equalization: bool = True,
-                 non_quantable_op: List[str] = None) -> None:
+    def __init__(
+        self,
+        platform: TargetPlatform,
+        finetune_steps: int = 500,
+        finetune_lr: float = 3e-5,
+        interested_outputs: List[str] = None,
+        calibration: str = 'percentile',
+        equalization: bool = True,
+        non_quantable_op: List[str] = None,
+    ) -> None:
         """
         量化配置文件 -- 入门版
 
@@ -605,16 +677,18 @@ class UnbelievableUserFriendlyQuantizationSetting:
             equalization (bool, optional): 是否要拉平网络权重. Defaults to True.
             non_quantable_op (List[str], optional): 非量化算子集合，所有名字出现在该集合里的算子将不被量化. Defaults to None.
         """
-        self.equalization     = equalization
-        self.finetune_steps   = finetune_steps
-        self.finetune_lr      = finetune_lr
-        self.calibration      = calibration
-        self.platform         = platform
+        self.equalization = equalization
+        self.finetune_steps = finetune_steps
+        self.finetune_lr = finetune_lr
+        self.calibration = calibration
+        self.platform = platform
         self.non_quantable_op = non_quantable_op
         self.interested_outputs = interested_outputs
 
-        if isinstance(self.non_quantable_op, str): self.non_quantable_op = [self.non_quantable_op]
-        if isinstance(self.interested_outputs, str): self.interested_outputs = [self.interested_outputs]
+        if isinstance(self.non_quantable_op, str):
+            self.non_quantable_op = [self.non_quantable_op]
+        if isinstance(self.interested_outputs, str):
+            self.interested_outputs = [self.interested_outputs]
 
     def convert_to_daddy_setting(self) -> QuantizationSetting:
         # 将菜鸡版量化配置转换成高级版的
@@ -625,21 +699,22 @@ class UnbelievableUserFriendlyQuantizationSetting:
             daddy.fusion_setting.force_alignment_overlap = True
 
         if self.finetune_steps > 0:
-            daddy.lsq_optimization               = True
+            daddy.lsq_optimization = True
             daddy.lsq_optimization_setting.steps = self.finetune_steps
-            daddy.lsq_optimization_setting.lr    = self.finetune_lr
+            daddy.lsq_optimization_setting.lr = self.finetune_lr
 
         if self.equalization == True:
-            daddy.equalization                    = True
+            daddy.equalization = True
             daddy.equalization_setting.iterations = 3
-            daddy.equalization_setting.opt_level  = 1
+            daddy.equalization_setting.opt_level = 1
             daddy.equalization_setting.value_threshold = 0
 
         if self.non_quantable_op is not None:
             for op_name in self.non_quantable_op:
                 assert isinstance(op_name, str), (
                     f'你尝试使用 non_quantable_op 来设定非量化算子，'
-                    f'non_quantable_op 只应当包含算子的名字，而你传入的数据中包括了 {type(op_name)}')
+                    f'non_quantable_op 只应当包含算子的名字，而你传入的数据中包括了 {type(op_name)}'
+                )
                 daddy.dispatching_table.append(op_name, TargetPlatform.FP32)
 
         return daddy
@@ -657,7 +732,7 @@ class UnbelievableUserFriendlyQuantizationSetting:
         with open(file_path, 'w', encoding='utf-8') as file:
             json.dump(obj=dump_dict, fp=file, sort_keys=True, indent=4, ensure_ascii=False)
 
-    @ staticmethod
+    @staticmethod
     def from_file(file_path: str):
         if not os.path.exists(file_path):
             raise FileNotFoundError('找不到你的配置文件，检查配置文件路径是否正确！')
@@ -669,13 +744,17 @@ class UnbelievableUserFriendlyQuantizationSetting:
         platform = loaded['platform']
         if platform in TargetPlatform._member_names_:
             platform = TargetPlatform._member_map_[platform]
-        else: raise KeyError('无法解析你的json配置文件，遇到了未知的platform属性。')
+        else:
+            raise KeyError('无法解析你的json配置文件，遇到了未知的platform属性。')
 
         setting = UnbelievableUserFriendlyQuantizationSetting(platform)
         for key, value in loaded.items():
-            if key == 'platform': continue
-            if key in setting.__dict__: setting.__dict__[key] = value
-            if key not in setting.__dict__: ppq_warning(f'你的Json文件中包含无法解析的属性 {key} ，该属性已经被舍弃')
+            if key == 'platform':
+                continue
+            if key in setting.__dict__:
+                setting.__dict__[key] = value
+            if key not in setting.__dict__:
+                ppq_warning(f'你的Json文件中包含无法解析的属性 {key} ，该属性已经被舍弃')
         assert isinstance(setting, UnbelievableUserFriendlyQuantizationSetting)
         return setting
 
@@ -683,9 +762,16 @@ class UnbelievableUserFriendlyQuantizationSetting:
         return str(self.__dict__)
 
 
-def quantize(working_directory: str, setting: QuantizationSetting, model_type: NetworkFramework,
-             executing_device: str, input_shape: List[int], target_platform: TargetPlatform,
-             dataloader: DataLoader, calib_steps: int = 32) -> BaseGraph:
+def quantize(
+    working_directory: str,
+    setting: QuantizationSetting,
+    model_type: NetworkFramework,
+    executing_device: str,
+    input_shape: List[int],
+    target_platform: TargetPlatform,
+    dataloader: DataLoader,
+    calib_steps: int = 32,
+) -> BaseGraph:
     """Helper function for quantize your model within working directory, This
     function will do some check and redirect your requirement to:
     esp_ppq.api.quantize_onnx_model.
@@ -714,8 +800,13 @@ def quantize(working_directory: str, setting: QuantizationSetting, model_type: N
             raise FileNotFoundError(f'无法找到你的模型: {os.path.join(working_directory, "model.onnx")}')
         return quantize_onnx_model(
             onnx_import_file=os.path.join(working_directory, 'model.onnx'),
-            calib_dataloader=dataloader, calib_steps=calib_steps, input_shape=input_shape, setting=setting,
-            platform=target_platform, device=executing_device, collate_fn=lambda x: x.to(executing_device)
+            calib_dataloader=dataloader,
+            calib_steps=calib_steps,
+            input_shape=input_shape,
+            setting=setting,
+            platform=target_platform,
+            device=executing_device,
+            collate_fn=lambda x: x.to(executing_device),
         )
 
 
@@ -730,16 +821,22 @@ def export(working_directory: str, quantized: BaseGraph, platform: TargetPlatfor
         platform (TargetPlatform): _description_
     """
     export_ppq_graph(
-        graph=quantized, platform=platform,
+        graph=quantized,
+        platform=platform,
         graph_save_to=os.path.join(working_directory, 'quantized'),
         config_save_to=os.path.join(working_directory, 'quantized.json'),
-        **kwargs
+        **kwargs,
     )
 
 
-def manop(graph: BaseGraph, list_of_passes: List[QuantizationOptimizationPass],
-          calib_dataloader: Iterable, executor: BaseGraphExecutor,
-          collate_fn: Callable = None, **kwargs) -> BaseGraph:
+def manop(
+    graph: BaseGraph,
+    list_of_passes: List[QuantizationOptimizationPass],
+    calib_dataloader: Iterable,
+    executor: BaseGraphExecutor,
+    collate_fn: Callable = None,
+    **kwargs,
+) -> BaseGraph:
     """manop 是一个很方便的函数，你可以调用这个函数来手动地执行一些量化优化工作
     你可以在默认量化逻辑之前或之后调用这个函数来自定义量化处理流程，相比于直接实现 Quantizer来修改量化逻辑的方式, 使用 manop
     会更加灵活。
@@ -770,30 +867,36 @@ def manop(graph: BaseGraph, list_of_passes: List[QuantizationOptimizationPass],
         list_of_passes = [list_of_passes]
 
     if not (isinstance(list_of_passes, list) or isinstance(list_of_passes, tuple)):
-        raise TypeError('Can not apply optimization on your graph, '
-                        'expect a list of QuantizationOptimizationPass as input, '
-                        f'while {type(list_of_passes)} was given.')
+        raise TypeError(
+            'Can not apply optimization on your graph, '
+            'expect a list of QuantizationOptimizationPass as input, '
+            f'while {type(list_of_passes)} was given.'
+        )
 
     for optim in list_of_passes:
         if not isinstance(optim, QuantizationOptimizationPass):
-            raise TypeError('Invoking this function needs a list of QuantizationOptimizationPass, '
-                            f'however there is a/an {type(optim)} in your list')
+            raise TypeError(
+                'Invoking this function needs a list of QuantizationOptimizationPass, '
+                f'however there is a/an {type(optim)} in your list'
+            )
         optim.apply(graph, dataloader=calib_dataloader, executor=executor, collate_fn=collate_fn, **kwargs)
     return graph
 
 
 class ENABLE_CUDA_KERNEL:
-    """ Any code surrounded by 
+    """Any code surrounded by
     with ENABLE_CUDA_KERNEL():
     will invoke ppq's kernel functions for speed boost.
-    
+
     This is a helper class for invoking highly-effcient custimized cuda
     kernel. PPQ developer team has implemented a series of quantization related
     cuda kernel, They are 5-100x faster than torch kernels, with less gpu
     memory cost.
     """
+
     def __init__(self) -> None:
         from esp_ppq.core.ffi import CUDA_COMPLIER
+
         CUDA_COMPLIER.complie()
         self._state = False
 
@@ -806,32 +909,34 @@ class ENABLE_CUDA_KERNEL:
 
 
 class DISABLE_CUDA_KERNEL:
-    """ Any code surrounded by 
+    """Any code surrounded by
     with DISABLE_CUDA_KERNEL():
     will block ppq's kernel functions.
-    
+
     This is a helper class for blocking ppq custimized cuda
     kernel. PPQ developer team has implemented a series of quantization related
     cuda kernel, They are 5-100x faster than torch kernels, with less gpu
     memory cost.
     """
+
     def __init__(self) -> None:
         pass
-    
+
     def __enter__(self):
         self._state = PPQ_CONFIG.USING_CUDA_KERNEL
         PPQ_CONFIG.USING_CUDA_KERNEL = False
-    
+
     def __exit__(self, *args):
         PPQ_CONFIG.USING_CUDA_KERNEL = self._state
 
 
 class DEQUANTIZE_GRAPH:
-    """ A short-cut function to dequantize given graph. """
+    """A short-cut function to dequantize given graph."""
+
     def __init__(self, graph: BaseGraph) -> None:
-        self._graph          = graph
+        self._graph = graph
         self._state_recorder = {}
-        self._quantable_ops  = [op for op in graph.operations.values() if isinstance(op, QuantableOperation)]
+        self._quantable_ops = [op for op in graph.operations.values() if isinstance(op, QuantableOperation)]
 
     def __enter__(self):
         for op in self._quantable_ops:
@@ -842,10 +947,23 @@ class DEQUANTIZE_GRAPH:
             op.restore_quantize_state()
 
 
-__all__ = ['load_graph', 'load_onnx_graph',
-           'dispatch_graph', 'dump_torch_to_onnx', 'quantize_onnx_model',
-           'quantize_torch_model', 'load_native_graph',
-           'export_ppq_graph', 'format_graph', 'quantize', 'export', 'load_torch_model',
-           'UnbelievableUserFriendlyQuantizationSetting', 'manop',
-           'quantize_native_model', 'ENABLE_CUDA_KERNEL', 'DISABLE_CUDA_KERNEL', 
-           'DEQUANTIZE_GRAPH']
+__all__ = [
+    'load_graph',
+    'load_onnx_graph',
+    'dispatch_graph',
+    'dump_torch_to_onnx',
+    'quantize_onnx_model',
+    'quantize_torch_model',
+    'load_native_graph',
+    'export_ppq_graph',
+    'format_graph',
+    'quantize',
+    'export',
+    'load_torch_model',
+    'UnbelievableUserFriendlyQuantizationSetting',
+    'manop',
+    'quantize_native_model',
+    'ENABLE_CUDA_KERNEL',
+    'DISABLE_CUDA_KERNEL',
+    'DEQUANTIZE_GRAPH',
+]

@@ -1,9 +1,10 @@
+import json
 import os
 from typing import List
-import json
 
 from esp_ppq.core import NetworkFramework
-from esp_ppq.IR import BaseGraph,GraphExporter
+from esp_ppq.IR import BaseGraph, GraphExporter
+
 from .onnx_exporter import OnnxExporter
 
 
@@ -25,14 +26,14 @@ class MNNExporter(GraphExporter):
                 op_tensor_scales.clear()
                 op_tensor_names.clear()
                 for cfg, var in op.config_with_variable:
-                    if not cfg.can_export(export_overlapped=True): 
+                    if not cfg.can_export(export_overlapped=True):
                         continue
-                    if var.is_parameter: 
+                    if var.is_parameter:
                         continue
                     op_tensor_scales.append(cfg.scale.item())
                     op_tensor_names.append(var.name)
-                    
-                assert len(op_tensor_scales)==len(op_tensor_names)
+
+                assert len(op_tensor_scales) == len(op_tensor_names)
                 if op.type == "Conv":
                     base_name = op_tensor_names[1]
                     input_tensor_name = base_name + " input_tensor_0"
@@ -47,9 +48,13 @@ class MNNExporter(GraphExporter):
         with open(config_path, "w") as json_file:
             json_file.write(json_qparams_str)
 
-
-    def export(self, file_path: str, graph: BaseGraph, config_path: str = None, input_shapes: List[List[int]] = [[1, 3, 224, 224]]):
-
+    def export(
+        self,
+        file_path: str,
+        graph: BaseGraph,
+        config_path: str = None,
+        input_shapes: List[List[int]] = [[1, 3, 224, 224]],
+    ):
         if graph._built_from == NetworkFramework.ONNX:
             if config_path is not None:
                 self.export_onnx_quantization_config(config_path, graph)

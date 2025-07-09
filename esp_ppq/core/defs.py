@@ -5,6 +5,7 @@ You are not allowed to modify this 请勿修改此文件
 
 import gc
 from typing import Callable
+
 from torch.cuda import empty_cache
 
 from .config import PPQ_CONFIG
@@ -48,10 +49,12 @@ def empty_ppq_cache(func: Callable):
     Args:
         func (Callable): decorated function
     """
+
     def _wrapper(*args, **kwargs):
-        empty_cache() # torch.cuda.empty_cache might requires a sync of all cuda device.
+        empty_cache()  # torch.cuda.empty_cache might requires a sync of all cuda device.
         gc.collect()  # empty memory.
         return func(*args, **kwargs)
+
     return _wrapper
 
 
@@ -61,8 +64,10 @@ def ppq_quant_param_computing_function(func: Callable):
     Args:
         func (Callable): decorated function
     """
+
     def _wrapper(*args, **kwargs):
         return func(*args, **kwargs)
+
     return _wrapper
 
 
@@ -72,15 +77,18 @@ def ppq_debug_function(func: Callable):
     Args:
         func (Callable): decorated function
     """
+
     def _wrapper(*args, **kwargs):
         if PPQ_CONFIG.PPQ_DEBUG:
             debug_str = func(*args, **kwargs)
-            if debug_str is None: return None
+            if debug_str is None:
+                return None
             assert isinstance(debug_str, str), (
-                'ppq_debug_function should only return string instance, '
-                f'while {str(func)} returns {type(debug_str)}')
+                f'ppq_debug_function should only return string instance, while {str(func)} returns {type(debug_str)}'
+            )
             print(debug_str, end='')
-        else: return None
+        else:
+            return None
 
     return _wrapper
 
@@ -92,8 +100,10 @@ def ppq_file_io(func: Callable):
     Args:
         func (Callable): decorated function
     """
+
     def _wrapper(*args, **kwargs):
         return func(*args, **kwargs)
+
     return _wrapper
 
 

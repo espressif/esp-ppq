@@ -1,15 +1,16 @@
-import sys
 import os
+import sys
 import warnings
 from typing import Any, Dict, NamedTuple, Union, cast
+
 import numpy as np
 
 sys.path.append(os.path.dirname(__file__))
 import FlatBuffers.Dl.OptionalType as OptionalType
 import FlatBuffers.Dl.SequenceType as SequenceType
+import FlatBuffers.Dl.Tensor
 import FlatBuffers.Dl.Tensor as Tensor
 import FlatBuffers.Dl.TensorDataType as TensorDataType
-import FlatBuffers.Dl.Tensor
 
 
 class TensorDtypeMap(NamedTuple):
@@ -76,10 +77,7 @@ class DeprecatedWarningDict(dict):  # type: ignore
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DeprecatedWarningDict):
             return False
-        return (
-            self._origin_function == other._origin_function
-            and self._future_function == other._future_function
-        )
+        return self._origin_function == other._origin_function and self._future_function == other._future_function
 
     def __getitem__(self, key: Union[int, str, np.dtype]) -> Any:
         if not self._future_function:
@@ -111,10 +109,7 @@ TENSOR_TYPE_TO_NP_TYPE = DeprecatedWarningDict(
 )
 
 
-_NP_TYPE_TO_TENSOR_TYPE = {
-    v: k
-    for k, v in TENSOR_TYPE_TO_NP_TYPE.items()
-}
+_NP_TYPE_TO_TENSOR_TYPE = {v: k for k, v in TENSOR_TYPE_TO_NP_TYPE.items()}
 
 
 _STORAGE_TENSOR_TYPE_TO_FIELD = {

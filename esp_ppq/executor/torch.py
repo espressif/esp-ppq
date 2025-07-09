@@ -2,14 +2,19 @@ from typing import Callable, Dict, List, Union
 
 import torch
 
-from esp_ppq.core import (QuantizationStates, TargetPlatform, DataType,
-                      TensorQuantizationConfig, empty_ppq_cache, ppq_warning)
+from esp_ppq.core import (
+    DataType,
+    QuantizationStates,
+    TargetPlatform,
+    TensorQuantizationConfig,
+    empty_ppq_cache,
+    ppq_warning,
+)
 from esp_ppq.IR import BaseGraph, Operation, QuantableOperation, RunnableGraph
 from esp_ppq.IR.base.command import GraphDeployCommand
 from esp_ppq.quantization.qfunction import PPQuantFunction
 
-from .base import (OPERATION_FORWARD_TABLE, BaseGraphExecutor,
-                   QuantOPRuntimeHook, RuntimeHook)
+from .base import OPERATION_FORWARD_TABLE, BaseGraphExecutor, QuantOPRuntimeHook, RuntimeHook
 from .op import TorchBackendContext
 
 
@@ -24,7 +29,8 @@ class TorchMetaDataTracingHook(RuntimeHook):
             if tensor is None:
                 ppq_warning(
                     f'Unexpected input value of operation {self._hook_to.name}, '
-                    f'recieving "None" at its input {self._hook_to.inputs.index(var)}')
+                    f'recieving "None" at its input {self._hook_to.inputs.index(var)}'
+                )
             else:
                 var.shape = tensor.shape
                 var.dtype = tensor.dtype
@@ -65,18 +71,16 @@ class TorchQuantizeDelegator(Callable):
     Args:
         Callable (_type_): _description_
     """
+
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, tensor: torch.Tensor,
-                 config: TensorQuantizationConfig) -> torch.Tensor:
+    def __call__(self, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
         raise NotImplementedError('Implement this function first.')
 
 
 class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
-    def __init__(
-        self, graph: BaseGraph, fp16_mode: bool = True,
-        device: str = 'cuda') -> None:
+    def __init__(self, graph: BaseGraph, fp16_mode: bool = True, device: str = 'cuda') -> None:
         """
         ## PPQ Graph Executor(PPQ 执行引擎)
 
@@ -106,14 +110,14 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 if platform not in GLOBAL_DISPATCHING_TABLE:
                     raise ValueError('Unknown Platform detected, Please check your platform setting.')
                 GLOBAL_DISPATCHING_TABLE[platform][operation_type] = handler
-                
+
         该函数位于 esp_ppq.api, 你可以使用语句 from esp_ppq.api import register_operation_handler 来引入它。
-        
+
         ### PPQ Executor(PPQ 执行引擎)
         接下来我们向你介绍 PPQ 执行引擎 TorchExecutor，你可以使用语句 from ppq import TorchExecutor 导入执行引擎。初始化执行引擎则需要传入一个 PPQ 计算图实例对象，
         在这里我们假设已经获取到了一个量化后的计算图对象 ppq_quant_ir，并使用下面的语句初始化计算引擎
 
-            
+
             executor = TorchExecutor(graph=ppq_quant_ir)
             executor.forward(inputs=..., output_names=..., hooks=...)
 
@@ -152,11 +156,11 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
 
             if operation.type == 'Conv':
                 config = self.create_default_quant_config(
-                    op                 = operation, 
+                    op                 = operation,
                     num_of_bits        = 8,
-                    quant_max          = 127, 
+                    quant_max          = 127,
                     quant_min          = -128,
-                    observer_algorithm = 'percentile', 
+                    observer_algorithm = 'percentile',
                     policy             = QuantizationPolicy(
                         QuantizationProperty.PER_TENSOR +
                         QuantizationProperty.LINEAR +
@@ -195,7 +199,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
 
         使用 executor.register_quantize_delegate(config, function) 完成函数注册，被注册的函数必须满足 TorchQuantizeDelegator 所定义的接口。
         下面我们给出一个简单的量化代理函数例子：
-            
+
             class MyQuantDelegator(TorchQuantizeDelegator):
                 def __call__(self, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
                     if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
@@ -208,7 +212,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             def quantize_function(self, tensor: torch.Tensor, config: TensorQuantizationConfig = None) -> torch.Tensor:
                 if config is None or not QuantizationStates.is_activated(config.state): return tensor
                 elif config in self._delegates: return self._delegates[config](tensor, config)
-                else: 
+                else:
                     if config.policy.has_property(QuantizationProperty.DYNAMIC):
                         return self._dynamic_quant_fn(tensor, config)
                     else:
@@ -231,16 +235,16 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
 
             # 传入三个变量 a, b, c 作为输入
             executor.forward(inputs=[a, b, c], output_names=..., hooks=...)
-            
+
             # 分别对图中 input, var 1 两个变量传入 a, b 作为输入
             executor.forward(inputs={'input': a, 'var 1': b}, output_names=..., hooks=...)
-            
+
             # 传入一个完整的 tensor 作为输入
             executor.forward(inputs=torch.zeros(shape=[1,3,224,224]), output_names=..., hooks=...)
-            
+
             # 要求网络输出 output, Var 1 的值
             executor.forward(inputs=..., output_names=['output 1', 'Var 1'], hooks=...)
-            
+
         executor.forward 函数默认不需要梯度，如果希望执行带有梯度的网络，需要使用 executor.forward_with_gradient 函数。 forward 函数的返回值永远是一个 torch.Tensor 数组，其中元素的顺序由 output_names 参数决定。
 
 
@@ -259,7 +263,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
 
                 def post_forward_hook(self, outputs: list, **kwargs) -> list:
                     return outputs
-        
+
             TorchExecutor - executor object which use torch as its backend.
                 torch backend is used to graph simulating & training(QAT)
 
@@ -285,7 +289,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         self._device = device
         self._executing_context = TorchBackendContext(executing_device=self._device)
         super().__init__(graph)
-        
+
         self._runnable_graph = RunnableGraph(self._graph)
         self._delegates = {}
 
@@ -293,9 +297,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         self.fp16_mode = fp16_mode
         self.deploy()
 
-    def register_quantize_delegate(
-        self, config: TensorQuantizationConfig,
-        delegator: TorchQuantizeDelegator):
+    def register_quantize_delegate(self, config: TensorQuantizationConfig, delegator: TorchQuantizeDelegator):
         """Since PPQ 0.6.2, Interface TorchQuantizeDelegate is introduced to
         customize quantization logic: To be specific, you are suppose to
         inherit this class, and define your own computation logic within
@@ -316,14 +318,13 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         if not isinstance(delegator, TorchQuantizeDelegator):
             raise TypeError(
                 f'You can only register a TorchQuantizeDelegate as quantization delegator function,'
-                f' however a/an {type(delegator)} was given')
+                f' however a/an {type(delegator)} was given'
+            )
         if not isinstance(config, TensorQuantizationConfig):
-            raise TypeError(
-                f'Except a TensorQuantizationConfig instance, however {type(config)} was passed.')
+            raise TypeError(f'Except a TensorQuantizationConfig instance, however {type(config)} was passed.')
         self._delegates[config] = delegator
 
-    def remove_quantize_delegate(
-        self, config: TensorQuantizationConfig):
+    def remove_quantize_delegate(self, config: TensorQuantizationConfig):
         """Since PPQ 0.6.2, Interface TorchQuantizeDelegate is introduced to
         customize quantization logic: To be specific, you are suppose to
         inherit this class, and define your own computation logic within
@@ -342,8 +343,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         Remove delegate function by TorchExecutor.remove_quantize_delegate(c)
         """
         if not isinstance(config, TensorQuantizationConfig):
-            raise TypeError(
-                f'Except a TensorQuantizationConfig instance, however {type(config)} was passed.')
+            raise TypeError(f'Except a TensorQuantizationConfig instance, however {type(config)} was passed.')
         if config in self._delegates:
             self._delegates.pop(config)
 
@@ -362,12 +362,12 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         self.deploy()
         return self
 
-    @ torch.no_grad()
+    @torch.no_grad()
     def forward(
         self,
         inputs: Union[dict, list, torch.Tensor],
-        output_names:List[str] = None,
-        hooks: Dict[str, RuntimeHook] = None
+        output_names: List[str] = None,
+        hooks: Dict[str, RuntimeHook] = None,
     ) -> List[torch.Tensor]:
         """Forward function of this executor.
 
@@ -403,16 +403,13 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             List[torch.Tensor]: [executing result, list of tensor objects.]
         """
         return self.__forward(
-            inputs=inputs,
-            output_names=output_names,
-            executing_order=self._executing_order,
-            hooks=hooks
+            inputs=inputs, output_names=output_names, executing_order=self._executing_order, hooks=hooks
         )
 
     def forward_with_gradient(
         self,
         inputs: Union[dict, list, torch.Tensor],
-        output_names:List[str] = None,
+        output_names: List[str] = None,
         hooks: Dict[str, RuntimeHook] = None,
     ) -> List[torch.Tensor]:
         """forward function of this executor.
@@ -448,17 +445,14 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             List[torch.Tensor]: [executing result, list of tensor objects.]
         """
         return self.__forward(
-            inputs=inputs,
-            output_names=output_names,
-            executing_order=self._executing_order,
-            hooks=hooks
+            inputs=inputs, output_names=output_names, executing_order=self._executing_order, hooks=hooks
         )
 
     def __forward(
         self,
         inputs: Union[dict, list, torch.Tensor],
         executing_order: List[Operation],
-        output_names:List[str] = None,
+        output_names: List[str] = None,
         hooks: Dict[str, RuntimeHook] = None,
     ) -> List[torch.Tensor]:
         # processing with different input format
@@ -473,19 +467,22 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         else:
             inputs = self.prepare_input(inputs=inputs)
             for key, value in inputs.items():
-                assert isinstance(value, torch.Tensor), \
+                assert isinstance(value, torch.Tensor), (
                     f'TorchExecutor can only accept tensor as its input, while {type(value)} was given'
+                )
                 # input is acceptable, feed input value
                 self._graph_input_dictionary[key].value = value
 
         # processing with output
-        last_idx = 0 # record last variable
+        last_idx = 0  # record last variable
         if output_names is None:
             output_names = [name for name in self._graph.outputs]
         for name in output_names:
             if name not in self._graph.variables:
-                raise KeyError(f'You are requiring output value of variable {name}(is not a variable name), '
-                    'however it is not a valid variable of current graph.')
+                raise KeyError(
+                    f'You are requiring output value of variable {name}(is not a variable name), '
+                    'however it is not a valid variable of current graph.'
+                )
             source_op = self._graph.variables[name].source_op
             if source_op is not None:
                 last_idx = max(last_idx, executing_order.index(source_op) + 1)
@@ -496,35 +493,47 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             if name in inputs:
                 result_collector[output_names.index(name)] = inputs[name]
 
-        for operation in executing_order[: last_idx]:
+        for operation in executing_order[:last_idx]:
             try:
                 assert isinstance(operation, Operation), 'Oops, seems you got something weird in your graph'
                 assert isinstance(operation.platform, TargetPlatform), (
                     f'Operation {operation.name} has an invalid platform setting, '
-                    f'only esp_ppq.core.TargetPlatform is expected here, while {type(operation.platform)} was given')
+                    f'only esp_ppq.core.TargetPlatform is expected here, while {type(operation.platform)} was given'
+                )
                 platform_dispatching_table = OPERATION_FORWARD_TABLE[operation.platform]
                 if operation.type not in platform_dispatching_table:
                     raise NotImplementedError(
                         f'Graph op: {operation.name}({operation.type}) '
                         f'has no backend implementation on target platform {operation.platform}. '
-                        'Register this op to esp_ppq.executor.base.py and esp_ppq.executor.op first')
+                        'Register this op to esp_ppq.executor.base.py and esp_ppq.executor.op first'
+                    )
                 operation_forward_func = platform_dispatching_table[operation.type]
-                operation_runtime_hook = hooks[operation.name] if (hooks is not None) and (operation.name in hooks) else None
+                operation_runtime_hook = (
+                    hooks[operation.name] if (hooks is not None) and (operation.name in hooks) else None
+                )
                 inputs = [var.value for var in operation.inputs]
 
                 # if operation is an QuantableOperation, we have to quant its inputs and outputs at first.
                 if isinstance(operation, QuantableOperation):
                     input_configs = [_ for _ in operation.config.input_quantization_config]
-                    if (operation.platform in [TargetPlatform.ESPDL_H_PRE_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
-                        inputs = ([self.quantize_function(input, config).type(dtype=torch.float64) 
-                                        if input is not None and input.dtype == torch.float32
-                                        else self.quantize_function(input, config) 
-                                        for input, config in zip(inputs, input_configs)])
+                    if operation.platform in [
+                        TargetPlatform.ESPDL_H_PRE_INT16,
+                        TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                        TargetPlatform.ESPDL_C_H_PRE_INT16,
+                    ]:
+                        inputs = [
+                            self.quantize_function(input, config).type(dtype=torch.float64)
+                            if input is not None and input.dtype == torch.float32
+                            else self.quantize_function(input, config)
+                            for input, config in zip(inputs, input_configs)
+                        ]
                     else:
-                        inputs = ([self.quantize_function(input, config).type(dtype=torch.float32) 
-                                        if input is not None and input.dtype == torch.float64 
-                                        else self.quantize_function(input, config) 
-                                        for input, config in zip(inputs, input_configs)])
+                        inputs = [
+                            self.quantize_function(input, config).type(dtype=torch.float32)
+                            if input is not None and input.dtype == torch.float64
+                            else self.quantize_function(input, config)
+                            for input, config in zip(inputs, input_configs)
+                        ]
 
                 # PATCH 20220208
                 # for idx, var in enumerate(operation.inputs):
@@ -536,10 +545,13 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                     if isinstance(operation_runtime_hook, QuantOPRuntimeHook):
                         inputs = operation_runtime_hook.pre_forward_hook(
                             inputs=[var.value for var in operation.inputs],
-                            quant_inputs=inputs, quant_configs=input_configs)
+                            quant_inputs=inputs,
+                            quant_configs=input_configs,
+                        )
                     elif isinstance(operation_runtime_hook, RuntimeHook):
                         inputs = operation_runtime_hook.pre_forward_hook(inputs=inputs)
-                    else: raise TypeError(f'invalid hook instance was given with operation: {operation}')
+                    else:
+                        raise TypeError(f'invalid hook instance was given with operation: {operation}')
 
                 # forward and collecting result
                 outputs = operation_forward_func(operation, inputs, self._executing_context)
@@ -549,30 +561,39 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
                 # quantize all result if is necessary
                 if isinstance(operation, QuantableOperation):
                     output_configs = [_ for _ in operation.config.output_quantization_config]
-                    if (operation.platform in [TargetPlatform.ESPDL_H_PRE_INT16, TargetPlatform.ESPDL_S3_H_PRE_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]):
-                        outputs = ([self.quantize_function(output, config).type(dtype=torch.float64) 
-                                        if output is not None and output.dtype == torch.float32 
-                                        else self.quantize_function(output, config) 
-                                        for output, config in zip(outputs, output_configs)])
+                    if operation.platform in [
+                        TargetPlatform.ESPDL_H_PRE_INT16,
+                        TargetPlatform.ESPDL_S3_H_PRE_INT16,
+                        TargetPlatform.ESPDL_C_H_PRE_INT16,
+                    ]:
+                        outputs = [
+                            self.quantize_function(output, config).type(dtype=torch.float64)
+                            if output is not None and output.dtype == torch.float32
+                            else self.quantize_function(output, config)
+                            for output, config in zip(outputs, output_configs)
+                        ]
                     else:
-                        outputs = [self.quantize_function(output, config).type(dtype=torch.float32) 
-                                        if output is not None and output.dtype == torch.float64 
-                                        else self.quantize_function(output, config) 
-                                        for output, config in zip(outputs, output_configs)]
+                        outputs = [
+                            self.quantize_function(output, config).type(dtype=torch.float32)
+                            if output is not None and output.dtype == torch.float64
+                            else self.quantize_function(output, config)
+                            for output, config in zip(outputs, output_configs)
+                        ]
 
                 # invoking post-forward hook
                 if operation_runtime_hook is not None:
                     if isinstance(operation_runtime_hook, QuantOPRuntimeHook):
                         outputs = operation_runtime_hook.post_forward_hook(
-                            outputs=fp_outputs, quant_outputs=outputs,
-                            quant_configs=output_configs)
+                            outputs=fp_outputs, quant_outputs=outputs, quant_configs=output_configs
+                        )
                     elif isinstance(operation_runtime_hook, RuntimeHook):
                         outputs = operation_runtime_hook.post_forward_hook(outputs=outputs)
-                    else: raise TypeError(f'invalid hook instance was given with operation: {operation}')
+                    else:
+                        raise TypeError(f'invalid hook instance was given with operation: {operation}')
 
                 # feed value to graph variables.
                 for output_idx, output_var in enumerate(operation.outputs):
-                    output_var       = operation.outputs[output_idx]
+                    output_var = operation.outputs[output_idx]
                     output_var.value = outputs[output_idx]
 
                     if output_var.name in output_names:
@@ -583,7 +604,8 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             # remove useless value(runtime clear).
             visited_op.append(operation)
             for var in operation.inputs:
-                if var.is_parameter: continue
+                if var.is_parameter:
+                    continue
                 if all(op in visited_op for op in var.dest_ops):
                     var.value = None
 
@@ -594,8 +616,8 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         # end for
         return result_collector
 
-    @ torch.no_grad()
-    @ empty_ppq_cache
+    @torch.no_grad()
+    @empty_ppq_cache
     def tracing_operation_meta(
         self,
         inputs: Union[dict, list, torch.Tensor],
@@ -613,11 +635,7 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         for op_name, operation in self._graph.operations.items():
             hooks[op_name] = TorchMetaDataTracingHook(operation=operation)
 
-        self.__forward(
-            inputs=inputs,
-            output_names=output_names,
-            executing_order=self._executing_order,
-            hooks=hooks)
+        self.__forward(inputs=inputs, output_names=output_names, executing_order=self._executing_order, hooks=hooks)
 
     def load_graph(self, graph: BaseGraph) -> dict:
         super().load_graph(graph)
@@ -626,9 +644,12 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         self._runnable_graph(GraphDeployCommand(device=self._device))
 
     def quantize_function(self, tensor: torch.Tensor, config: TensorQuantizationConfig = None) -> torch.Tensor:
-        if config is None or not QuantizationStates.is_activated(config.state): return tensor
-        elif config in self._delegates: return self._delegates[config](tensor, config)
-        else: return self._default_quant_fn(tensor, config)
+        if config is None or not QuantizationStates.is_activated(config.state):
+            return tensor
+        elif config in self._delegates:
+            return self._delegates[config](tensor, config)
+        else:
+            return self._default_quant_fn(tensor, config)
 
     def dummy_forward(self, hooks: Dict[str, RuntimeHook] = None) -> None:
         """This function allows you to execute entire graph without feeding any
@@ -660,19 +681,24 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         # build dummy input based on meta data
         feed_dict = {}
         for var_name, input_var in self._graph.inputs.items():
-            if len(input_var.dest_ops) == 0: continue
+            if len(input_var.dest_ops) == 0:
+                continue
 
             assert input_var.shape is not None, (
-                f'Can not generate dummy input for input variable {input_var.name}, input shape is not specified.')
+                f'Can not generate dummy input for input variable {input_var.name}, input shape is not specified.'
+            )
 
-            feed_dict[var_name] = torch.Tensor(size=input_var.shape, device='cpu').fill_(
-                0).type(dtype=DataType.to_torch(input_var.dtype)).to(self._device)
+            feed_dict[var_name] = (
+                torch.Tensor(size=input_var.shape, device='cpu')
+                .fill_(0)
+                .type(dtype=DataType.to_torch(input_var.dtype))
+                .to(self._device)
+            )
         self.forward(inputs=feed_dict, hooks=hooks)
 
     def partial_graph_forward(
-        self, operations: List[Operation],
-        feed_dict: Dict[str, torch.Tensor],
-        output_names:List[str]) -> List[torch.Tensor]:
+        self, operations: List[Operation], feed_dict: Dict[str, torch.Tensor], output_names: List[str]
+    ) -> List[torch.Tensor]:
         """This forward function allows you to execute a series operations in
         your graph. (only operations list in your params will be executed with
         this function) Which serves as a great feature for quantization aware
@@ -693,8 +719,4 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
             List[torch.Tensor]: [description]
         """
 
-        return self.__forward(
-            inputs=feed_dict,
-            output_names=output_names,
-            executing_order=operations
-        )
+        return self.__forward(inputs=feed_dict, output_names=output_names, executing_order=operations)

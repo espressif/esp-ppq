@@ -3,8 +3,8 @@
 namespace PPQ_Crt{
 
 float SolveIsotoneScale(
-    const float *first_largest_arr, 
-    const float *second_largest_arr, 
+    const float *first_largest_arr,
+    const float *second_largest_arr,
     const int64 length, const int quant_max){
     /**
      * Solving isotonic quantization scale

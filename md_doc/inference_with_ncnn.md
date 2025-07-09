@@ -74,7 +74,7 @@ nothing would print if everything goes right, then we may use ncnn optimize tool
 ```shell
 /path/to/your/ncnn/build/install/bin/ncnnoptimize shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin 0
 ```
-then along with ppq generated quantization table, we may convert the ncnn optimized model into the final int8 version 
+then along with ppq generated quantization table, we may convert the ncnn optimized model into the final int8 version
 ```shell
 /path/to/your/ncnn/build/install/bin/ncnn2int8 shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin shufflenet-v2-ncnn-int8.param shufflenet-v2-ncnn-int8.bin shufflenet-v2-sim-esp_ppq.table
 ```
@@ -118,7 +118,7 @@ and if you want to obtain the final probability and print top-5 predictions
 {
     std::vector<float> cls_scores;
     // softmax -> probs
-    { 
+    {
         ncnn::Layer* softmax = ncnn::create_layer("Softmax");
 
         ncnn::ParamDict pd;
@@ -156,7 +156,7 @@ and if you want to obtain the final probability and print top-5 predictions
     }
 }
 ```
-note that if you are using gpu which is supported by vulkan, you just need to correctly install vulkan, compile ncnn with 
+note that if you are using gpu which is supported by vulkan, you just need to correctly install vulkan, compile ncnn with
 vulkan option enabled, and turn on vulkan switch after initializing the network
 ```c++
 ncnn::Net shufflenetv2;

@@ -2,23 +2,22 @@ from typing import Any, Callable, List, Optional, Type, Union
 
 import torch
 import torch.nn as nn
+
 from esp_ppq import PPQuantFunction, SingletonMeta
-from esp_ppq.core import (OperationQuantizationConfig, TargetPlatform,
-                      TensorQuantizationConfig, ppq_warning)
+from esp_ppq.core import OperationQuantizationConfig, TargetPlatform, TensorQuantizationConfig, ppq_warning
 from esp_ppq.IR import Operation, Variable
-from esp_ppq.lib import (FloatingQuantizationConfig, LinearQuantizationConfig,
-                     ParameterQuant, TensorQuant)
+from esp_ppq.lib import FloatingQuantizationConfig, LinearQuantizationConfig, ParameterQuant, TensorQuant
 from esp_ppq.quantization.quantizer import BaseQuantizer
 
 
-class QuantLayer():
+class QuantLayer:
     def __init__(self) -> None:
         self._quantize_controler = None
 
 
-class QATController():
+class QATController:
     def __init__(self) -> None:
-        self.export_mode       = 'Plain Onnx'
+        self.export_mode = 'Plain Onnx'
 
 
 class QConv1d(torch.nn.Conv1d, QuantLayer):
@@ -27,16 +26,22 @@ class QConv1d(torch.nn.Conv1d, QuantLayer):
         self._quantize_controler = controller
 
         self.input_quant = TensorQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = None, # channel_axis = None -> Per tensor Quantization
-                calibration = 'percentile'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=None,  # channel_axis = None -> Per tensor Quantization
+                calibration='percentile',
+            )
+        )
 
         self.weight_quant = ParameterQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = 0, # channel_axis = 1 -> Per channel Quantization
-                calibration = 'minmax'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=0,  # channel_axis = 1 -> Per channel Quantization
+                calibration='minmax',
+            )
+        )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.input_quant(input)
@@ -50,16 +55,22 @@ class QConv2d(torch.nn.Conv2d, QuantLayer):
         self._quantize_controler = controller
 
         self.input_quant = TensorQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = None, # channel_axis = None -> Per tensor Quantization
-                calibration = 'percentile'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=None,  # channel_axis = None -> Per tensor Quantization
+                calibration='percentile',
+            )
+        )
 
         self.weight_quant = ParameterQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = 0, # channel_axis = 1 -> Per channel Quantization
-                calibration = 'minmax'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=0,  # channel_axis = 1 -> Per channel Quantization
+                calibration='minmax',
+            )
+        )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.input_quant(input)
@@ -73,16 +84,22 @@ class QConv3d(torch.nn.Conv3d, QuantLayer):
         self._quantize_controler = controller
 
         self.input_quant = TensorQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = None, # channel_axis = None -> Per tensor Quantization
-                calibration = 'percentile'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=None,  # channel_axis = None -> Per tensor Quantization
+                calibration='percentile',
+            )
+        )
 
         self.weight_quant = ParameterQuant(
-            quant_config = LinearQuantizationConfig(
-                symmetrical = True, power_of_2 = False, 
-                channel_axis = 1, # channel_axis = 1 -> Per channel Quantization
-                calibration = 'minmax'))
+            quant_config=LinearQuantizationConfig(
+                symmetrical=True,
+                power_of_2=False,
+                channel_axis=1,  # channel_axis = 1 -> Per channel Quantization
+                calibration='minmax',
+            )
+        )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         x = self.input_quant(input)
@@ -92,6 +109,7 @@ class QConv3d(torch.nn.Conv3d, QuantLayer):
 
 class ENABLE_CALIBRATION:
     """ """
+
     def __init__(self, controler: QATController) -> None:
         pass
 

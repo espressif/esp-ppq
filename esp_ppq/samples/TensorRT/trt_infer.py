@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("EngineBuilder").setLevel(logging.INFO)
 log = logging.getLogger("EngineBuilder")
 
+
 def GiB(val):
     return val * 1 << 30
 
@@ -61,7 +62,13 @@ def find_sample_data(description="Runs a TensorRT Python sample", subfolder="", 
     # Standard command-line arguments for all samples.
     kDEFAULT_DATA_ROOT = os.path.join(os.sep, "usr", "src", "tensorrt", "data")
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-d", "--datadir", help="Location of the TensorRT sample data directory, and any additional data directories.", action="append", default=[kDEFAULT_DATA_ROOT])
+    parser.add_argument(
+        "-d",
+        "--datadir",
+        help="Location of the TensorRT sample data directory, and any additional data directories.",
+        action="append",
+        default=[kDEFAULT_DATA_ROOT],
+    )
     args, _ = parser.parse_known_args()
 
     def get_data_path(data_dir):
@@ -73,11 +80,16 @@ def find_sample_data(description="Runs a TensorRT Python sample", subfolder="", 
             data_path = data_dir
         # Make sure data directory exists.
         if not (os.path.exists(data_path)) and data_dir != kDEFAULT_DATA_ROOT:
-            print("WARNING: {:} does not exist. Please provide the correct data path with the -d option.".format(data_path))
+            print(
+                "WARNING: {:} does not exist. Please provide the correct data path with the -d option.".format(
+                    data_path
+                )
+            )
         return data_path
 
     data_paths = [get_data_path(data_dir) for data_dir in args.datadir]
     return data_paths, locate_files(data_paths, find_files, err_msg)
+
 
 def locate_files(data_paths, filenames, err_msg=""):
     """
@@ -106,8 +118,11 @@ def locate_files(data_paths, filenames, err_msg=""):
     # Check that all files were found
     for f, filename in zip(found_files, filenames):
         if not f or not os.path.exists(f):
-            raise FileNotFoundError("Could not find {:}. Searched in data paths: {:}\n{:}".format(filename, data_paths, err_msg))
+            raise FileNotFoundError(
+                "Could not find {:}. Searched in data paths: {:}\n{:}".format(filename, data_paths, err_msg)
+            )
     return found_files
+
 
 # Simple helper data class that's a little nicer to use than a 2-tuple.
 class HostDeviceMem(object):
@@ -120,6 +135,7 @@ class HostDeviceMem(object):
 
     def __repr__(self):
         return self.__str__()
+
 
 # Allocates all buffers required for an engine, i.e. host/device inputs/outputs.
 def allocate_buffers(engine):
@@ -142,6 +158,7 @@ def allocate_buffers(engine):
             outputs.append(HostDeviceMem(host_mem, device_mem))
     return inputs, outputs, bindings, stream
 
+
 # This function is generalized for multiple inputs/outputs.
 # inputs and outputs are expected to be lists of HostDeviceMem objects.
 def do_inference(context, bindings, inputs, outputs, stream, batch_size=1):
@@ -155,6 +172,7 @@ def do_inference(context, bindings, inputs, outputs, stream, batch_size=1):
     stream.synchronize()
     # Return only the host outputs.
     return [out.host for out in outputs]
+
 
 # This function is generalized for multiple inputs/outputs for full dimension networks.
 # inputs and outputs are expected to be lists of HostDeviceMem objects.
@@ -188,7 +206,7 @@ class EngineBuilder:
 
         self.builder = trt.Builder(self.trt_logger)
         self.config = self.builder.create_builder_config()
-        self.config.max_workspace_size = 8 * (2 ** 30)  # 8 GB
+        self.config.max_workspace_size = 8 * (2**30)  # 8 GB
 
         self.batch_size = None
         self.network = None
@@ -199,7 +217,7 @@ class EngineBuilder:
         Parse the ONNX graph and create the corresponding TensorRT network definition.
         :param onnx_path: The path to the ONNX graph to load.
         """
-        network_flags = (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 
         self.network = self.builder.create_network(network_flags)
         self.parser = trt.OnnxParser(self.network, self.trt_logger)
@@ -224,8 +242,16 @@ class EngineBuilder:
         assert self.batch_size > 0
         self.builder.max_batch_size = self.batch_size
 
-    def create_engine(self, engine_path, precision, calib_input=None, calib_cache=None, calib_num_images=25000,
-                      calib_batch_size=8, calib_preprocessor=None):
+    def create_engine(
+        self,
+        engine_path,
+        precision,
+        calib_input=None,
+        calib_cache=None,
+        calib_num_images=25000,
+        calib_batch_size=8,
+        calib_preprocessor=None,
+    ):
         """
         Build the TensorRT engine and serialize it to disk.
         :param engine_path: The path where to serialize the engine to.

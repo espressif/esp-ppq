@@ -3,34 +3,40 @@ from math import sqrt
 from typing import List
 
 import torch
+
 from esp_ppq.IR import Operation
 
 
 class EqualizationMethod(Enum):
     """
 
-        EqualizationMethod - 用于列举所有可行的 scale 计算方案
-                            different arithmetic methods for equalization
+    EqualizationMethod - 用于列举所有可行的 scale 计算方案
+                        different arithmetic methods for equalization
     """
+
     # key value = np.max(np.abs(x))
-    ABSOLUTE_MAX = 1,
+    ABSOLUTE_MAX = (1,)
     # key value = np.mean(np.abs(x))
-    ABSOLUTE_MEAN = 2,
+    ABSOLUTE_MEAN = (2,)
     # key value = np.max(np.square(x))
-    SQUARE_MAX = 3,
+    SQUARE_MAX = (3,)
     # key value = np.mean(np.square(x))
-    SQUARE_MEAN = 4,
-    
+    SQUARE_MEAN = (4,)
+
     DIRECT_MAX = 5
 
 
-class EqualizationHelper():
-
-    @ staticmethod
+class EqualizationHelper:
+    @staticmethod
     def key_value_from_upstream(
-        op: Operation, including_weight: bool = True,
-        weight_multiplier: float = 1.0, including_bias: bool = False, including_act: bool = False, 
-        bias_multiplier: float = 0.5, act_multiplier: float = 0.5) -> torch.Tensor:
+        op: Operation,
+        including_weight: bool = True,
+        weight_multiplier: float = 1.0,
+        including_bias: bool = False,
+        including_act: bool = False,
+        bias_multiplier: float = 0.5,
+        act_multiplier: float = 0.5,
+    ) -> torch.Tensor:
         if op.type not in {'Gemm', 'MatMul', 'Conv', 'ConvTranspose'}:
             raise TypeError(f'Unsupported Op type {op.name}({op.type}) for Equalization Optimization.')
         if not op.inputs[1].is_parameter:
@@ -45,15 +51,15 @@ class EqualizationHelper():
             if op.type == 'ConvTranspose':
                 num_of_groups = op.attributes.get('group', 1)
                 if w.ndim == 3:
-                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
+                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
                     w = torch.permute(w, (2, 0, 1, 3))
                     w = torch.reshape(w, (w.shape[0] * w.shape[1], -1))
                 elif w.ndim == 4:
-                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
+                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
                     w = torch.permute(w, (2, 0, 1, 3, 4))
                     w = torch.reshape(w, (w.shape[0] * w.shape[1], -1))
                 elif w.ndim == 5:
-                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
+                    w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
                     w = torch.permute(w, (2, 0, 1, 3, 4, 5))
                     w = torch.reshape(w, (w.shape[0] * w.shape[1], -1))
                 else:
@@ -93,7 +99,7 @@ class EqualizationHelper():
         # concat and return
         return torch.cat(buffer, dim=-1)
 
-    @ staticmethod
+    @staticmethod
     def key_value_from_downstream(op: Operation, weight_multiplier: float = 1.0) -> torch.Tensor:
         # ----------------------------------
         # step - 1, extract weight from op:
@@ -111,22 +117,22 @@ class EqualizationHelper():
             # for group convolution, we have to select its weight by group
             num_of_groups = op.attributes.get('group', 1)
             if w.ndim == 3:
-                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
-                if hasattr(torch,'permute'):
+                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
+                if hasattr(torch, 'permute'):
                     w = torch.permute(w, (2, 0, 1, 3))
                 else:
                     w = w.permute((2, 0, 1, 3))
                 w = torch.reshape(w, (w.shape[0] * w.shape[1], -1))
             elif w.ndim == 4:
-                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
-                if hasattr(torch,'permute'):
+                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
+                if hasattr(torch, 'permute'):
                     w = torch.permute(w, (2, 0, 1, 3, 4))
                 else:
                     w = w.permute((2, 0, 1, 3, 4))
                 w = torch.reshape(w, (w.shape[0] * w.shape[1], -1))
             elif w.ndim == 5:
-                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
-                if hasattr(torch,'permute'):
+                w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
+                if hasattr(torch, 'permute'):
                     w = torch.permute(w, (2, 0, 1, 3, 4, 5))
                 else:
                     w = w.permute((2, 0, 1, 3, 4, 5))
@@ -135,7 +141,7 @@ class EqualizationHelper():
                 raise ValueError(f'Unexpected dimension of weight of {op.name}.')
         return w
 
-    @ staticmethod
+    @staticmethod
     def scale_to_upstream(op: Operation, scale_factor: torch.Tensor):
         if op.type not in {'Gemm', 'MatMul', 'Conv', 'ConvTranspose'}:
             raise TypeError(f'Unsupported Op type {op.name}({op.type}) for Equalization Optimization.')
@@ -144,33 +150,40 @@ class EqualizationHelper():
 
         w = op.inputs[1].value
         has_bias = op.num_of_input == 3
-        if has_bias and not op.inputs[-1].is_parameter: 
+        if has_bias and not op.inputs[-1].is_parameter:
             raise ValueError(f'Bias of Op {op.name} is non-static.')
-        if has_bias: bias = op.inputs[-1].value
+        if has_bias:
+            bias = op.inputs[-1].value
 
         if op.type == 'ConvTranspose':
             num_of_groups = op.attributes.get('group', 1)
             w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
             w *= torch.reshape(scale_factor, [num_of_groups, 1, -1] + [1] * (w.ndim - 3))
-            w = torch.reshape(w, (w.shape[0] * w.shape[1], ) + w.shape[2:])
-            if has_bias: bias *= scale_factor
+            w = torch.reshape(w, (w.shape[0] * w.shape[1],) + w.shape[2:])
+            if has_bias:
+                bias *= scale_factor
 
         elif op.type == 'Conv':
             w *= torch.reshape(scale_factor, [-1] + ([1] * (w.ndim - 1)))
-            if has_bias: bias *= scale_factor
+            if has_bias:
+                bias *= scale_factor
 
         elif op.type in {'Gemm', 'MatMul'}:
-            if op.attributes.get('transB', 0) == 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) == 0:
+                w = torch.transpose(w, 1, 0)
             w *= torch.reshape(scale_factor, (-1, 1))
-            if op.attributes.get('transB', 0) == 0: w = torch.transpose(w, 1, 0)
-            if has_bias: bias *= scale_factor
-        
+            if op.attributes.get('transB', 0) == 0:
+                w = torch.transpose(w, 1, 0)
+            if has_bias:
+                bias *= scale_factor
+
         # write back
         with torch.no_grad():
             op.inputs[1].value.copy_(w)
-            if has_bias: op.inputs[-1].value.copy_(bias)
+            if has_bias:
+                op.inputs[-1].value.copy_(bias)
 
-    @ staticmethod
+    @staticmethod
     def scale_to_downstream(op: Operation, scale_factor: torch.Tensor):
         if op.type not in {'Gemm', 'MatMul', 'Conv', 'ConvTranspose'}:
             raise TypeError(f'Unsupported Op type {op.name}({op.type}) for Equalization Optimization.')
@@ -183,27 +196,25 @@ class EqualizationHelper():
 
         if op.type == 'Conv':
             num_of_groups = op.attributes.get('group', 1)
-            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
+            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
             w /= torch.reshape(scale_factor, [num_of_groups, 1, -1] + [1] * (w.ndim - 3))
-            w = torch.reshape(w, (w.shape[1] * num_of_groups, ) + w.shape[2: ])
+            w = torch.reshape(w, (w.shape[1] * num_of_groups,) + w.shape[2:])
 
         if op.type in {'Gemm', 'MatMul'}:
-            if op.attributes.get('transB', 0) != 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) != 0:
+                w = torch.transpose(w, 1, 0)
             w /= torch.reshape(scale_factor, (-1, 1))
-            if op.attributes.get('transB', 0) != 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) != 0:
+                w = torch.transpose(w, 1, 0)
 
         # write back
         with torch.no_grad():
             op.inputs[1].value.copy_(w)
 
 
-class ChannelSplitHelper():
-
-    @ staticmethod
-    def split_by_mask(
-        mask: torch.Tensor, tensor: torch.Tensor, 
-        axis: int, scale_factor: float):
-
+class ChannelSplitHelper:
+    @staticmethod
+    def split_by_mask(mask: torch.Tensor, tensor: torch.Tensor, axis: int, scale_factor: float):
         mask = mask.tolist()
         if tensor.shape[axis] != len(mask):
             raise ValueError(f'Unexpected tensor shape {tensor.shape}. Expect {len(mask)} at axis {axis}.')
@@ -216,10 +227,10 @@ class ChannelSplitHelper():
                 concat_view.append(tensor[idx].unsqueeze(0) * scale_factor)
             else:
                 concat_view.append(tensor[idx].unsqueeze(0))
-        
+
         return torch.cat(concat_view, dim=0).transpose(dim0=0, dim1=axis)
 
-    @ staticmethod
+    @staticmethod
     def channel_split_upstream(op: Operation, mask: torch.Tensor, scale_factor: float):
         if op.type not in {'Gemm', 'MatMul', 'Conv', 'ConvTranspose'}:
             raise TypeError(f'Unsupported Op type {op.name}({op.type}) for Channel Split Optimization.')
@@ -228,37 +239,44 @@ class ChannelSplitHelper():
 
         w = op.inputs[1].value
         has_bias = op.num_of_input == 3
-        if has_bias and not op.inputs[-1].is_parameter: 
+        if has_bias and not op.inputs[-1].is_parameter:
             raise ValueError(f'Bias of Op {op.name} is non-static.')
-        if has_bias: bias = op.inputs[-1].value
+        if has_bias:
+            bias = op.inputs[-1].value
 
         if op.type == 'ConvTranspose':
             num_of_groups = op.attributes.get('group', 1)
-            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
-            w = torch.transpose(w, 1, 2) # swap output channel and input channel
-            w = torch.reshape(w, (-1, ) + w.shape[2: ]) # merge group and input channel
+            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
+            w = torch.transpose(w, 1, 2)  # swap output channel and input channel
+            w = torch.reshape(w, (-1,) + w.shape[2:])  # merge group and input channel
             w = ChannelSplitHelper.split_by_mask(mask=mask, tensor=w, axis=0, scale_factor=scale_factor)
-            w = torch.reshape(w, (num_of_groups, -1) + w.shape[1: ])
-            w = torch.transpose(w, 1, 2) # swap output channel and input channel
-            w = torch.reshape(w, (w.shape[1] * num_of_groups, ) + w.shape[2: ])
-            if has_bias: bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
+            w = torch.reshape(w, (num_of_groups, -1) + w.shape[1:])
+            w = torch.transpose(w, 1, 2)  # swap output channel and input channel
+            w = torch.reshape(w, (w.shape[1] * num_of_groups,) + w.shape[2:])
+            if has_bias:
+                bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
 
         elif op.type == 'Conv':
             w = ChannelSplitHelper.split_by_mask(mask=mask, tensor=w, axis=0, scale_factor=scale_factor)
-            if has_bias: bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
+            if has_bias:
+                bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
             num_of_groups = op.attributes.get('group', 1)
 
         elif op.type in {'Gemm', 'MatMul'}:
-            if op.attributes.get('transB', 0) == 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) == 0:
+                w = torch.transpose(w, 1, 0)
             w = ChannelSplitHelper.split_by_mask(mask=mask, tensor=w, axis=0, scale_factor=scale_factor)
-            if op.attributes.get('transB', 0) == 0: w = torch.transpose(w, 1, 0)
-            if has_bias: bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
+            if op.attributes.get('transB', 0) == 0:
+                w = torch.transpose(w, 1, 0)
+            if has_bias:
+                bias = ChannelSplitHelper.split_by_mask(mask=mask, tensor=bias, axis=0, scale_factor=scale_factor)
 
         # write back
         with torch.no_grad():
             op.inputs[1].value = w
-            if has_bias: op.inputs[-1].value = bias
-    
+            if has_bias:
+                op.inputs[-1].value = bias
+
     def channel_split_downstream(op: Operation, mask: torch.Tensor, scale_factor: float):
         if op.type not in {'Gemm', 'MatMul', 'Conv', 'ConvTranspose'}:
             raise TypeError(f'Unsupported Op type {op.name}({op.type}) for Channel Split Optimization.')
@@ -271,18 +289,20 @@ class ChannelSplitHelper():
 
         if op.type == 'Conv':
             num_of_groups = op.attributes.get('group', 1)
-            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1: ])
-            w = torch.transpose(w, 1, 2) # swap output channel and input channel
-            w = torch.reshape(w, (-1, ) + w.shape[2: ]) # merge group and input channel
+            w = torch.reshape(w, (num_of_groups, w.shape[0] // num_of_groups) + w.shape[1:])
+            w = torch.transpose(w, 1, 2)  # swap output channel and input channel
+            w = torch.reshape(w, (-1,) + w.shape[2:])  # merge group and input channel
             w = ChannelSplitHelper.split_by_mask(mask=mask, tensor=w, axis=0, scale_factor=scale_factor)
-            w = torch.reshape(w, (num_of_groups, -1) + w.shape[1: ])
-            w = torch.transpose(w, 1, 2) # swap output channel and input channel
-            w = torch.reshape(w, (w.shape[1] * num_of_groups, ) + w.shape[2: ])
+            w = torch.reshape(w, (num_of_groups, -1) + w.shape[1:])
+            w = torch.transpose(w, 1, 2)  # swap output channel and input channel
+            w = torch.reshape(w, (w.shape[1] * num_of_groups,) + w.shape[2:])
 
         if op.type in {'Gemm', 'MatMul'}:
-            if op.attributes.get('transB', 0) != 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) != 0:
+                w = torch.transpose(w, 1, 0)
             w = ChannelSplitHelper.split_by_mask(mask=mask, tensor=w, axis=0, scale_factor=scale_factor)
-            if op.attributes.get('transB', 0) != 0: w = torch.transpose(w, 1, 0)
+            if op.attributes.get('transB', 0) != 0:
+                w = torch.transpose(w, 1, 0)
 
         # write back
         with torch.no_grad():
@@ -290,11 +310,7 @@ class ChannelSplitHelper():
 
 
 class EqualizationPair:
-    def __init__(
-        self,
-        upstream_layers: List[Operation],
-        downstream_layers: List[Operation]
-    ):
+    def __init__(self, upstream_layers: List[Operation], downstream_layers: List[Operation]):
         """
             EqualizationPair - 一个数据结构，封装了 equalization 的核心数据抽象和执行逻辑
                                a class encapsulating execution logic of equalization
@@ -328,28 +344,33 @@ class EqualizationPair:
         act_multiplier: float = 0.5,
         including_bias: bool = False,
         bias_multiplier: float = 0.5,
-        method: EqualizationMethod = EqualizationMethod.ABSOLUTE_MAX
+        method: EqualizationMethod = EqualizationMethod.ABSOLUTE_MAX,
     ):
         # extract key value from pair
         upstream_key_values, downstream_key_values = [], []
         for op in self.upstream_layers:
             key_value = EqualizationHelper.key_value_from_upstream(
-                op=op, including_bias=including_bias, including_act=including_act, 
-                bias_multiplier=bias_multiplier, act_multiplier=act_multiplier)
+                op=op,
+                including_bias=including_bias,
+                including_act=including_act,
+                bias_multiplier=bias_multiplier,
+                act_multiplier=act_multiplier,
+            )
             upstream_key_values.append(key_value)
 
         for op in self.downstream_layers:
             key_value = EqualizationHelper.key_value_from_downstream(op=op)
             downstream_key_values.append(key_value)
 
-        upstream_key_values   = self.reduce_by_axis(upstream_key_values, method=method)
+        upstream_key_values = self.reduce_by_axis(upstream_key_values, method=method)
         downstream_key_values = self.reduce_by_axis(downstream_key_values, method=method)
 
         # calculate scale
         scale = self.calculate_scale(
             upstream_key_values=upstream_key_values,
             downstream_key_values=downstream_key_values,
-            value_threshold=value_threshold)
+            value_threshold=value_threshold,
+        )
 
         # write back all params
         for op in self.upstream_layers:
@@ -359,55 +380,64 @@ class EqualizationPair:
             EqualizationHelper.scale_to_downstream(op, scale)
 
     def channel_split(
-        self, 
+        self,
         value_threshold: float = 2,
         including_act: bool = False,
         act_multiplier: float = 0.5,
         including_bias: bool = False,
         bias_multiplier: float = 0.5,
-        method: EqualizationMethod = EqualizationMethod.ABSOLUTE_MAX):
+        method: EqualizationMethod = EqualizationMethod.ABSOLUTE_MAX,
+    ):
         # extract key value from pair
         upstream_key_values, downstream_key_values = [], []
         for op in self.upstream_layers:
             key_value = EqualizationHelper.key_value_from_upstream(
-                op=op, including_bias=including_bias, including_act=including_act, 
-                bias_multiplier=bias_multiplier, act_multiplier=act_multiplier)
+                op=op,
+                including_bias=including_bias,
+                including_act=including_act,
+                bias_multiplier=bias_multiplier,
+                act_multiplier=act_multiplier,
+            )
             upstream_key_values.append(key_value)
 
         for op in self.downstream_layers:
             key_value = EqualizationHelper.key_value_from_downstream(op=op)
             downstream_key_values.append(key_value)
 
-        upstream_key_values   = self.reduce_by_axis(upstream_key_values, method=method)
+        upstream_key_values = self.reduce_by_axis(upstream_key_values, method=method)
         downstream_key_values = self.reduce_by_axis(downstream_key_values, method=method)
 
         mask = torch.logical_and(upstream_key_values >= value_threshold, downstream_key_values >= value_threshold)
 
         # write back all params
         for op in self.upstream_layers:
-            ChannelSplitHelper.channel_split_upstream(
-                op = op, scale_factor = 1 / sqrt(2), mask = mask)
+            ChannelSplitHelper.channel_split_upstream(op=op, scale_factor=1 / sqrt(2), mask=mask)
 
         for op in self.downstream_layers:
-            ChannelSplitHelper.channel_split_downstream(
-                op = op, scale_factor = 1 / sqrt(2), mask = mask)
+            ChannelSplitHelper.channel_split_downstream(op=op, scale_factor=1 / sqrt(2), mask=mask)
 
     def activation_equalize(self, threshold: float = 4.0):
         # extract key value from pair
         upstream_key_values = []
         for op in self.upstream_layers:
             key_value = EqualizationHelper.key_value_from_upstream(
-                op=op, including_bias=False, including_act=True, 
-                bias_multiplier=0, act_multiplier=1, weight_multiplier=0)
+                op=op,
+                including_bias=False,
+                including_act=True,
+                bias_multiplier=0,
+                act_multiplier=1,
+                weight_multiplier=0,
+            )
             upstream_key_values.append(key_value)
         upstream_key_values = self.reduce_by_axis(upstream_key_values, method=EqualizationMethod.ABSOLUTE_MAX)
 
         threshold = upstream_key_values.mean().item()
         # calculate scale
         scale = torch.where(
-            upstream_key_values > threshold, 
-            torch.ones_like(upstream_key_values) * 1.1, 
-            torch.ones_like(upstream_key_values) / 1.1)
+            upstream_key_values > threshold,
+            torch.ones_like(upstream_key_values) * 1.1,
+            torch.ones_like(upstream_key_values) / 1.1,
+        )
 
         # write back all params
         for op in self.upstream_layers:
@@ -417,9 +447,12 @@ class EqualizationPair:
             EqualizationHelper.scale_to_downstream(op, 1 / scale)
 
     def calculate_scale(
-        self, upstream_key_values: torch.Tensor,
+        self,
+        upstream_key_values: torch.Tensor,
         downstream_key_values: torch.Tensor,
-        value_threshold: float, scale_clip_value: float = 10):
+        value_threshold: float,
+        scale_clip_value: float = 10,
+    ):
         scale = 1 / torch.sqrt(upstream_key_values / downstream_key_values)
         scale = torch.clamp(scale, 1 / scale_clip_value, scale_clip_value)
         scale[(upstream_key_values + downstream_key_values) < value_threshold] = 1
@@ -429,7 +462,7 @@ class EqualizationPair:
         self,
         params: List[torch.Tensor],
         method: EqualizationMethod,
-        axis: int=1,
+        axis: int = 1,
     ) -> torch.Tensor:
         params = torch.cat(params, axis=axis)
         if method is EqualizationMethod.ABSOLUTE_MAX:
@@ -443,7 +476,7 @@ class EqualizationPair:
 
         elif method is EqualizationMethod.SQUARE_MEAN:
             return torch.mean(torch.square(params), axis=axis)
-    
+
         elif method is EqualizationMethod.DIRECT_MAX:
             return torch.max(params, axis=axis)
 

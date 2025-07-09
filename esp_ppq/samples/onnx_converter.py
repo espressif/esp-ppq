@@ -1,5 +1,5 @@
 import onnx
-from onnx import version_converter, helper
+from onnx import helper, version_converter
 
 # Preprocessing: load the model to be converted.
 model_path = 'models/mbfill.onnx'

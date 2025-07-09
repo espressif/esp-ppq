@@ -156,7 +156,7 @@ __device__ __inline__
 float QuantizeScalarFloating(
     const Dtype value, const Stype scale, const Otype offset,
     const int exponent, const int mantissa,
-    const float clip_min, const float clip_max, 
+    const float clip_min, const float clip_max,
     const Rounding rounding){
     /**
      * PPQ Quantization Function implementation.
@@ -164,7 +164,7 @@ float QuantizeScalarFloating(
      */
     FPConvertHelper helper; FPConvertHelper rounding_helper;
     float Unscaled_FP32 = static_cast<float>(value) / scale;
-    
+
     helper.value = Unscaled_FP32;
 	int32_t exponent_min  = -(1 << (exponent - 1)) + 1;
     int32_t exponent_max  = (1 << (exponent - 1));
@@ -179,9 +179,9 @@ float QuantizeScalarFloating(
     helper.data = fp32_sign + fp32_mantissa + fp32_exp;
     float theoretical_maximum = helper.value;
 
-    if (Unscaled_FP32 > min(clip_max, theoretical_maximum)) 
+    if (Unscaled_FP32 > min(clip_max, theoretical_maximum))
         return min(clip_max, theoretical_maximum);
-    if (Unscaled_FP32 < max(clip_min, -theoretical_maximum)) 
+    if (Unscaled_FP32 < max(clip_min, -theoretical_maximum))
         return max(clip_min, -theoretical_maximum);
 
     // Code start from here will convert number within fp8 range.

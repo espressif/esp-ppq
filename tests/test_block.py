@@ -1,7 +1,8 @@
-from tests.tmodel  import *
+from tests.tmodel import *
 from tests.tscheme import *
-from ..ppq     import *
+
 from ..esp_ppq.api import *
+from ..esp_ppq import *
 
 DEVICE = 'cuda'
 
@@ -16,35 +17,40 @@ with ENABLE_CUDA_KERNEL():
                 reference_outputs = torch.cat([model(batch) for batch in dataset])
 
                 quantized = quantize_torch_model(
-                    model=model, 
-                    calib_dataloader=dataset, 
+                    model=model,
+                    calib_dataloader=dataset,
                     calib_steps=8,
                     input_shape=case.input_generator().shape,
                     platform=scheme.quant_platform,
                     setting=scheme.setting,
-                    verbose=False)
+                    verbose=False,
+                )
 
                 executor = TorchExecutor(quantized)
                 for op in quantized.operations.values():
-                    if isinstance(op, QuantableOperation): op.dequantize()
+                    if isinstance(op, QuantableOperation):
+                        op.dequantize()
                 ppq_outputs = torch.cat([executor(batch)[0] for batch in dataset])
 
                 for op in quantized.operations.values():
-                    if isinstance(op, QuantableOperation): op.restore_quantize_state()
+                    if isinstance(op, QuantableOperation):
+                        op.restore_quantize_state()
                 quant_outputs = torch.cat([executor(batch)[0] for batch in dataset])
                 assert torch_snr_error(ppq_outputs, reference_outputs).item() < 1e-4, (
                     f'Network Simulating Failed, expect error < 1e-3, '
-                    f'got {torch_snr_error(ppq_outputs, reference_outputs).item()}')
+                    f'got {torch_snr_error(ppq_outputs, reference_outputs).item()}'
+                )
                 assert torch_snr_error(quant_outputs, reference_outputs).item() < 0.1, (
                     f'Network Quantization Failed, expect error < 0.1, '
-                    f'got {torch_snr_error(quant_outputs, reference_outputs).item()}')
-                
-                if (case.depoly_platforms is None or 
-                    scheme.export_platform in case.depoly_platforms):
+                    f'got {torch_snr_error(quant_outputs, reference_outputs).item()}'
+                )
+
+                if case.depoly_platforms is None or scheme.export_platform in case.depoly_platforms:
                     export_ppq_graph(
-                        graph=quantized, 
-                        platform=scheme.export_platform, 
+                        graph=quantized,
+                        platform=scheme.export_platform,
                         graph_save_to='tworkingspace/export',
-                        config_save_to='tworkingspace/export.json')
+                        config_save_to='tworkingspace/export.json',
+                    )
             except NotImplementedError as e:
                 pass

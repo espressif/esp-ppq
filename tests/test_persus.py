@@ -8,12 +8,12 @@ gemm = graph.create_operation(op_type='Gemm', name='FirstGemm')
 conv = graph.create_operation(op_type='Conv', name='Conv')
 # g1.create_operation(op_type='Shape')
 sigmoid = graph.create_operation(op_type='Sigmoid', name='Sigmoid')
-shape1  = graph.create_operation(op_type='Shape', name='Shape1')
-relu    = graph.create_operation(op_type='Relu', name='Relu')
-gemm2   = graph.create_operation(op_type='Gemm', name='ShapeGemm')
-shape2  = graph.create_operation(op_type='Shape', name='Shape2')
+shape1 = graph.create_operation(op_type='Shape', name='Shape1')
+relu = graph.create_operation(op_type='Relu', name='Relu')
+gemm2 = graph.create_operation(op_type='Gemm', name='ShapeGemm')
+shape2 = graph.create_operation(op_type='Shape', name='Shape2')
 reshape = graph.create_operation(op_type='Reshape', name='FinalReshape')
-gemm3   = graph.create_operation(op_type='Gemm', name='FinalGemm')
+gemm3 = graph.create_operation(op_type='Gemm', name='FinalGemm')
 
 graph.create_link_with_op(graph.create_variable(), A=None, B=gemm)
 graph.create_link_with_op(graph.create_variable(), A=gemm, B=sigmoid)
@@ -99,9 +99,8 @@ dispatch_table = dispatcher.dispatch()
 print(dispatch_table)
 
 assert dispatch_table['FirstGemm'] == OType.QUANTABLE
-assert dispatch_table['Add']       == OType.NONQUANTABLE
-assert dispatch_table['Constant']  == OType.NONQUANTABLE
-assert dispatch_table['Mul']       == OType.QUANTABLE
-assert dispatch_table['Conv']      == OType.QUANTABLE
-assert dispatch_table['Reshape']   == OType.QUANTABLE
-
+assert dispatch_table['Add'] == OType.NONQUANTABLE
+assert dispatch_table['Constant'] == OType.NONQUANTABLE
+assert dispatch_table['Mul'] == OType.QUANTABLE
+assert dispatch_table['Conv'] == OType.QUANTABLE
+assert dispatch_table['Reshape'] == OType.QUANTABLE
