@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "esp-ppq"
-version = "0.1.3"
+version = "1.0.0rc1"
 description = "esp-ppq is an offline quantization tools"
 readme = "README.md"
 license = "Apache-2.0"
@@ -19,6 +19,11 @@ dependencies = [
     "setuptools>=80.9.0",
     "tqdm>=4.67.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/espressif/esp-ppq"
+Repository = "https://github.com/espressif/esp-ppq"
+Issues = "https://github.com/espressif/esp-dl/issues"
 
 [project.optional-dependencies]
 cpu = [

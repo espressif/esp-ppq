@@ -151,15 +151,6 @@ python3 -m pip install ppq
 | 06 | PPQ 量化优化过程 |  [link](https://www.bilibili.com/video/BV1zT411g7Ly) |
 | 07 | PPQ 量化函数 |  [link](https://www.bilibili.com/video/BV1CU4y1q7tr) |
 
-### Contact Us
-
-| WeChat Official Account | QQ Group |
-| :----:| :----: |
-| OpenPPL | 627853444 |
-| ![OpenPPL](assets/OpenPPL.jpg)| ![QQGroup](assets/QQGroup.jpg) |
-
-Email: openppl.ai@hotmail.com
-
 ### Other Resources
 
 * [Sensetime Parrots](https://www.sensetime.com/cn)
@@ -205,7 +196,5 @@ PPQ is tested with models from mmlab-classification, mmlab-detection, mmlab-sega
 * All calibration datasets are randomly picked from training data.
 
 ### License
-
-![Logo](assets/logo.png)
 
 This project is distributed under the [Apache License, Version 2.0](LICENSE).

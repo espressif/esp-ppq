@@ -1,4 +1,6 @@
 stages:
+  - pre_check
+  - quant_test
   - deploy
 
 workflow:
@@ -17,4 +19,7 @@ workflow:
     - when: always
 
 include:
+  - '.gitlab/ci/rules.yml'
+  - '.gitlab/ci/pre_check.yml'
+  - '.gitlab/ci/quant_test.yml'
   - '.gitlab/ci/deploy.yml'
