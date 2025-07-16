@@ -64,9 +64,9 @@ Method 5: Use esp-ppq with docker:
 ```
 docker build -t esp-ppq:your_tag https://github.com/espressif/esp-ppq.git
 ```
-**Note**
-* The example code installs the Linux PyTorch CPU version. Please install the appropriate PyTorch version based on your actual needs.
-* If installing the package with uv, simply modify the ``--torch-backend`` parameter, which will override the PyTorch URLs index configured in the project.
+> [!NOTE]
+> - The example code installs the Linux PyTorch CPU version. Please install the appropriate PyTorch version based on your actual needs.
+> - If installing the package with uv, simply modify the ``--torch-backend`` parameter, which will override the PyTorch URLs index configured in the project.
 
 ### License
 

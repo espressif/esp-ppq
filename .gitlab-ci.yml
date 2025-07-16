@@ -1,12 +1,13 @@
 stages:
   - pre_check
   - quant_test
+  - publish
   - deploy
 
 workflow:
   rules:
     # Disable those non-protected push triggered pipelines
-    - if: '$CI_COMMIT_REF_NAME != "master" && $CI_COMMIT_BRANCH !~ /^release\/v/ && $CI_COMMIT_TAG !~ /^v\d+\.\d+(\.\d+)?($|-)/ && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_REF_NAME != "master" && $CI_COMMIT_BRANCH !~ /^release\/v/ && $CI_COMMIT_TAG !~ /^\d+\.\d+(\.\d+)?((a|b|rc|\.post|\.dev)[0-9]*)?$/ && $CI_PIPELINE_SOURCE == "push"'
       when: never
     # when running merged result pipelines, it would create a temp commit id. use $CI_MERGE_REQUEST_SOURCE_BRANCH_SHA instead of $CI_COMMIT_SHA.
     # Please use PIPELINE_COMMIT_SHA at all places that require a commit sha
@@ -22,4 +23,5 @@ include:
   - '.gitlab/ci/rules.yml'
   - '.gitlab/ci/pre_check.yml'
   - '.gitlab/ci/quant_test.yml'
+  - '.gitlab/ci/publish.yml'
   - '.gitlab/ci/deploy.yml'
