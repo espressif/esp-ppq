@@ -9,7 +9,7 @@ from torchvision.models.mobilenetv2 import MobileNet_V2_Weights
 from esp_ppq import QuantizationSettingFactory
 from esp_ppq.api import espdl_quantize_torch
 
-BATCHSIZE = 16
+BATCHSIZE = 4
 INPUT_SHAPE = [3, 224, 224]
 DEVICE = 'cpu'
 ESPDL_MODEL_PATH = "mobilenet_v2.espdl"
@@ -43,7 +43,7 @@ class BaseInferencer:
             model=self.model,
             espdl_export_file=ESPDL_MODEL_PATH,
             calib_dataloader=calibration_dataloader,
-            calib_steps=16,
+            calib_steps=8,
             input_shape=[1] + INPUT_SHAPE,
             target=self.target,
             num_of_bits=self.num_of_bits,

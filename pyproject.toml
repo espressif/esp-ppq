@@ -8,15 +8,15 @@ version = "1.0.0"
 description = "esp-ppq is an offline quantization tools"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.8,<3.12"
 dependencies = [
     "cryptography>=45.0.4",
     "flatbuffers>=25.2.10",
-    "numpy>=2.0.0",
+    "numpy>=1.24.0",
     "onnx>=1.14.0,<1.18.0",
-    "onnxruntime>=1.22.0",
+    "onnxruntime>=1.19.0",
     "onnxsim>=0.4.36",
-    "setuptools>=80.9.0",
+    "setuptools>=75.3.0",
     "tqdm>=4.67.1",
 ]
 
@@ -27,14 +27,14 @@ Issues = "https://github.com/espressif/esp-dl/issues"
 
 [project.optional-dependencies]
 cpu = [
-  "torch>=2.3.0",
-  "torchvision>=0.18.0",
-  "torchaudio>=2.3.0",
+  "torch>=2.0.0",
+  "torchvision>=0.15.0",
+  "torchaudio>=2.0.0",
 ]
 cu124 = [
-  "torch>=2.3.0",
-  "torchvision>=0.18.0",
-  "torchaudio>=2.3.0",
+  "torch>=2.0.0",
+  "torchvision>=0.15.0",
+  "torchaudio>=2.0.0",
 ]
 
 [tool.uv]
