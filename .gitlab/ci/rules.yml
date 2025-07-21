@@ -1,0 +1,44 @@
+############
+# Patterns #
+############
+
+.patterns-gitlab-ci: &patterns-gitlab-ci
+  - ".gitlab/ci/*"
+
+# esp_ppq folder, in the alphabetic order
+.patterns-esp_ppq: &patterns-esp_ppq
+  - "pyproject.toml"
+  - "esp_ppq/**/*"
+
+##############
+# if anchors #
+##############
+.if-protected: &if-protected
+  if: '($CI_COMMIT_REF_NAME == "master" || $CI_COMMIT_BRANCH =~ /^release\/v/ || $CI_COMMIT_TAG =~ /^\d+\.\d+(\.\d+)?((a|b|rc|\.post|\.dev)[0-9]*)?$/)'
+
+.if-dev-push: &if-dev-push
+  if: '$CI_COMMIT_REF_NAME != "master" && $CI_COMMIT_BRANCH !~ /^release\/v/ && $CI_COMMIT_TAG !~ /^\d+\.\d+(\.\d+)?((a|b|rc|\.post|\.dev)[0-9]*)?$/ && ($CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "merge_request_event")'
+
+.if-tag-create: &if-tag-create
+  if: '($CI_COMMIT_REF_NAME == "master" || $CI_COMMIT_BRANCH =~ /^release\/v/) && $CI_COMMIT_TAG =~ /^\d+\.\d+(\.\d+)?((a|b|rc|\.post|\.dev)[0-9]*)?$/'
+
+##################
+# Auto Generated #
+##################
+.if-label-build: &if-label-build
+  if: '$CI_MERGE_REQUEST_LABELS =~ /^(?:[^,\n\r]+,)*build(?:,[^,\n\r]+)*$/i'
+
+# rules for quant test
+.rules:quant:quant_test:
+  rules:
+    - <<: *if-protected
+    - <<: *if-label-build
+    - <<: *if-dev-push
+      changes: *patterns-esp_ppq
+    - <<: *if-dev-push
+      changes: *patterns-gitlab-ci
+
+# rules for publish pypi
+.rules:publish:publish_pypi:
+  rules:
+    - <<: *if-tag-create

@@ -1,10 +1,12 @@
-from ppq.core import CUDA
-from ppq.core.ffi import CUDA_COMPLIER
-from ppq import ppq_tensor_round, RoundingPolicy, ppq_numerical_round, torch_snr_error
-from typing import List
-import torch
 from math import sqrt
+from typing import List
+
+import torch
 from tqdm import tqdm
+
+from esp_ppq import RoundingPolicy, ppq_numerical_round, ppq_tensor_round, torch_snr_error
+from esp_ppq.core import CUDA
+from esp_ppq.core.ffi import CUDA_COMPLIER
 
 EXECUTING_DEVICE = 'cuda'
 TEST_TIMES = 128
@@ -29,15 +31,14 @@ def __TEST_QUANTIZE_LT__(size: List[int], iterations: int, sym: bool):
         qt = (qt - o) * s
 
         # t = t.int()
-        cuda_qt = CUDA.LinearQuantize_T(
-            t, s, o, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
+        cuda_qt = CUDA.LinearQuantize_T(t, s, o, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
 
         diff = qt - cuda_qt
         if diff.abs().max() != 0:
             raise Exception('Test Failed.')
 
 
-def __TEST_QUANTIZE_LC__(size: List[int], iterations: int, sym: bool, c: int=1):
+def __TEST_QUANTIZE_LC__(size: List[int], iterations: int, sym: bool, c: int = 1):
     for _ in tqdm(range(iterations), desc='QUANTIZE LC TESTING...'):
         num_of_channel = size[c]
         t = torch.rand(size=size).cuda() * 32
@@ -54,8 +55,7 @@ def __TEST_QUANTIZE_LC__(size: List[int], iterations: int, sym: bool, c: int=1):
         qt = (qt - o) * s
 
         # t = t.int()
-        cuda_qt = CUDA.LinearQuantize_C(
-            t, s, o, c, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
+        cuda_qt = CUDA.LinearQuantize_C(t, s, o, c, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
 
         diff = qt - cuda_qt
         if diff.abs().max() != 0:
@@ -64,12 +64,10 @@ def __TEST_QUANTIZE_LC__(size: List[int], iterations: int, sym: bool, c: int=1):
 
 
 def __TEST_QUANTIZE_LT_B__(size: List[int], iterations: int, sym: bool):
-    def ref_grad_func(value: torch.Tensor, dy: torch.Tensor, 
-                      scale: torch.Tensor, offset: torch.Tensor):
-        
+    def ref_grad_func(value: torch.Tensor, dy: torch.Tensor, scale: torch.Tensor, offset: torch.Tensor):
         qt = ppq_tensor_round(value / scale, policy=ROUNDING_POLICY) + offset
         clipped_qt = qt.clip(Q_MIN, Q_MAX)
-        
+
         dx = torch.where(clipped_qt != qt, torch.zeros_like(dy), dy)
         ds = torch.where(clipped_qt == qt, (((qt - offset) * scale) - value) * dy / scale, torch.zeros_like(dy))
         ds += torch.where(qt > Q_MAX, (Q_MAX - offset) * dy, torch.zeros_like(dy))
@@ -85,10 +83,9 @@ def __TEST_QUANTIZE_LT_B__(size: List[int], iterations: int, sym: bool):
         else:
             o = torch.randint(low=0, high=255, size=[1]).float().cuda()
         dy = torch.rand_like(t)
-        
-        cuda_grad_x, cuda_grad_s = CUDA.LinearQuantize_T_B(
-            t, s, o, dy, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
-        
+
+        cuda_grad_x, cuda_grad_s = CUDA.LinearQuantize_T_B(t, s, o, dy, Q_MIN, Q_MAX, ROUNDING_POLICY.value)
+
         ref_grad_x, ref_grad_s = ref_grad_func(t, dy, s, o)
         diff = ref_grad_x.flatten() - cuda_grad_x.flatten()
         if diff.abs().max() != 0:
@@ -99,15 +96,14 @@ def __TEST_QUANTIZE_LT_B__(size: List[int], iterations: int, sym: bool):
             print(f'[Warning]. Floating Precision Error. {snr:.4f} {cuda_grad_s.item():4f} {ref_grad_s.item():4f}')
             if cuda_grad_s.item() > 1:
                 raise Exception('Test Failed.')
-        
-def __TEST_QUANTIZE_LC_B__(size: List[int], iterations: int, sym: bool, c: int=1):
-    def ref_grad_func(value: torch.Tensor, dy: torch.Tensor, 
-                      scale: torch.Tensor, offset: torch.Tensor, c: int):
 
+
+def __TEST_QUANTIZE_LC_B__(size: List[int], iterations: int, sym: bool, c: int = 1):
+    def ref_grad_func(value: torch.Tensor, dy: torch.Tensor, scale: torch.Tensor, offset: torch.Tensor, c: int):
         shape = [1 if axis != c else -1 for axis in range(t.ndim)]
         scale = scale.view(shape)
         offset = offset.view(shape)
-        
+
         qt = ppq_tensor_round(value / scale, policy=ROUNDING_POLICY) + offset
         clipped_qt = qt.clip(Q_MIN, Q_MAX)
 
@@ -122,13 +118,14 @@ def __TEST_QUANTIZE_LC_B__(size: List[int], iterations: int, sym: bool, c: int=1
         num_of_channel = size[c]
         t = torch.rand(size=size).cuda() * 32
         s = torch.rand(size=[num_of_channel]).cuda()
-        if sym:o = torch.zeros(size=[num_of_channel]).cuda()
-        else: o = torch.randint(low=0, high=255, size=[num_of_channel]).float().cuda()
+        if sym:
+            o = torch.zeros(size=[num_of_channel]).cuda()
+        else:
+            o = torch.randint(low=0, high=255, size=[num_of_channel]).float().cuda()
         dy = torch.rand_like(t)
-        
-        cuda_grad_x, cuda_grad_s = CUDA.LinearQuantize_C_B(
-            t, s, o, dy, Q_MIN, Q_MAX, c, ROUNDING_POLICY.value)
-        
+
+        cuda_grad_x, cuda_grad_s = CUDA.LinearQuantize_C_B(t, s, o, dy, Q_MIN, Q_MAX, c, ROUNDING_POLICY.value)
+
         ref_grad_x, ref_grad_s = ref_grad_func(t, dy, s, o, c)
         diff = ref_grad_x.flatten() - cuda_grad_x.flatten()
         if diff.abs().max() != 0:
@@ -141,6 +138,7 @@ def __TEST_QUANTIZE_LC_B__(size: List[int], iterations: int, sym: bool, c: int=1
             print(f'[Warning]. Floating Precision Error. {snr:.4f} {cuda_grad_s.item():4f} {ref_grad_s.item():4f}')
             if cuda_grad_s.item() > 1:
                 raise Exception('Test Failed.')
+
 
 __TEST_QUANTIZE_LT__(size=[1, 1, 1, 1], iterations=100, sym=True)
 __TEST_QUANTIZE_LT__(size=[1, 1, 1, 1], iterations=100, sym=False)

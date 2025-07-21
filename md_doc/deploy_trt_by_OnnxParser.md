@@ -49,7 +49,7 @@ If you want to install it, we strongly suggest you install TensorRT through [tar
 ```bash
 def happyforward(*args, **kwards):
     return torch.zeros([1, 1], dtype=torch.int32).cuda(), torch.zeros([1, 100, 4],dtype=torch.float32).cuda(), \
-        torch.zeros([1, 100],dtype=torch.float32).cuda(), torch.zeros([1, 100], dtype=torch.int32).cuda() 
+        torch.zeros([1, 100],dtype=torch.float32).cuda(), torch.zeros([1, 100], dtype=torch.int32).cuda()
 register_operation_handler(happyforward, 'EfficientNMS_TRT', platform=TargetPlatform.FP32)
 ```
 - Other parameters are default.
@@ -57,7 +57,7 @@ register_operation_handler(happyforward, 'EfficientNMS_TRT', platform=TargetPlat
 - After the script is executed, you will get 3 files in your working directory, `quantized.onnx`, `quant_cfg.json`, `quantized.wts`.
 - `quantized.onnx` is is better for quantization that is used to deploy.
 - `quant_cfg.json` contains quantization parameters.
-- `quantized.wts` contains quantized weight parameters, if you want to deploy with trt.OnnxParser, please ignore it. But if you want to deploy with the api that comes with tensorrt, please refer to [Define the model directly using the TensorRT API](https://github.com/openppl-public/ppq/tree/master/md_doc/deploy_trt_by_api.md). 
+- `quantized.wts` contains quantized weight parameters, if you want to deploy with trt.OnnxParser, please ignore it. But if you want to deploy with the api that comes with tensorrt, please refer to [Define the model directly using the TensorRT API](https://github.com/openppl-public/ppq/tree/master/md_doc/deploy_trt_by_api.md).
 
 
 **Note**:
@@ -115,7 +115,7 @@ def alloc_buf_N(engine,data):
         else:
             size = trt.volume(engine.get_binding_shape(binding)) * engine.max_batch_size
             host_mem = cuda.pagelocked_empty(size, data_type[0])
-            device_mem = cuda.mem_alloc(host_mem.nbytes)            
+            device_mem = cuda.mem_alloc(host_mem.nbytes)
             bindings.append(int(device_mem))
             outputs.append(HostDeviceMem(host_mem, device_mem))
     return inputs, outputs, bindings, stream
@@ -138,7 +138,7 @@ def do_inference_v2(context, inputs, bindings, outputs, stream, data):
     stream.synchronize()
 
     # Return only the host outputs.
-    return [out.host for out in outputs] 
+    return [out.host for out in outputs]
 
 trt_logger = trt.Logger(trt.Logger.INFO)
 

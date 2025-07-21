@@ -10,7 +10,7 @@ Technically we can fuse those layers before quantization, while fused layers are
     So to say ConvRelu is not a valid onnx operation, no execution framework can parse it.
 
 Therefore, PPQ will simulate the graph fusion by adjusting quantization config: if PPQ finds their is a
-    pattern like Conv + Relu, the output quantization of Conv will be forbidden, pretending that the Conv + Relu 
+    pattern like Conv + Relu, the output quantization of Conv will be forbidden, pretending that the Conv + Relu
     fusion has happened.
 
 This Pass is designed for 2 types fusion:
@@ -21,14 +21,14 @@ This Pass is designed for 2 types fusion:
         quantization of computing op will be disabled with their state being set to QuantizationState.OVERLAPPED.
 
     Activation fusion here supports only simple activation patterns,
-        for complex activation functions like mish, swish, 
+        for complex activation functions like mish, swish,
         will be represented as mish = tanh + mul + softplus, swish = sigmoid + mul in onnx,
         cause onnx does not have a op defination for them.
-        Identifying those complex patterns requires pattern matching, which is implemented in ppq.IR.search.py
+        Identifying those complex patterns requires pattern matching, which is implemented in esp_ppq.IR.search.py
 
     Complex quantization fusions must be invoked manually, PPQ implemented softplus & swish fusion functions in
-        ppq.quantization.optim.refine.MishFusionPass
-        ppq.quantization.optim.refine.SwishFusionPass
+        esp_ppq.quantization.optim.refine.MishFusionPass
+        esp_ppq.quantization.optim.refine.SwishFusionPass
 
 * passive operation fusion
 
@@ -48,7 +48,7 @@ This Pass is designed for 2 types fusion:
 
         The pattern will be recognized as [Computing Op -> Activation Op],
 
-        By graph fusion, the output quantization of the Computing Op and 
+        By graph fusion, the output quantization of the Computing Op and
             the input quantization of the activation op will be disabled.
 
 * fuse_activation(bool)
@@ -66,8 +66,8 @@ This pass is included in PPQ Quantization Setting, you can calling this optimiza
 
     setting.fusion = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
     model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+    platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
     collate_fn=collate_fn)

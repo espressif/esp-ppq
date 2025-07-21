@@ -1,9 +1,9 @@
 # Deploy Model with SNPE DSP
 This document describes the quantization deployment process of the SNPE DSP and how PPQ writes quantization parameters to the SNPE model.
- 
+
 
 ## Environment setup
-Refer to [Qualcomm official documentation](https://developer.qualcomm.com/sites/default/files/docs/snpe/setup.html) to configure the Linux host environment. The SNPE model conversion and quantization are all done on the Linux host. SNPE supports reading Caffe and Onnx models. This document uses the ONNX model as an example.
+Refer to [Qualcomm official documentation](https://developer.qualcomm.com/sites/default/files/docs/snpe/setup.html) to configure the Linux host environment. The SNPE model conversion and quantization are all done on the Linux host. SNPE supports reading Onnx models. This document uses the ONNX model as an example.
 
 ## Quantize Your Network
 as we have specified in [how_to_use](./how_to_use.md), we should prepare our calibration dataloader, confirm
@@ -15,17 +15,17 @@ import os
 import numpy as np
 import torch
 
-from ppq import QuantizationSettingFactory
-from ppq.api import dispatch_graph, export_ppq_graph, load_onnx_graph
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq.lib import Quantizer
+from esp_ppq import QuantizationSettingFactory
+from esp_ppq.api import dispatch_graph, export_ppq_graph, load_onnx_graph
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq.lib import Quantizer
 
 model_path = '/models/shufflenet-v2-sim.onnx' # onnx simplified model
 data_path  = '/data/ImageNet/calibration' # calibration data folder
 EXECUTING_DEVICE = 'cuda'
 
-# initialize dataloader 
+# initialize dataloader
 INPUT_SHAPE = [1, 3, 224, 224]
 npy_array = [np.fromfile(os.path.join(data_path, file_name), dtype=np.float32).reshape(*INPUT_SHAPE) for file_name in os.listdir(data_path)]
 dataloader = [torch.from_numpy(np.load(npy_tensor)) for npy_tensor in npy_array]
@@ -55,7 +55,7 @@ ppq_graph_ir = quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.QNN_DSP_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-ppq.table')```
+export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.QNN_DSP_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-esp_ppq.table')```
 ```
 
 ## Convert Your Model
@@ -69,7 +69,7 @@ The snpe-dlc-quantize tool converts non-quantized DLC models into quantized DLC 
 snpe-dlc-quantize --input_dlc fp32.dlc --input_list path_to_binary_calidata --output_dlc quant.dlc
 ```
 
-Finally, write the PPQ quantization parameters to quant.dlc. We have fully tested the script in snpe version 1.43. In recent SNPE releases, if the option –quantization_overrides is provided during model conversion the user can provide a json file with parameters to use for quantization. These will be cached along with the model and can be used to override any quantization data carried from conversion (eg TF fake quantization) or calculated during the normal quantization process in snpe-dlc-quantize. 
+Finally, write the PPQ quantization parameters to quant.dlc. We have fully tested the script in snpe version 1.43. In recent SNPE releases, if the option –quantization_overrides is provided during model conversion the user can provide a json file with parameters to use for quantization. These will be cached along with the model and can be used to override any quantization data carried from conversion (eg TF fake quantization) or calculated during the normal quantization process in snpe-dlc-quantize.
 
 ```shell
 python3 write_qparams_to_snpe_dlc.py --input_dlc_model quant.dlc --qparam quant.json

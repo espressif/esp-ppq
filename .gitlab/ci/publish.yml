@@ -1,0 +1,15 @@
+publish_pypi:
+  stage: publish
+  extends:
+    - .rules:publish:publish_pypi
+  image: python:3.11
+  tags: ["build", "amd64", "internet"]
+  dependencies: []
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_API_TOKEN
+  script:
+    - pip install --upgrade pip
+    - pip install build twine
+    - python -m build
+    - twine upload dist/*

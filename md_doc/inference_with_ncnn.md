@@ -1,5 +1,5 @@
 # Inference with ncnn
-this tutorial gives you a simple illustration how you could actually use PPQ to quantize your model and export quantization parameter file to inference with ncnn as your backend. Note that ncnn supports conversion of both caffe and onnx models, in this tutorial we take the onnx model, shufflenet-v2, as an example to illustrate the whole process going from a ready-to-quantize model to int8 ready-to-run artifact which can be executed in quantization mode by ncnn.
+this tutorial gives you a simple illustration how you could actually use PPQ to quantize your model and export quantization parameter file to inference with ncnn as your backend. Note that ncnn supports conversion of onnx models, in this tutorial we take the onnx model, shufflenet-v2, as an example to illustrate the whole process going from a ready-to-quantize model to int8 ready-to-run artifact which can be executed in quantization mode by ncnn.
 
 ## Optimize Your Network
 ncnn does not support some shape-related operations like Shape, Gather ... so before we send the network
@@ -19,12 +19,12 @@ simplified model, initialize quantizer and executor, and then run the quantizati
 import os
 import numpy as np
 import torch
-from ppq.api import load_onnx_graph, export_ppq_graph
-from ppq.api.interface import dispatch_graph
-from ppq.lib import Quantizer
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq import QuantizationSettingFactory
+from esp_ppq.api import load_onnx_graph, export_ppq_graph
+from esp_ppq.api.interface import dispatch_graph
+from esp_ppq.lib import Quantizer
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq import QuantizationSettingFactory
 
 model_path = '/models/shufflenet-v2-sim.onnx' # onnx simplified model
 data_path  = '/data/ImageNet/calibration' # calibration data folder
@@ -60,7 +60,7 @@ ppq_graph_ir = quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.NCNN_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-ppq.table')
+export_ppq_graph(graph=ppq_graph_ir, platform=TargetPlatform.NCNN_INT8, graph_save_to='shufflenet-v2-sim-ppq', config_save_to='shufflenet-v2-sim-esp_ppq.table')
 ```
 note that your dataloader should provide batch data which is in the same shape of the input of simplified model, because simplified model can't take dynamic-shape inputs.
 
@@ -68,15 +68,15 @@ note that your dataloader should provide batch data which is in the same shape o
 if you have compiled ncnn correctly, there should be executables in the installation binary folder which can convert onnx model
 to ncnn binary format
 ```shell
-/path/to/your/ncnn/build/install/bin/onnx2ncnn shufflenet-v2-sim-ppq.onnx shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin
+/path/to/your/ncnn/build/install/bin/onnx2ncnn shufflenet-v2-sim-esp_ppq.onnx shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin
 ```
 nothing would print if everything goes right, then we may use ncnn optimize tool to optimize the converted model
 ```shell
 /path/to/your/ncnn/build/install/bin/ncnnoptimize shufflenet-v2-ncnn.param shufflenet-v2-ncnn.bin shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin 0
 ```
-then along with ppq generated quantization table, we may convert the ncnn optimized model into the final int8 version 
+then along with ppq generated quantization table, we may convert the ncnn optimized model into the final int8 version
 ```shell
-/path/to/your/ncnn/build/install/bin/ncnn2int8 shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin shufflenet-v2-ncnn-int8.param shufflenet-v2-ncnn-int8.bin shufflenet-v2-sim-ppq.table
+/path/to/your/ncnn/build/install/bin/ncnn2int8 shufflenet-v2-ncnn-opt.param shufflenet-v2-ncnn-opt.bin shufflenet-v2-ncnn-int8.param shufflenet-v2-ncnn-int8.bin shufflenet-v2-sim-esp_ppq.table
 ```
 there should be final files generated in your current folder
 ```
@@ -118,7 +118,7 @@ and if you want to obtain the final probability and print top-5 predictions
 {
     std::vector<float> cls_scores;
     // softmax -> probs
-    { 
+    {
         ncnn::Layer* softmax = ncnn::create_layer("Softmax");
 
         ncnn::ParamDict pd;
@@ -156,7 +156,7 @@ and if you want to obtain the final probability and print top-5 predictions
     }
 }
 ```
-note that if you are using gpu which is supported by vulkan, you just need to correctly install vulkan, compile ncnn with 
+note that if you are using gpu which is supported by vulkan, you just need to correctly install vulkan, compile ncnn with
 vulkan option enabled, and turn on vulkan switch after initializing the network
 ```c++
 ncnn::Net shufflenetv2;

@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "esp-ppq"
+version = "1.0.0"
+description = "esp-ppq is an offline quantization tools"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.8,<3.12"
+dependencies = [
+    "cryptography>=45.0.4",
+    "flatbuffers>=25.2.10",
+    "numpy>=1.24.0",
+    "onnx>=1.14.0,<1.18.0",
+    "onnxruntime>=1.19.0",
+    "onnxsim>=0.4.36",
+    "setuptools>=75.3.0",
+    "tqdm>=4.67.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/espressif/esp-ppq"
+Repository = "https://github.com/espressif/esp-ppq"
+Issues = "https://github.com/espressif/esp-dl/issues"
+
+[project.optional-dependencies]
+cpu = [
+  "torch>=2.0.0",
+  "torchvision>=0.15.0",
+  "torchaudio>=2.0.0",
+]
+cu124 = [
+  "torch>=2.0.0",
+  "torchvision>=0.15.0",
+  "torchaudio>=2.0.0",
+]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu124" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu124", extra = "cu124" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu124", extra = "cu124" },
+]
+torchaudio = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu124", extra = "cu124" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.hatch.build.targets.sdist]
+include = ["esp_ppq"]
+
+[tool.hatch.build.targets.wheel]
+include = ["esp_ppq"]
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+fix = true
+target-version = "py311"
+extend-exclude = [
+  ".gitlab",
+  "esp_ppq/parser/espdl/FlatBuffers"
+]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "preserve"
+# Enable reformatting of code snippets in docstrings.
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "F", # pyflakes
+    "I", # isort
+    "B", # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+
+ignore = [
+    "B024", # `xxx` is an abstract base class, but it has no abstract methods or properties
+    "B028", # Warning without stacklevel
+    "B904", # use 'raise ... from err'
+    "B905", # use explicit 'strict=' parameter with 'zip()'
+    "N818", # Exception name should be named with an Error suffix
+    "C416", # I think comprehension is more clear https://docs.astral.sh/ruff/rules/unnecessary-comprehension/
+    "C408", # we have used lots of dict(...) instead of literal
+    "C419", # Unnecessary list comprehension
+    "B006", # Do not use mutable data structures for argument defaults
+    "B007", # Loop control variable not used within loop body
+    "B023", # Function definition does not bind loop variable
+    "E402", # Module level import not at top of file
+    "E501", # line too long, handled by black
+    "E711", # Comparison to `None` should be `cond is not None`
+    "E712", # Avoid equality comparisons to `True`
+    "E721", # Use `is` and `is not` for type comparisons, or `isinstance()` for isinstance checks
+    "E722", # Do not use bare `except`
+    "E731", # Do not assign a `lambda` expression, use a `def`
+    "F401", # `xxx` imported but unused
+    "F403", # `from xxx import *` used; unable to detect undefined names
+    "F405", # Var may be undefined, or defined from star imports
+    "F841", # Local variable `xxx` is assigned to but never used
+]
+
+[tool.ruff.lint.per-file-ignores]
+"esp_ppq/samples/TensorRT/trt_infer.py" = ["B018"]
+"esp_ppq/quantization/quantizer/base.py" = ["B008"]
+"esp_ppq/executor/op/torch/default.py" = ["C400"]
+"esp_ppq/IR/base/opdef.py" = ["F811"]
+"esp_ppq/samples/TensorRT/Example_Fp32.py" = ["F821"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["esp_ppq"]

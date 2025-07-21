@@ -1,0 +1,19 @@
+.model_quant_test_template:
+  stage: quant_test
+  image: ${IMAGE}
+  tags: ["build", "amd64"]
+  dependencies: []
+  script:
+    - pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    - pip install -e .
+    - python esp_ppq/samples/quantize_torch_model_espdl.py -t ${TARGET} -b ${BITS}
+
+model_quant_test:
+  extends:
+    - .model_quant_test_template
+    - .rules:quant:quant_test
+  parallel:
+    matrix:
+      - IMAGE: [python:3.8, python:3.11]
+        TARGET: [esp32p4, esp32s3, c]
+        BITS: [8, 16]

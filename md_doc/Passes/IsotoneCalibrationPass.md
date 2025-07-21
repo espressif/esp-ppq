@@ -27,17 +27,17 @@ To keep argmax(x) == argmax(quant(x)), we only need to
     while L2 represents the second largest.
 
     For Symmetrical Quantization, We want:
-        
+
         1. round(L1 / scale) - round(L2 / scale) > 0
-        
+
         2. round(L2 / scale) < quant_max
-        
+
     Hence, we will have:
-        
+
         1. scale < 2 * (L1 - L2)
-        
+
         2. scale > L2 / (self._quant_cfg.quant_max - .5)
-        
+
     For Asymmetircal Quantization, We want:
 
         1. round(L1 / scale) + offset - round(L2 / scale) - offset > 0
@@ -45,9 +45,9 @@ To keep argmax(x) == argmax(quant(x)), we only need to
         2. round(L2 / scale) + offset < quant_max
 
     Hence, we will have:
-        
+
         1. scale < 2 * (L1 - L2)
-        
+
         2. scale > L2 / (self._quant_cfg.quant_max - offset - .5)
 
 The best setting of scale, offset can be solved by PPQ Isotone observer.

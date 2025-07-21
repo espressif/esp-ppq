@@ -21,7 +21,7 @@ jobs:
           git fetch
           git branch -a
           git diff --name-status remotes/origin/master HEAD
-          updated_files=`git diff --name-status remotes/origin/master HEAD|awk '{print$ 2}'` 
+          updated_files=`git diff --name-status remotes/origin/master HEAD|awk '{print$ 2}'`
           echo $updated_files
           for file in $updated_files
           do
@@ -30,4 +30,3 @@ jobs:
               pre-commit run --files $file --show-diff-on-failure
             fi
           done
-

@@ -2,8 +2,8 @@
 
   Bias correction is the process of shifting quantized model outputs to account for their statistical errors.
 
-  Network quantization will bring some error(noise) to the result. To improve the accuracy of a quantized model, we can correct the network by adding an extra term on bias in order to make the output has zero expectation. 
-  
+  Network quantization will bring some error(noise) to the result. To improve the accuracy of a quantized model, we can correct the network by adding an extra term on bias in order to make the output has zero expectation.
+
   Bias correction is used to eliminate bias error, generally it will take a few mintues to correct all bias terms.
 
   For those layers have no bias, Bias Correction Optimization will skip them directly.
@@ -56,15 +56,15 @@
 
     setting.bias_correct = True
 
-    # calling ppq.api.quantize_onnx_model function with this setting.
+    # calling esp_ppq.api.quantize_onnx_model function with this setting.
     ir = quantize_torch_model(
       model=model, calib_dataloader=load_calibration_dataset(), setting=setting,
-      platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE, 
+      platform=TargetPlatform.PPL_CUDA_INT8, calib_steps=8, input_shape=INPUT_SHAPE,
       collate_fn=collate_fn)
 
   You can manully create this optimization by:
 
-    from ppq import BiasCorrectionPass
+    from esp_ppq import BiasCorrectionPass
 
     optim = BiasCorrectionPass()
 

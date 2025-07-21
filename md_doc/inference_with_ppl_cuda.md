@@ -9,11 +9,11 @@ the target platform on which we want to deploy our model(*TargetPlatform.PPL_CUD
 ready-to-quantize model, initialize quantizer and executor, and then run the quantization process
 ```python
 import torch
-from ppq.api import load_onnx_graph, export_ppq_graph
-from ppq.api.interface import dispatch_graph, QUANTIZER_COLLECTION
-from ppq.core import TargetPlatform
-from ppq.executor import TorchExecutor
-from ppq import QuantizationSettingFactory
+from esp_ppq.api import load_onnx_graph, export_ppq_graph
+from esp_ppq.api.interface import dispatch_graph, QUANTIZER_COLLECTION
+from esp_ppq.core import TargetPlatform
+from esp_ppq.executor import TorchExecutor
+from esp_ppq import QuantizationSettingFactory
 
 model_path = '/models/shufflenet-v2.onnx'
 data_path  = '/data/ImageNet/calibration'
@@ -49,7 +49,7 @@ quantizer.quantize(
 )
 
 # export quantization param file and model file
-export_ppq_graph(graph=ppq_graph_ir, platform=target_platform, graph_save_to='shufflenet-v2-ppq', config_save_to='shufflenet-v2-ppq.json')
+export_ppq_graph(graph=ppq_graph_ir, platform=target_platform, graph_save_to='shufflenet-v2-ppq', config_save_to='shufflenet-v2-esp_ppq.json')
 ```
 
 ## Write Script and Inference
@@ -57,8 +57,8 @@ suppose we have a sample image in our working space, and we have quantization pa
 PPQ, now we are going to run quantization inference on the OpenPPL GPU INT8 backend
 ```
 |--workspace
-      |-- shufflenet-v2-ppq.onnx
-      |-- shufflenet-v2-ppq.json
+      |-- shufflenet-v2-esp_ppq.onnx
+      |-- shufflenet-v2-esp_ppq.json
       |-- sample.jpg
 ```
 we need to preprocess the sample image, here is an opencv example
@@ -111,7 +111,7 @@ then we need to register a cuda engine for execution, providing options such as 
 and we need to load the quantization file, if you want to run in fp16 mode, you can skip this part
 ```c++
 {
-    const char* quantization_file = "/workspace/shufflenet-v2-ppq.json";
+    const char* quantization_file = "/workspace/shufflenet-v2-esp_ppq.json";
     string file_content;
     ifstream ifile;
     ifile.open(quantization_file, ios_base::in);
@@ -144,7 +144,7 @@ of course we also need to load the onnx model
 ```c++
 {
     //create onnx runtime && load onnx model
-    const char* onnx_model = "/workspace/shufflenet-v2-ppq.onnx";
+    const char* onnx_model = "/workspace/shufflenet-v2-esp_ppq.onnx";
     //create onnx runtime builder
     auto builder = unique_ptr<onnx::RuntimeBuilder>(onnx::RuntimeBuilderFactory::Create());
     builder->LoadModel(onnx_model);
@@ -158,7 +158,7 @@ and then we need to collect and manage resources
     for (uint32_t i = 0; i < engines.size(); ++i) {
         engine_ptrs[i] = engines[i].get();
     }
-    
+
     // manage engine resources
     onnx::RuntimeBuilder::Resources resources;
     resources.engines = engine_ptrs.data();
@@ -177,7 +177,7 @@ finally, we are able to create PPL runtime instance, send preprocessed input and
     cv::resize(src_img, src_img, cv::Size(224,224));
     vector<float> in_data_(src_img.rows * src_img.cols * src_img.channels());
     preprocess(src_img, in_data_.data());
-    
+
     //create ppl runtime
     unique_ptr<Runtime> runtime;
     runtime.reset(builder->CreateRuntime());
@@ -194,7 +194,7 @@ finally, we are able to create PPL runtime instance, send preprocessed input and
     src_desc.SetDataFormat(DATAFORMAT_NDARRAY);
 
     input_tensor->ConvertFromHost(in_data_.data(), src_desc);
-    
+
     // run inference
     runtime->Run();
 }
@@ -213,7 +213,7 @@ to obtain the output result and see top-5 predictions
     dst_desc.SetDataType(DATATYPE_FLOAT32);
     dst_desc.SetDataFormat(DATAFORMAT_NDARRAY);
     output_tensor->ConvertToHost(output_data, dst_desc);
-    
+
     // sort and print out top-5 prediction
     vector<pair<float, uint64_t>> arr;
     for(uint64_t i = 0; i < output_size; i++)
@@ -225,7 +225,7 @@ to obtain the output result and see top-5 predictions
         return p1.first > p2.first;
     };
     sort(arr.begin(), arr.end(), cmp);
-    
+
     for(uint64_t i = 0; i < 5; i++)
     {
         fprintf(stderr, "%ld %f\n", arr[i].second, arr[i].first);

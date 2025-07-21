@@ -1,8 +1,11 @@
-numpy>=1.24.3,<2.0.0
-onnx >= 1.14.0
-protobuf == 3.20.2
-torch>=1.12.0,<=2.4.1
-onnxsim
-tqdm
-flatbuffers
-cryptography
+cryptography>=45.0.4
+flatbuffers>=25.2.10
+numpy>=1.24.0
+onnx>=1.14.0,<1.18.0
+onnxruntime>=1.19.0
+onnxsim>=0.4.36
+setuptools>=75.3.0
+tqdm>=4.67.1
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
