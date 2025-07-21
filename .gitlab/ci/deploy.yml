@@ -1,8 +1,7 @@
 push_to_github:
   stage: deploy
-  only:
-    - master
-    - /^release\/v/
+  extends:
+    - .rules:deploy:push_to_github
   when: on_success
   image: espressif/idf:latest
   tags:
