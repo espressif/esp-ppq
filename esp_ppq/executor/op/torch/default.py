@@ -2244,12 +2244,6 @@ def Gemm_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
 
     A, B = values[:2]
-
-    # PATCH for ommited reshape before inner product in caffe
-    if op.opset.is_caffe() and A.ndim > 2:
-        axis = op.attributes.get('axis', 1)
-        A = A.flatten(start_dim=axis)
-
     C = values[2] if len(values) > 2 else 0
     alpha = op.attributes.get('alpha', 1.0)
     beta = op.attributes.get('beta', 1.0)
