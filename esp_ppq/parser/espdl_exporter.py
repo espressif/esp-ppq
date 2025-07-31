@@ -185,7 +185,7 @@ class EspdlExporter(GraphExporter):
         Returns:
             BaseGraph: Processed Graph
         """
-        self.convert_operation_from_opset11_to_opset13(graph)
+        self.convert_operation_from_opset11_to_opset18(graph)
 
         # before we can export them, we firstly convert all ops to proper format. Copy from onnx exporter
         for op in [_ for _ in graph.topological_sort()]:
@@ -502,14 +502,14 @@ class EspdlExporter(GraphExporter):
         with open(file=config_path, mode="w") as file:
             json.dump(render_buffer, file, indent=4)
 
-    def convert_operation_from_opset11_to_opset13(self, graph: BaseGraph) -> None:
-        """Convert your network from opset 11 standard towards opset 13 With
+    def convert_operation_from_opset11_to_opset18(self, graph: BaseGraph) -> None:
+        """Convert your network from opset 11 standard towards opset 18 With
         Onnx definition, per-channel quant operation requires opset 13.
 
         Args:
             graph (BaseGraph): Processing graph.
         """
-        # this func transform representation of certain op from opset 11 to 13
+        # this func transform representation of certain op from opset 11 to 18
         for op in graph.operations.values():
             if op.type == "ReduceSum" or op.type == "Squeeze" or op.type == "Unsqueeze":
                 if "axes" not in op.attributes:

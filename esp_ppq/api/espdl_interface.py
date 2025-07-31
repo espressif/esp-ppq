@@ -367,7 +367,7 @@ def espdl_quantize_torch(
             ]
         ),
         f=onnx_file_path,
-        opset_version=13,
+        opset_version=18,
         do_constant_folding=True,
     )
 
