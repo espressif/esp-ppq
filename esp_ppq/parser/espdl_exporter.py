@@ -20,7 +20,7 @@ from esp_ppq.log import NaiveLogger
 from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 from .espdl import helper
-from .espdl.espdl_typedef import ExporterPatternInfo, LayoutAnnotation
+from .espdl.espdl_typedef import REDUCE_OP_SET, ExporterPatternInfo, LayoutAnnotation
 from .espdl.export_patterns import (
     AddLUTPattern,
     FuseReluLikePattern,
@@ -341,6 +341,8 @@ class EspdlExporter(GraphExporter):
         self, values_for_test: Dict[str, Dict[str, torch.Tensor]] = None
     ) -> Tuple[Sequence[int], Sequence[int]]:
         def quantize_and_transpose(var_name, tensor, pattern_info):
+            if tensor.dim() == 0:
+                tensor = tensor.unsqueeze(0)
             perm = pattern_info.get_var_permute(var_name)
             config = pattern_info.get_var_config(var_name)
             if perm:
@@ -511,7 +513,7 @@ class EspdlExporter(GraphExporter):
         """
         # this func transform representation of certain op from opset 11 to 18
         for op in graph.operations.values():
-            if op.type == "ReduceSum" or op.type == "Squeeze" or op.type == "Unsqueeze":
+            if op.type in ["Squeeze", "Unsqueeze"] + list(REDUCE_OP_SET):
                 if "axes" not in op.attributes:
                     continue  # is already v13
                 axes = convert_any_to_torch_tensor(op.attributes.pop("axes"), dtype=torch.int64)

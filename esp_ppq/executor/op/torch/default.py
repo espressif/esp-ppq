@@ -1810,6 +1810,31 @@ def _NMS_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
 def ReduceMax_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                dim = [i for i in range(input_value.dim())]
+                output = torch.amax(input_value, dim=dim, keepdim=keepdim)
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.amax(input_value, dim=dim, keepdim=keepdim)
+            return output
+
     [input_value] = values
     dim = op.attributes.get('axes', None)
     keepdim = bool(op.attributes.get('keepdims', 1))
@@ -1817,16 +1842,38 @@ def ReduceMax_forward(
         output = input_value
     else:
         if dim is None:
-            #  The default is to reduce over all the dimensions of the input tensor
-            output = torch.max(input_value)
-            if keepdim:
-                output = output.reshape([1] * input_value.dim())
-        else:
-            output, _ = torch.max(input_value, dim=dim[0], keepdim=keepdim)
+            dim = [i for i in range(input_value.dim())]
+        output = torch.amax(input_value, dim=dim, keepdim=keepdim)
     return output
 
 
 def ReduceMean_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.mean(input_value)
+                if keepdim:
+                    output = output.reshape([1] * input_value.dim())
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.mean(input_value, dim=dim, keepdim=keepdim)
+            return output
+
     [input_value] = values
     dim = op.attributes.get('axes', None)
     keepdim = bool(op.attributes.get('keepdims', 1))
@@ -1840,6 +1887,89 @@ def ReduceMean_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBack
                 output = output.reshape([1] * input_value.dim())
         else:
             output = torch.mean(input_value, dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceMin_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                dim = [i for i in range(input_value.dim())]
+                output = torch.amin(input_value, dim=dim, keepdim=keepdim)
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.amin(input_value, dim=dim, keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    if len(input_value) == 0:
+        output = input_value
+    else:
+        if dim is None:
+            dim = [i for i in range(input_value.dim())]
+        output = torch.amin(input_value, dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceProd_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.prod(input_value)
+                if keepdim:
+                    output = output.reshape([1] * input_value.dim())
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+
+            assert len(dim) == 1, f'Only support int dim, while your len of dim is {len(dim)}'
+            output = torch.prod(input_value, dim=dim[0], keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    if dim is None:
+        #  The default is to reduce over all the dimensions of the input tensor
+        output = torch.prod(input_value)
+        if keepdim:
+            output = output.reshape([1] * input_value.dim())
+    else:
+        assert len(dim) == 1, f'Only support int dim, while your len of dim is {len(dim)}'
+        output = torch.prod(input_value, dim=dim[0], keepdim=keepdim)
     return output
 
 
@@ -1880,6 +2010,186 @@ def ReduceSum_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBacke
             output = output.reshape([1] * input_value.dim())
     else:
         output = torch.sum(input_value, dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceSumSquare_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.sum(torch.square(input_value))
+                if keepdim:
+                    output = output.reshape([1] * input_value.dim())
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.sum(torch.square(input_value), dim=dim, keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    if dim is None:
+        #  The default is to reduce over all the dimensions of the input tensor
+        output = torch.sum(torch.square(input_value))
+        if keepdim:
+            output = output.reshape([1] * input_value.dim())
+    else:
+        output = torch.sum(torch.square(input_value), dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceLogSum_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.log(torch.sum(input_value))
+                if keepdim:
+                    output = output.reshape([1] * input_value.dim())
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.log(torch.sum(input_value, dim=dim, keepdim=keepdim))
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    if dim is None:
+        #  The default is to reduce over all the dimensions of the input tensor
+        output = torch.log(torch.sum(input_value))
+        if keepdim:
+            output = output.reshape([1] * input_value.dim())
+    else:
+        output = torch.log(torch.sum(input_value, dim=dim, keepdim=keepdim))
+    return output
+
+
+def ReduceLogSumExp_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.logsumexp(input_value, keepdim=keepdim)
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.logsumexp(input_value, dim=dim, keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    if dim is None:
+        #  The default is to reduce over all the dimensions of the input tensor
+        output = torch.logsumexp(input_value, keepdim=keepdim)
+    else:
+        output = torch.logsumexp(input_value, dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceL1_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.linalg.vector_norm(input_value, ord=1, keepdim=keepdim)
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.linalg.vector_norm(input_value, ord=1, dim=dim, keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    output = torch.linalg.vector_norm(input_value, ord=1, dim=dim, keepdim=keepdim)
+    return output
+
+
+def ReduceL2_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
+    if op.opset.onnx_opset_version() >= 18:
+        ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=2)
+        values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+        input_value, dim = values[0], None
+        if len(values) > 1:
+            dim = values[1]
+        keepdim, noop_with_empty_axes = (
+            bool(op.attributes.get('keepdims', 1)),
+            op.attributes.get('noop_with_empty_axes', 0),
+        )
+
+        if dim is None:
+            if noop_with_empty_axes:
+                return input_value
+            else:
+                output = torch.linalg.vector_norm(input_value, ord=2, keepdim=keepdim)
+                return output
+        else:
+            dim = dim.tolist()
+            if isinstance(dim, int):
+                dim = [dim]
+            output = torch.linalg.vector_norm(input_value, ord=2, dim=dim, keepdim=keepdim)
+            return output
+
+    [input_value] = values
+    dim = op.attributes.get('axes', None)
+    keepdim = bool(op.attributes.get('keepdims', 1))
+    output = torch.linalg.vector_norm(input_value, ord=2, dim=dim, keepdim=keepdim)
     return output
 
 
@@ -2323,16 +2633,6 @@ def Softmax_forward(
     [input] = values
     axis = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='axis', default=default_axis)
     output = F.softmax(input, axis)
-    return output
-
-
-def ReduceL2_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
-    [input_value] = values
-    axis = op.attributes['axes']
-    keepdim = bool(op.attributes.get('keepdims', 1))
-    output = torch.norm(input_value, dim=axis, keepdim=keepdim)
-    if axis is None and keepdim:
-        output = output.reshape([1] * input_value.dim())
     return output
 
 
@@ -3984,10 +4284,16 @@ DEFAULT_BACKEND_TABLE = {
     'PPQBiasFusedMatMul': PPQBiasFusedMatMul_forward,
     'PRelu': PRelu_forward,
     'Range': Range_forward,
+    'ReduceL1': ReduceL1_forward,
     'ReduceL2': ReduceL2_forward,
     'ReduceMax': ReduceMax_forward,
     'ReduceMean': ReduceMean_forward,
+    'ReduceMin': ReduceMin_forward,
+    'ReduceProd': ReduceProd_forward,
     'ReduceSum': ReduceSum_forward,
+    'ReduceSumSquare': ReduceSumSquare_forward,
+    'ReduceLogSum': ReduceLogSum_forward,
+    'ReduceLogSumExp': ReduceLogSumExp_forward,
     'Relu': UnaryEltwise_forward,
     'Reshape': Reshape_forward,
     'Resize': Resize_forward,

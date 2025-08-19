@@ -209,6 +209,26 @@ def DEFAULT_SOCKET_CREATOR(op: OperationBase) -> OpSocket:
     return OpSocket(op=op)
 
 
+def Reduce_Socket(op: OperationBase) -> OpSocket:
+    """
+    From Opset 1 - 23:
+
+    Inputs
+        data (differentiable) : T
+            An input tensor.
+
+        axes (non-differentiable) : tensor(int64)
+            Optional input list of integers, along which to reduce.
+
+    Outputs
+        reduced (differentiable) : T
+            Reduced output tensor.
+    """
+    CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=23)
+    in_plat = [TargetPlatform.UNSPECIFIED, TargetPlatform.SOI]
+    return OpSocket(op=op, in_plat=in_plat[: op.num_of_input], links=[VLink(in_idx=0, out_idx=0)])
+
+
 def Reshape_Socket(op: OperationBase) -> OpSocket:
     """
     From Opset 5 - 23:
@@ -911,10 +931,16 @@ DEFAULT_SOCKET_TABLE = {
     'Pad': Pad_Socket,
     'PRelu': DEFAULT_SOCKET_CREATOR,
     'Range': Range_Socket,
-    'ReduceL2': DEFAULT_SOCKET_CREATOR,
-    'ReduceMax': DEFAULT_SOCKET_CREATOR,
-    'ReduceMean': DEFAULT_SOCKET_CREATOR,
-    'ReduceSum': DEFAULT_SOCKET_CREATOR,
+    'ReduceL1': Reduce_Socket,
+    'ReduceL2': Reduce_Socket,
+    'ReduceMax': Reduce_Socket,
+    'ReduceMean': Reduce_Socket,
+    'ReduceMin': Reduce_Socket,
+    'ReduceProd': Reduce_Socket,
+    'ReduceSum': Reduce_Socket,
+    'ReduceSumSquare': Reduce_Socket,
+    'ReduceLogSum': Reduce_Socket,
+    'ReduceLogSumExp': Reduce_Socket,
     'Relu': DEFAULT_SOCKET_CREATOR,
     'Reshape': Reshape_Socket,
     'Resize': Resize_Socket,

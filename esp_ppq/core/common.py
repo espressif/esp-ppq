@@ -67,6 +67,8 @@ PASSIVE_OPERATIONS = {
     'Unsqueeze',
     'Gather',
     'ReverseSequence',
+    'ReduceMax',
+    'ReduceMin',
 }
 # COPUTING OP 是所有计算层，该属性被用于联合定点和子图切分
 COMPUTING_OP = {'Conv', 'Gemm', 'ConvTranspose', 'MatMul', 'Attention', 'PPQBiasFusedMatMul', 'LSTM'}

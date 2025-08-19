@@ -1,3 +1,4 @@
+import bisect
 from typing import List
 
 import numpy as np
@@ -6,6 +7,7 @@ import torch
 from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
+    convert_any_to_torch_tensor,
 )
 from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from esp_ppq.IR.quantize import QuantableOperation
@@ -20,9 +22,11 @@ from esp_ppq.parser.espdl.espdl_graph_utils import (
 )
 from esp_ppq.parser.espdl.espdl_typedef import (
     ADD_LIKE_OP_SET,
+    AXIS_TRANSFORM_OP_SET,
     CONV_LAYOUT_OP_SET,
     OTHER_OP_SET,
     PASSIVE_LAYOUT_OP_SET,
+    REDUCE_OP_SET,
     SOFTMAX_LIKE_OP_SET,
     ExporterPatternInfo,
 )
@@ -144,29 +148,60 @@ class BypassAddLikePattern(OperationExporter):
         return op
 
 
-class BypassSoftmaxLayoutPattern(OperationExporter):
+class AxisTransformPattern(OperationExporter):
     """
-    Softmax pattern with one input and one output and axis attribute
+    Transform the axes of operator
     """
 
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.type in SOFTMAX_LIKE_OP_SET:
-            info = ExporterPatternInfo()
-            input = op.inputs[0]
+        info = ExporterPatternInfo()
+        input = op.inputs[0]
 
-            var_perm = info.get_var_permute(input.name)
-            if var_perm and var_perm != get_default_perm(input):
-                # There is already a permute, change axis accordingly
+        var_perm = info.get_var_permute(input.name)
+        if var_perm and var_perm != get_default_perm(input):
+            # There is already a permute, change axis accordingly
+            if op.type in SOFTMAX_LIKE_OP_SET:
                 axis = (int(op.attributes["axis"]) + len(var_perm)) % len(var_perm)
                 new_axis = var_perm.index(axis)
                 op.attributes["axis"] = new_axis
-            else:
-                var_perm = get_default_perm(input)
-                info.add_var_permute(input.name, var_perm)
+            elif op.type in REDUCE_OP_SET:
+                if len(op.inputs) > 1 and len(op.inputs[1].value) > 0:
+                    axes = op.inputs[1].value
+                    new_axes = []
+                    for i in range(axes.numel()):
+                        if axes[i] < 0:
+                            new_axes.append(var_perm.index(axes[i] + len(input.shape)))
+                        else:
+                            new_axes.append(var_perm.index(axes[i]))
+                    new_axes = sorted(new_axes)
+                    op.inputs[1].value = convert_any_to_torch_tensor(new_axes, dtype=torch.int64)
+        else:
+            var_perm = get_default_perm(input)
+            info.add_var_permute(input.name, var_perm)
 
-            # use input perm
-            for output in op.outputs:
-                info.add_var_permute(output.name, var_perm)
+        out_var_perm = var_perm[:]
+        if op.type in REDUCE_OP_SET:
+            keepdims = op.attributes["keepdims"]
+            # The perm needs to be deleted.
+            if keepdims == 0:
+                if len(op.inputs) > 1 and len(op.inputs[1].value) > 0:
+                    reduce_axes_list = sorted(op.inputs[1].value.tolist(), reverse=True)
+                    # After the transformations above, the axes now match the current input.
+                    # Perm represents the current state of the input, not the permutation about to be transformed.
+                    for axis in reduce_axes_list:
+                        remove_axis = out_var_perm.pop(axis)
+                        for i in range(len(out_var_perm)):
+                            if out_var_perm[i] > remove_axis:
+                                out_var_perm[i] -= 1
+                    if len(out_var_perm) == 0:
+                        out_var_perm = [0]
+                else:
+                    noop_with_empty_axes = bool(op.attributes.get('noop_with_empty_axes', 0))
+                    if not noop_with_empty_axes:
+                        out_var_perm = [0]
+
+        for output in op.outputs:
+            info.add_var_permute(output.name, out_var_perm)
 
         return op
 
@@ -401,7 +436,7 @@ def reset_graph_layout(graph: BaseGraph):
         [CONV_LAYOUT_OP_SET, ResetConvLayoutPattern],
         [PASSIVE_LAYOUT_OP_SET, BypassPassiveLayoutPattern],
         [ADD_LIKE_OP_SET, BypassAddLikePattern],
-        [SOFTMAX_LIKE_OP_SET, BypassSoftmaxLayoutPattern],
+        [AXIS_TRANSFORM_OP_SET, AxisTransformPattern],
         [["Concat"], ResetConcatPattern],
         [["Resize"], ResetResizePattern],
         [OTHER_OP_SET, RestoreOriginLayoutPattern],

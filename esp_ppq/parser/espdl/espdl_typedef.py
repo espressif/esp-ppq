@@ -85,6 +85,19 @@ OTHER_OP_SET = {
 }
 
 SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax", "Split"}
+REDUCE_OP_SET = {
+    "ReduceL1",
+    "ReduceL2",
+    "ReduceMin",
+    "ReduceMax",
+    "ReduceProd",
+    "ReduceSum",
+    "ReduceMean",
+    "ReduceSumSquare",
+    "ReduceLogSum",
+    "ReduceLogSumExp",
+}
+AXIS_TRANSFORM_OP_SET = SOFTMAX_LIKE_OP_SET | REDUCE_OP_SET
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {"Shape"}

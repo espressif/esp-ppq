@@ -204,7 +204,16 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "Concat",
             "Sigmoid",
             "Interp",
+            "ReduceL1",
+            "ReduceL2",
             "ReduceMean",
+            "ReduceMin",
+            "ReduceMax",
+            "ReduceProd",
+            "ReduceSum",
+            "ReduceSumSquare",
+            "ReduceLogSum",
+            "ReduceLogSumExp",
             "Transpose",
             "Slice",
             "Flatten",
@@ -227,6 +236,9 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "ReverseSequence",
             "Identity",
             "Swish",
+            'Squeeze',
+            'Unsqueeze',
+            'Exp',
         }
 
     @property
