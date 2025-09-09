@@ -42,6 +42,7 @@ from .default import (
     _NMS_forward,
 )
 from .dsp import PPL_DSP_BACKEND_TABLE
+from .espdl import ESPDL_QUANT_BACKEND_TABLE
 from .extension import EXTENSION_BACKEND_TABLE
 from .nxp import NXP_BACKEND_TABLE
 from .onnx import ONNX_BACKEND_TABLE

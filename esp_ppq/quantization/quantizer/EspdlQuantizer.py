@@ -1,7 +1,4 @@
 import re
-from typing import Union
-
-import torch
 
 from esp_ppq.api.setting import QuantizationSetting
 from esp_ppq.core import (
@@ -63,22 +60,26 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 pow(2, num_of_bits - 1)
             )
 
-        if operation.type in {"Conv", "ConvTranspose", "Gemm"}:
+        if operation.type in {"Conv", "ConvTranspose", "Gemm", "GRU", "LSTM"}:
             # reset num_of_bits of bias to 32 bits
             assert operation.num_of_input > 0, "Seems you got a Conv layer with no parameters."
+            bias_index = -1
 
-            # if operation has bias
+
+            if operation.type in {"LSTM", "GRU"}:
+                bias_index = 3
+                for index in range(len(operation.inputs)):
+                    if operation.inputs[index].name is None or len(operation.inputs[index].name) == 0:
+                        base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
+
+                       # if operation has bias
             if operation.num_of_input > 2:
-                bias_config = base_quant_config.input_quantization_config[-1]
+                bias_config = base_quant_config.input_quantization_config[bias_index]
                 bias_config.num_of_bits = bias_bits
                 bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
-        elif operation.type in {"LSTM"}:
-            for index in range(len(operation.inputs)):
-                if operation.inputs[index].name is None or len(operation.inputs[index].name) == 0:
-                    base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
         elif operation.type in {"Softmax"}:
             # reset output to float32
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
@@ -184,6 +185,8 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "Conv",
             "ConvTranspose",
             "Gemm",
+            "GRU",
+            "LSTM",
             "Relu",
             "PRelu",
             "Clip",
@@ -199,6 +202,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "Max",
             "Sub",
             "Div",
+            "Neg",
             "Reshape",
             "LeakyRelu",
             "Concat",
