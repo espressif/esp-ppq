@@ -151,7 +151,7 @@ class RuntimeCalibrationPass(QuantizationOptimizationPass):
         if calib_steps is not None:
             self._calib_steps = calib_steps
 
-        assert calib_steps >= 8, (
+        assert calib_steps >= 2, (
             'Insufficient Calibration Detected, to get a better quantization performance, '
             'more calibration steps is required, we strongly recommend you to prepare more calibration data '
             'and more calibration steps is preferred here. (at least 8)'

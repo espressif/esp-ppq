@@ -108,8 +108,18 @@ STRICT_OPSET_CHECKING = False
 
 # LSTM 算子的权重缓存属性
 LSTM_FLATTEN_WEIGHT_ATTRIB = 'LSTM_FLATTEN_WEIGHT_ATTRIB'
+# Exponent of internal LSTM, used for quantization of internal LSTM states.
+# Optional values are -8, -9, -10, -11. Smaller values can provide higher precision but will result in greater computational overhead.
+LSTM_QUANT_EXPONENT = -8
+# Quantization bits of internal LSTM states. Do not modify it.
+LSTM_QUANT_BITS = 16
 # GRU 算子的权重缓存属性
 GRU_FLATTEN_WEIGHT_ATTRIB = 'GRU_FLATTEN_WEIGHT_ATTRIB'
+# Exponent of internal GRU, used for quantization of internal GRU states.
+# Optional values are -8, -9, -10, -11. Smaller values can provide higher precision but will result in greater computational overhead.
+GRU_QUANT_EXPONENT = -8
+# Quantization bits of internal LSTM states. Do not modify it.
+GRU_QUANT_BITS = 16
 # 一个属性标记计算图是否已经被调度
 IS_DISPATCHED_GRAPH = 'IS_DISPATCHED_GRAPH'
 # 图上用于表示 Opset 的属性

@@ -2,7 +2,16 @@ from typing import Iterable
 
 import torch
 
-from esp_ppq.core import QuantizationProperty, QuantizationStates, QuantizationVisibility, ppq_warning
+from esp_ppq.core import (
+    GRU_QUANT_BITS,
+    GRU_QUANT_EXPONENT,
+    LSTM_QUANT_BITS,
+    LSTM_QUANT_EXPONENT,
+    QuantizationProperty,
+    QuantizationStates,
+    QuantizationVisibility,
+    ppq_warning,
+)
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph, QuantableOperation
 from esp_ppq.quantization.observer import OperationObserver
@@ -127,7 +136,7 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
                     assert not b_cfg.policy.has_property(QuantizationProperty.ASYMMETRICAL), (
                         'Passive parameter does not support ASYMMETRICAL quantization'
                     )
-            
+
             if op.type in {'GRU', 'LSTM'} and self.process_bias:
                 # inputs are [input value, weight, bias(optional)]
                 if op.num_of_input >= 3:
@@ -147,17 +156,19 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
                     assert bias.numel() == bias.shape[-1], (
                         f'For op {op.name}, expect Bias shape to be {[bias.numel()]}, however {bias.shape} was given'
                     )
-                    op.inputs[-1].value = bias.squeeze()
-                    # PATCH 2022.08.02 只有一个数的 bias 经过 squeeze 会变成零维的, 再给它多加一维补回来
-                    if op.inputs[-1].value.ndim == 0 and op.inputs[-1].value.numel() == 1:
-                        op.inputs[-1].value = op.inputs[-1].value.unsqueeze(0)
 
                     if not check_state(i_cfg.state):
                         raise PermissionError(
                             f'Can not quantize bias of layer {op.name}, cause input has not been correctly quantized.'
                         )
-
-                    b_cfg.scale = w_cfg.scale * i_cfg.scale
+                    if op.type == 'LSTM':
+                        b_cfg.scale = w_cfg.scale * 0 + pow(
+                            2, LSTM_QUANT_EXPONENT
+                        )  # LSTM bias scale is fixed to LSTM_QUANT_EXPONENT
+                    else:
+                        b_cfg.scale = w_cfg.scale * 0 + pow(
+                            2, GRU_QUANT_EXPONENT
+                        )  # GRU bias scale is fixed to GRU_QUANT_EXPONENT
                     b_cfg.state = QuantizationStates.PASSIVE
                     b_cfg.offset = torch.zeros_like(b_cfg.scale)
                     assert not b_cfg.policy.has_property(QuantizationProperty.ASYMMETRICAL), (
