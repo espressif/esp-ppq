@@ -3388,19 +3388,23 @@ def GRU_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
     clip = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='clip', default=None)
     direction = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='direction', default='forward')
     hidden_size = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='hidden_size', compulsive=True)
-    linear_before_reset = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='layout', default=0)
-    if linear_before_reset != 0:
-        raise NotImplementedError('PPQ do not support LSTM with linear_before_reset != 1.')
+    layout = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='layout', default=0)
+    linear_before_reset = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='linear_before_reset', default=0)
+    if linear_before_reset == 0:
+        # torch.GRU only support linear_before_reset != 0
+        raise NotImplementedError('PPQ do not support GRU with linear_before_reset == 1.')
     if activation_alpha is not None:
-        raise NotImplementedError('PPQ do not support LSTM with cutimized activation.')
+        raise NotImplementedError('PPQ do not support GRU with cutimized activation.')
     if activation_beta is not None:
-        raise NotImplementedError('PPQ do not support LSTM with cutimized activation.')
+        raise NotImplementedError('PPQ do not support GRU with cutimized activation.')
     if activations is not None:
-        raise NotImplementedError('PPQ do not support LSTM with cutimized activation.')
+        raise NotImplementedError('PPQ do not support GRU with cutimized activation.')
 
     # flag
     bidirectional = direction == 'bidirectional'
     has_bias = b is not None
+    batch_first = layout == 1
+    batch_size = x.shape[0] if batch_first else x.shape[1]
 
     # create flatten weights:
     if GRU_FLATTEN_WEIGHT_ATTRIB not in op.attributes:
@@ -3487,12 +3491,23 @@ def GRU_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
         op.set_extension_attrib(GRU_FLATTEN_WEIGHT_ATTRIB, flatten_weight)
 
     s = 2 if bidirectional else 1
+    # if initial_h is None:
+    #     initial_h = torch.zeros(size=[s, x.shape[1], x.shape[2]], device=x.device, dtype=torch.float32)
+
     if initial_h is None:
-        initial_h = torch.zeros(size=[s, x.shape[1], x.shape[2]], device=x.device, dtype=torch.float32)
+        h0 = torch.zeros(s, batch_size, hidden_size, device=x.device, dtype=x.dtype)
+    else:
+        # 保证 3-D：[1, batch, hidden]
+        if initial_h.dim() == 2:
+            h0 = initial_h.unsqueeze(0)  # [batch, hidden] -> [1, batch, hidden]
+        elif initial_h.dim() == 1:
+            h0 = initial_h.view(1, 1, -1).expand(1, batch_size, -1)
+        else:
+            h0 = initial_h
 
     result = _VF.gru(
         x,  # x
-        initial_h,  # initial hidden state
+        h0,  # initial hidden state
         op._detail[GRU_FLATTEN_WEIGHT_ATTRIB],  # flatten weights
         has_bias,  # has bias
         1,  # num of layer

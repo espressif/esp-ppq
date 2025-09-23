@@ -1,7 +1,4 @@
 import re
-from typing import Union
-
-import torch
 
 from esp_ppq.api.setting import QuantizationSetting
 from esp_ppq.core import (
@@ -75,9 +72,18 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
-        elif operation.type in {"LSTM"}:
+        elif operation.type in {"LSTM", "GRU"}:
+            if operation.num_of_input > 3:
+                bias_config = base_quant_config.input_quantization_config[3]
+                bias_config.num_of_bits = 16
+                bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
+                bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
+                bias_config.state = QuantizationStates.PASSIVE_INIT
+                bias_config.observer_algorithm = "minmax"
             for index in range(len(operation.inputs)):
-                if operation.inputs[index].name is None or len(operation.inputs[index].name) == 0:
+                if (
+                    operation.inputs[index].name is None or len(operation.inputs[index].name) == 0
+                ):  # Do not quantize bias
                     base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
         elif operation.type in {"Softmax"}:
             # reset output to float32
@@ -184,6 +190,8 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "Conv",
             "ConvTranspose",
             "Gemm",
+            "GRU",
+            "LSTM",
             "Relu",
             "PRelu",
             "Clip",
@@ -199,6 +207,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "Max",
             "Sub",
             "Div",
+            "Neg",
             "Reshape",
             "LeakyRelu",
             "Concat",
