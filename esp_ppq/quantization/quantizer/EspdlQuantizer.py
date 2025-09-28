@@ -80,6 +80,13 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
+            if operation.num_of_output == 3:
+                cell_config = base_quant_config.output_quantization_config[2]
+                cell_config.num_of_bits = 16
+                cell_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
+                cell_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
+                cell_config.state = QuantizationStates.PASSIVE_INIT
+                cell_config.observer_algorithm = "minmax"
             for index in range(len(operation.inputs)):
                 if (
                     operation.inputs[index].name is None or len(operation.inputs[index].name) == 0

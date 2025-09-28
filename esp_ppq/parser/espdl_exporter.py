@@ -29,6 +29,7 @@ from .espdl.export_patterns import (
     InsertQuantNodePattern,
     InsertQuantTypePattern,
     InsertRequantNodePattern,
+    QuantRNNPattern,
     QuantVariableToIntPattern,
     ResetParamLayoutPattern,
 )
@@ -120,6 +121,7 @@ class EspdlExporter(GraphExporter):
                 InsertQuantTypePattern,
                 QuantVariableToIntPattern,
                 ResetParamLayoutPattern,
+                QuantRNNPattern,
             ],
         }
 
