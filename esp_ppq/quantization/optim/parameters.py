@@ -3,9 +3,7 @@ from typing import Iterable
 import torch
 
 from esp_ppq.core import (
-    GRU_QUANT_BITS,
     GRU_QUANT_EXPONENT,
-    LSTM_QUANT_BITS,
     LSTM_QUANT_EXPONENT,
     QuantizationProperty,
     QuantizationStates,
@@ -139,39 +137,41 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
 
             if op.type in {'GRU', 'LSTM'} and self.process_bias:
                 # inputs are [input value, weight, bias(optional)]
-                if op.num_of_input >= 3:
-                    i_cfg = op.config.input_quantization_config[0]
-                    w_cfg = op.config.input_quantization_config[1]
-                    b_cfg = op.config.input_quantization_config[3]
-                    if b_cfg.state not in {QuantizationStates.PASSIVE, QuantizationStates.PASSIVE_INIT}:
-                        continue
+                reset_variables = [3]  # 3:bias for GRU
+                if op.type == "LSTM":
+                    reset_variables = [3, 6]  # 3:bias, 6: initial_c for LSTM
 
-                    # PATCH 2022.07.29 有的时候 bias 是个多维的东西，此时要求前面的维度都是1
-                    bias = op.inputs[3].value
-                    if bias is None:
-                        raise ValueError(
-                            f'Bias Varaible {op.inputs[-1].name} must be a constant. Please check it again.'
-                        )
-
-                    assert bias.numel() == bias.shape[-1], (
-                        f'For op {op.name}, expect Bias shape to be {[bias.numel()]}, however {bias.shape} was given'
+                i_cfg = op.config.input_quantization_config[0]
+                w_cfg = op.config.input_quantization_config[1]
+                if not check_state(i_cfg.state):
+                    raise PermissionError(
+                        f'Can not quantize bias of layer {op.name}, cause input has not been correctly quantized.'
                     )
 
-                    if not check_state(i_cfg.state):
-                        raise PermissionError(
-                            f'Can not quantize bias of layer {op.name}, cause input has not been correctly quantized.'
+                for idx in reset_variables:
+                    if op.num_of_input > idx:
+                        var_cfg = op.config.input_quantization_config[idx]
+                        if var_cfg.state not in {QuantizationStates.PASSIVE, QuantizationStates.PASSIVE_INIT}:
+                            continue
+
+                        var_cfg.scale = w_cfg.scale * 0 + pow(
+                            2, LSTM_QUANT_EXPONENT if op.type == 'LSTM' else GRU_QUANT_EXPONENT
                         )
-                    if op.type == 'LSTM':
-                        b_cfg.scale = w_cfg.scale * 0 + pow(
-                            2, LSTM_QUANT_EXPONENT
-                        )  # LSTM bias scale is fixed to LSTM_QUANT_EXPONENT
-                    else:
-                        b_cfg.scale = w_cfg.scale * 0 + pow(
-                            2, GRU_QUANT_EXPONENT
-                        )  # GRU bias scale is fixed to GRU_QUANT_EXPONENT
-                    b_cfg.state = QuantizationStates.PASSIVE
-                    b_cfg.offset = torch.zeros_like(b_cfg.scale)
-                    assert not b_cfg.policy.has_property(QuantizationProperty.ASYMMETRICAL), (
+                        var_cfg.state = QuantizationStates.PASSIVE
+                        var_cfg.offset = torch.zeros_like(var_cfg.scale)
+                        assert not var_cfg.policy.has_property(QuantizationProperty.ASYMMETRICAL), (
+                            'Passive parameter does not support ASYMMETRICAL quantization'
+                        )
+
+                if op.num_of_output == 3 and op.type == 'LSTM':
+                    cell_cfg = op.config.output_quantization_config[2]
+                    if cell_cfg.state not in {QuantizationStates.PASSIVE, QuantizationStates.PASSIVE_INIT}:
+                        continue
+
+                    cell_cfg.scale = w_cfg.scale * 0 + pow(2, LSTM_QUANT_EXPONENT)
+                    cell_cfg.state = QuantizationStates.PASSIVE
+                    cell_cfg.offset = torch.zeros_like(cell_cfg.scale)
+                    assert not cell_cfg.policy.has_property(QuantizationProperty.ASYMMETRICAL), (
                         'Passive parameter does not support ASYMMETRICAL quantization'
                     )
 

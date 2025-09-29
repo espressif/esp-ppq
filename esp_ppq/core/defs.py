@@ -8,7 +8,11 @@ from typing import Callable
 
 from torch.cuda import empty_cache
 
+from esp_ppq.log import NaiveLogger
+
 from .config import PPQ_CONFIG
+
+logger = NaiveLogger.get_logger('PPQ')
 
 
 class SingletonMeta(type):
@@ -108,8 +112,8 @@ def ppq_file_io(func: Callable):
 
 
 def ppq_warning(info: str):
-    print(f'\033[31m[Warning] {info}\033[0m')
+    logger.warning(info)
 
 
 def ppq_info(info: str):
-    print(f'\033[33m[Info] {info}\033[0m')
+    logger.info(info)

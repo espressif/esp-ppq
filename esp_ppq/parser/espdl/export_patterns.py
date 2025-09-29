@@ -5,6 +5,8 @@ import numpy as np
 import torch
 
 from esp_ppq.core import (
+    GRU_QUANT_EXPONENT,
+    LSTM_QUANT_EXPONENT,
     DataType,
     OperationQuantizationConfig,
     QuantizationProperty,
@@ -415,10 +417,9 @@ class QuantVariableToIntPattern(OperationExporter):
                         var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
             elif not var.is_parameter:
                 if config.policy.has_property(QuantizationProperty.LINEAR):
-                    quant_type = op.attributes.get("quant_type", None)
-                    if quant_type == EspQuantType.S8:
+                    if config.num_of_bits == 8 and config.exponent_bits == 0:
                         var.dtype = DataType.INT8
-                    elif quant_type == EspQuantType.S16:
+                    elif config.num_of_bits == 16 and config.exponent_bits == 0:
                         var.dtype = DataType.INT16
                     else:
                         var.dtype = DataType.FP32
@@ -698,5 +699,15 @@ class AddLUTPattern(OperationExporter):
                 lut_name = self.get_lut_name(op, info)
                 op.attributes["lut"] = lut_name
                 info.add_lut(lut_name, lut, info.get_var_exponents(op.outputs[0].name))
+
+        return op
+
+
+class QuantRNNPattern(OperationExporter):
+    def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.type in ["GRU"] and isinstance(op, QuantableOperation):
+            op.attributes["gate_exponent"] = GRU_QUANT_EXPONENT
+        elif op.type in ["LSTM"] and isinstance(op, QuantableOperation):
+            op.attributes["gate_exponent"] = LSTM_QUANT_EXPONENT
 
         return op

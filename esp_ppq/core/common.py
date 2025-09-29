@@ -81,6 +81,7 @@ TYPES_FOR_ALIGNMENT = {
     'Concat': {'Concat'},
     'Pooling': {'AveragePool', 'GlobalAveragePool'},
     'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'},
+    'RNN': {'GRU', 'LSTM'},
 }
 # 强制联合定点手动覆盖
 ALIGNMENT_MANUL_OVERRIDE = 'ALIGNMENT_MANUL_OVERRIDE'
@@ -110,14 +111,14 @@ STRICT_OPSET_CHECKING = False
 LSTM_FLATTEN_WEIGHT_ATTRIB = 'LSTM_FLATTEN_WEIGHT_ATTRIB'
 # Exponent of internal LSTM, used for quantization of internal LSTM states.
 # Optional values are -8, -9, -10, -11. Smaller values can provide higher precision but will result in greater computational overhead.
-LSTM_QUANT_EXPONENT = -8
+LSTM_QUANT_EXPONENT = -9
 # Quantization bits of internal LSTM states. Do not modify it.
 LSTM_QUANT_BITS = 16
 # GRU 算子的权重缓存属性
 GRU_FLATTEN_WEIGHT_ATTRIB = 'GRU_FLATTEN_WEIGHT_ATTRIB'
 # Exponent of internal GRU, used for quantization of internal GRU states.
 # Optional values are -8, -9, -10, -11. Smaller values can provide higher precision but will result in greater computational overhead.
-GRU_QUANT_EXPONENT = -8
+GRU_QUANT_EXPONENT = -9
 # Quantization bits of internal LSTM states. Do not modify it.
 GRU_QUANT_BITS = 16
 # 一个属性标记计算图是否已经被调度
