@@ -417,10 +417,9 @@ class QuantVariableToIntPattern(OperationExporter):
                         var.value = PPQLinearQuant_toInt(tensor=var.value, config=config)
             elif not var.is_parameter:
                 if config.policy.has_property(QuantizationProperty.LINEAR):
-                    quant_type = op.attributes.get("quant_type", None)
-                    if quant_type == EspQuantType.S8:
+                    if config.num_of_bits == 8 and config.exponent_bits == 0:
                         var.dtype = DataType.INT8
-                    elif quant_type == EspQuantType.S16:
+                    elif config.num_of_bits == 16 and config.exponent_bits == 0:
                         var.dtype = DataType.INT16
                     else:
                         var.dtype = DataType.FP32

@@ -375,7 +375,129 @@ def GRU_quant_forward(
     return outputs, final_hidden
 
 
-# -------------- LSTM 主入口 --------------
+# -------------- LSTM --------------
+
+
+def LSTM_float_forward(
+    op: Operation,
+    values: List[torch.Tensor],
+    ctx=None,
+    **kwargs,
+) -> torch.Tensor:
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=8)
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+
+    x, w, r = values[:3]  # x: [seq, batch, input]  (layout=0)
+    b = GET_VALUE_FROM_INPUTS(values, 3)
+    seq_len = GET_VALUE_FROM_INPUTS(values, 4)
+    initial_h = GET_VALUE_FROM_INPUTS(values, 5)
+    initial_c = GET_VALUE_FROM_INPUTS(values, 6)
+    p = GET_VALUE_FROM_INPUTS(values, 7)  # peephole weight, 这里先留接口，暂不使用
+
+    hidden_size = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='hidden_size', compulsive=True)
+    direction = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='direction', default='forward')
+    layout = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='layout', default=0)
+    bidirectional = direction == 'bidirectional'
+    num_directions = 2 if bidirectional else 1
+    batch_first = layout == 1
+    has_bias = b is not None
+
+    if batch_first:
+        x = x.transpose(0, 1)  # -> [seq, batch, input]
+
+    seq_length, batch_size, input_size = x.shape
+
+    # --- 初始化 h0/c0 ---
+    if initial_h is None:
+        initial_h = torch.zeros(num_directions, batch_size, hidden_size, device=x.device, dtype=x.dtype)
+    if initial_c is None:
+        initial_c = torch.zeros_like(initial_h)
+
+    # --- 拆 bias：LSTM 有 8 个 bias 向量 (Wb_i,f,g,o + Rb_i,f,g,o) ---
+    def prepare_lstm_biases(bias, hidden_size, direction_idx=0):
+        if bias is None:
+            return (None,) * 8
+        if bias.dim() == 2:
+            b_dir = bias[direction_idx]  # [8*hidden]
+        else:
+            b_dir = bias
+        splits = torch.split(b_dir, hidden_size, dim=0)  # 8 份
+        return splits  # (Wb_i, Wb_f, Wb_g, Wb_o, Rb_i, Rb_f, Rb_g, Rb_o)
+
+    # --- 单方向计算 ---
+    def process_direction(x, w, r, b, h0, c0, direction_idx=0, reverse=False):
+        # 取该方向权重
+        if w.dim() == 3:
+            w_dir = w[direction_idx]  # [4*hidden, input]
+            r_dir = r[direction_idx]  # [4*hidden, hidden]
+        else:
+            w_dir, r_dir = w, r
+
+        # - W/R/B parameter weight matrix for input, output, forget, and cell gates
+        # 处理 bias
+        if has_bias:
+            Wb_i, Wb_o, Wb_f, Wb_g, Rb_i, Rb_o, Rb_f, Rb_g = prepare_lstm_biases(b, hidden_size, direction_idx)
+            # 合并成 gate_bias = Wb + Rb
+            i_bias = Wb_i + Rb_i
+            f_bias = Wb_f + Rb_f
+            g_bias = Wb_g + Rb_g
+            o_bias = Wb_o + Rb_o
+        else:
+            i_bias = f_bias = g_bias = o_bias = None
+
+        h_t = h0[direction_idx] if h0.dim() == 3 else h0
+        c_t = c0[direction_idx] if c0.dim() == 3 else c0
+
+        if reverse:
+            x = x.flip(0)
+
+        outputs = []
+        for t in range(seq_length):
+            xt = x[t]  # [batch, input]
+
+            # 一次 matmul 得到 4 个门
+            xw = torch.matmul(xt, w_dir.t())  # [batch, 4*hidden]
+            x_i, x_o, x_f, x_g = torch.split(xw, hidden_size, dim=1)
+
+            hr = torch.matmul(h_t, r_dir.t())  # [batch, 4*hidden]
+            h_i, h_o, h_f, h_g = torch.split(hr, hidden_size, dim=1)
+
+            # 加 bias
+            if has_bias:
+                x_i, x_f, x_g, x_o = x_i + i_bias, x_f + f_bias, x_g + g_bias, x_o + o_bias
+
+            i_t = torch.sigmoid(x_i + h_i)
+            f_t = torch.sigmoid(x_f + h_f)
+            g_t = torch.tanh(x_g + h_g)
+            o_t = torch.sigmoid(x_o + h_o)
+
+            # 更新 cell
+            c_t = f_t * c_t + i_t * g_t
+            h_t = o_t * torch.tanh(c_t)
+
+            # 对输出 h_t 再做一次量化（与 GRU 侧保持一致）
+            outputs.append(h_t)
+
+        outputs = torch.stack(outputs)  # [seq, batch, hidden]
+        if reverse:
+            outputs = outputs.flip(0)
+        return outputs, h_t, c_t
+
+    # --- 前向 ---
+    fo, fh, fc = process_direction(x, w, r, b, initial_h, initial_c, 0, False)
+    if bidirectional:
+        ro, rh, rc = process_direction(x, w, r, b, initial_h, initial_c, 1, True)
+        outputs = torch.cat([fo.unsqueeze(1), ro.unsqueeze(1)], dim=1)  # [seq, 2, batch, hidden]
+        last_h = torch.stack([fh, rh])  # [2, batch, hidden]
+        last_c = torch.stack([fc, rc])
+    else:
+        outputs = fo.unsqueeze(1)  # [seq, 1, batch, hidden]
+        last_h = fh.unsqueeze(0)
+        last_c = fc.unsqueeze(0)
+
+    return outputs, last_h, last_c
+
+
 def LSTM_quant_forward(
     op: Operation,
     values: List[torch.Tensor],
@@ -437,7 +559,7 @@ def LSTM_quant_forward(
 
         # 处理 bias
         if has_bias:
-            Wb_i, Wb_f, Wb_g, Wb_o, Rb_i, Rb_f, Rb_g, Rb_o = prepare_lstm_biases(b, hidden_size, direction_idx)
+            Wb_i, Wb_o, Wb_f, Wb_g, Rb_i, Rb_o, Rb_f, Rb_g = prepare_lstm_biases(b, hidden_size, direction_idx)
             # 合并成 gate_bias = Wb + Rb
             i_bias = Wb_i + Rb_i
             f_bias = Wb_f + Rb_f
@@ -459,11 +581,11 @@ def LSTM_quant_forward(
             # 一次 matmul 得到 4 个门
             xw = torch.matmul(xt, w_dir.t())  # [batch, 4*hidden]
             xw = fake_quantize(xw, LSTM_QUANT_EXPONENT, LSTM_QUANT_BITS, rounding=rounding)
-            x_i, x_f, x_g, x_o = torch.split(xw, hidden_size, dim=1)
+            x_i, x_o, x_f, x_g = torch.split(xw, hidden_size, dim=1)
 
             hr = torch.matmul(h_t, r_dir.t())  # [batch, 4*hidden]
             hr = fake_quantize(hr, LSTM_QUANT_EXPONENT, LSTM_QUANT_BITS, rounding=rounding)
-            h_i, h_f, h_g, h_o = torch.split(hr, hidden_size, dim=1)
+            h_i, h_o, h_f, h_g = torch.split(hr, hidden_size, dim=1)
 
             # 加 bias
             if has_bias:

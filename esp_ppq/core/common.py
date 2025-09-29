@@ -81,6 +81,7 @@ TYPES_FOR_ALIGNMENT = {
     'Concat': {'Concat'},
     'Pooling': {'AveragePool', 'GlobalAveragePool'},
     'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'},
+    'RNN': {'GRU', 'LSTM'},
 }
 # 强制联合定点手动覆盖
 ALIGNMENT_MANUL_OVERRIDE = 'ALIGNMENT_MANUL_OVERRIDE'

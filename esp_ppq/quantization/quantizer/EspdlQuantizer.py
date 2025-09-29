@@ -72,19 +72,24 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
                 bias_config.state = QuantizationStates.PASSIVE_INIT
                 bias_config.observer_algorithm = "minmax"
-        elif operation.type in {"LSTM", "GRU"}:
-            if operation.num_of_input > 3:
-                bias_config = base_quant_config.input_quantization_config[3]
-                bias_config.num_of_bits = 16
-                bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
-                bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
-                bias_config.state = QuantizationStates.PASSIVE_INIT
-                bias_config.observer_algorithm = "minmax"
+        elif operation.type in {"GRU", "LSTM"}:
+            reset_variables = [3]  # 3:bias for GRU
+            if operation.type == "LSTM":
+                reset_variables = [3, 6]  # 3:bias, 6: initial_c for LSTM
+            for index in reset_variables:
+                if operation.num_of_input > index:
+                    config = base_quant_config.input_quantization_config[index]
+                    config.num_of_bits = 16
+                    config.quant_max = int(pow(2, config.num_of_bits - 1)) - 1
+                    config.quant_min = -int(pow(2, config.num_of_bits - 1))
+                    config.state = QuantizationStates.PASSIVE_INIT
+                    config.observer_algorithm = "minmax"
+
             if operation.num_of_output == 3:
                 cell_config = base_quant_config.output_quantization_config[2]
                 cell_config.num_of_bits = 16
-                cell_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
-                cell_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
+                cell_config.quant_max = int(pow(2, cell_config.num_of_bits - 1)) - 1
+                cell_config.quant_min = -int(pow(2, cell_config.num_of_bits - 1))
                 cell_config.state = QuantizationStates.PASSIVE_INIT
                 cell_config.observer_algorithm = "minmax"
             for index in range(len(operation.inputs)):

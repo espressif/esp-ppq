@@ -453,6 +453,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         resize_alignment: str = 'None',
         logical_elementwise_alignment: str = 'Align to Large',
         force_overlap: bool = False,
+        rnn_alignment: str = 'RNN Align to First',
     ) -> None:
         self.pooling_alignment = pooling_alignment
         self.elementwise_alignment = elementwise_alignment
@@ -460,6 +461,7 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         self.resize_alignment = resize_alignment
         self.logical_elementwise_alignment = logical_elementwise_alignment
         self.force_overlap = force_overlap
+        self.rnn_alignment = rnn_alignment
         assert self.elementwise_alignment in {'Align to Large', 'Align to Output', 'None'}, (
             'Elementwise Alignment can only be (None), (Align to Large) or (Align to Output)'
         )
@@ -475,6 +477,9 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         assert self.logical_elementwise_alignment in {'Align to Large', 'None'}, (
             'Logical Elementwise Alignment can only be (None) or (Align to Large)'
         )
+        assert self.rnn_alignment in {'RNN Align to First', 'None'}, (
+            'GRU/LSTM Alignment can only be (None) or (RNN Align to First)'
+        )
         super().__init__(name='PPQ Quantization Alignment Pass')
 
     def align_to_input(self, op: QuantableOperation) -> TensorQuantizationConfig:
@@ -488,6 +493,24 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         for slave_config in op.config.output_quantization_config:
             if slave_config.policy.has_property(QuantizationProperty.FLOATING):
                 continue
+            if slave_config.state not in {QuantizationStates.FP32, QuantizationStates.SOI}:
+                slave_config.master_by = master_config
+        return master_config
+
+    def align_to_first_output(self, op: QuantableOperation) -> TensorQuantizationConfig:
+        """Align quant scale and offset to input config. All output configs
+        would share a same scale and offset with output config. (as a slave to
+        input config)
+
+        Any change to slave config will be rejected since then.
+        """
+        master_config = op.config.output_quantization_config[0]
+        slave_configs = [op.config.output_quantization_config[1], op.config.input_quantization_config[5]]
+
+        for slave_config in slave_configs:
+            if slave_config.policy.has_property(QuantizationProperty.FLOATING):
+                return master_config
+
             if slave_config.state not in {QuantizationStates.FP32, QuantizationStates.SOI}:
                 slave_config.master_by = master_config
         return master_config
@@ -596,7 +619,11 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
                     continue
                 if self.logical_elementwise_alignment == 'Align to Large':
                     master_config = self.align_to_large(operation)
-
+            elif operation.type in TYPES_FOR_ALIGNMENT['RNN']:
+                if self.rnn_alignment == 'None':
+                    continue
+                if self.rnn_alignment == 'RNN Align to First':
+                    master_config = self.align_to_first_output(operation)
             elif ALIGNMENT_MANUL_OVERRIDE in operation.extension_attrib:
                 method = operation.extension_attrib[ALIGNMENT_MANUL_OVERRIDE]
                 if self.concat_alignment == 'Align to Large':
