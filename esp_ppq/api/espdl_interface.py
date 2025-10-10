@@ -72,7 +72,7 @@ def get_target_platform(
             platform = TargetPlatform.ESPDL_C_H_PRE_INT16
         else:
             platform = TargetPlatform.FP32
-            logger.warning(f"Do not support num_of_bits:{num_of_bits}, will change to TargetPlatform.FP32")
+            logger.warning(f"num_of_bits:{num_of_bits} and target:{target} will return TargetPlatform.FP32")
 
     return platform
 
