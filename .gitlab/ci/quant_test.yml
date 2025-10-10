@@ -3,6 +3,7 @@
   image: ${IMAGE}
   tags: ["build", "amd64"]
   dependencies: []
+  timeout: 2 hour
   script:
     - pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
     - pip install -e .
