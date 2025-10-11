@@ -426,6 +426,7 @@ def make_tensor(
             padding = n - len(vals) % n
             vals = np.pad(vals, (0, padding), mode='constant', constant_values=0)
         vals = np.reshape(vals, [-1, n])
+        vals = vals.astype(np_dtype)
         Tensor.StartRawDataVector(builder, len(vals))
         for val in reversed(vals):
             AlignedBytes.CreateAlignedBytes(builder, val.tobytes())
