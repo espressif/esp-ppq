@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "esp-ppq"
-version = "1.0.5"
+version = "1.0.6"
 description = "esp-ppq is an offline quantization tools"
 readme = "README.md"
 license = "Apache-2.0"
@@ -27,12 +27,12 @@ Issues = "https://github.com/espressif/esp-dl/issues"
 
 [project.optional-dependencies]
 cpu = [
-  "torch>=2.0.0",
+  "torch>=2.0.0,<2.9.0",
   "torchvision>=0.15.0",
   "torchaudio>=2.0.0",
 ]
 cu124 = [
-  "torch>=2.0.0",
+  "torch>=2.0.0,<2.9.0",
   "torchvision>=0.15.0",
   "torchaudio>=2.0.0",
 ]
