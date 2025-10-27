@@ -309,6 +309,7 @@ def espdl_quantize_torch(
     export_test_values: bool = False,
     test_output_names: List[str] = None,
     verbose: int = 0,
+    opset_version: int = 18,
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
@@ -367,7 +368,7 @@ def espdl_quantize_torch(
             ]
         ),
         f=onnx_file_path,
-        opset_version=18,
+        opset_version=opset_version,
         do_constant_folding=True,
     )
 
