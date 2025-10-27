@@ -2998,13 +2998,16 @@ def DepthToSpace_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBa
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     # SubpixelUp in caffe
     input_data = values[0]
-    upsample = op.attributes.get('blocksize', 1)
+    blocksize = op.attributes.get('blocksize', 1)
     mode = op.attributes.get('mode', 'DCR')
     if mode == 'DCR':
-        output = F.pixel_shuffle(input_data, upsample)
+        b, c, h, w = list(input_data.shape)
+        tmp = torch.reshape(input_data, [b, blocksize, blocksize, c // (blocksize**2), h, w])
+        tmp = torch.permute(tmp, [0, 3, 4, 1, 5, 2])
+        output = torch.reshape(tmp, [b, c // (blocksize**2), h * blocksize, w * blocksize])
     else:  # mode == 'CRD'
-        # ??? i do kown why following is correct.
-        output = F.pixel_shuffle(input_data, upsample)
+        # pytorch pixel_shuffle only supports DCR mode
+        output = F.pixel_shuffle(input_data, blocksize)
     return output
 
 
