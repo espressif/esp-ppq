@@ -3006,7 +3006,7 @@ def DepthToSpace_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBa
         tmp = torch.permute(tmp, [0, 3, 4, 1, 5, 2])
         output = torch.reshape(tmp, [b, c // (blocksize**2), h * blocksize, w * blocksize])
     else:  # mode == 'CRD'
-        # pytorch pixel_shuffle only supports DCR mode
+        # pytorch pixel_shuffle only supports CRD mode
         output = F.pixel_shuffle(input_data, blocksize)
     return output
 
