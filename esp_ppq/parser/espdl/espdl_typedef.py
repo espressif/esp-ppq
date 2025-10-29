@@ -45,7 +45,16 @@ QUANT_OP_SET = {
     "DequantizeFloating",
 }
 PASSIVE_LAYOUT_OP_SET = ACTIVATION_OP_SET | QUANT_OP_SET | MATH_OP_SET
-CONV_LAYOUT_OP_SET = {"Conv", "GlobalAveragePool", "AveragePool", "MaxPool", "ConvTranspose", "GlobalMaxPool"}
+CONV_LAYOUT_OP_SET = {
+    "Conv",
+    "GlobalAveragePool",
+    "AveragePool",
+    "MaxPool",
+    "ConvTranspose",
+    "GlobalMaxPool",
+    "DepthToSpace",
+    "SpaceToDepth",
+}
 ADD_LIKE_OP_SET = {
     "Add",
     "Sub",

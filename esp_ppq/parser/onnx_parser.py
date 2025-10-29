@@ -1,7 +1,7 @@
 from typing import Any, Dict, Iterable, List
 
 import onnx
-from onnx import helper, mapping, numpy_helper
+from onnx import helper, numpy_helper
 
 from esp_ppq.core import (
     DEFAULT_OPSET_DOMAIN,
@@ -113,7 +113,7 @@ class OnnxParser(GraphBuilder):
                     value = numpy_helper.to_array(value).copy()
                 if op.type == 'Cast':
                     # The attribute of 'Cast' node is data type (represented in int), need to convert to numpy data type
-                    value = mapping.TENSOR_TYPE_TO_NP_TYPE[value]
+                    value = helper.tensor_type_to_np_type[value]
                 op.attributes[key] = value
 
         graph_initializers = []

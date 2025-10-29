@@ -50,7 +50,7 @@ class BaseInferencer:
             collate_fn=collate_fn,
             setting=quant_setting,
             device=DEVICE,
-            error_report=True,
+            error_report=False,
             skip_export=False,
             export_test_values=True,
             verbose=1,
