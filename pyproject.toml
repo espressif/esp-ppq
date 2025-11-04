@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "esp-ppq"
-version = "1.1.0"
+version = "1.1.1"
 description = "esp-ppq is an offline quantization tools"
 readme = "README.md"
 license = "Apache-2.0"
@@ -19,6 +19,7 @@ dependencies = [
     'onnxsim-prebuilt; python_version >= "3.12"',
     "setuptools>=75.3.0",
     "tqdm>=4.67.1",
+    "toml"
 ]
 
 [project.urls]
