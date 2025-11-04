@@ -9,3 +9,4 @@ tqdm>=4.67.1
 torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0,<2.9.0
+toml

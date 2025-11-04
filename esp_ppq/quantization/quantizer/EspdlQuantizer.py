@@ -262,7 +262,6 @@ class BaseEspdlQuantizer(BaseQuantizer):
             'Exp',
             'DepthToSpace',
             'SpaceToDepth',
-            'Pow',
         }
 
     @property
