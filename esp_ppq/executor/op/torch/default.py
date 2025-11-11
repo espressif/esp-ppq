@@ -2517,6 +2517,7 @@ def ScatterND_forward(
     ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=3)
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     value, indices, updates = values
+    reduction = op.attributes.get('reduction', 'none')  # currently not used
 
     output = value.clone()
     ind_dim = indices.dim()
@@ -2524,7 +2525,18 @@ def ScatterND_forward(
     indices = indices.reshape((-1, indices.shape[-1])).T.tolist()
     # update.shape = indices.shape[0:ind_dim-1] ++ data.shape[indices.shape[-1]:data.dim()-1]
     updates = updates.reshape((-1, *updates.shape[ind_dim - 1 :]))
-    output[indices] = updates
+    indices = tuple(indices)  # use x[tuple(seq)] instead of x[seq] for torch v2.9.0 compatibility
+    if reduction == 'none':
+        output[indices] = updates
+    elif reduction == 'add':
+        output[indices] += updates
+    elif reduction == 'mul':
+        output[indices] *= updates
+    elif reduction == 'max':
+        output[indices] = torch.max(output[indices], updates)
+    elif reduction == 'min':
+        output[indices] = torch.min(output[indices], updates)
+
     return output
 
 
