@@ -23,13 +23,13 @@ For Windows User:
 
   (3) Add your C++ compiler to Windows PATH Environment, if you are using Visual Studio, it should be like "C:\Program Files\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.16.27023\bin\Hostx86\x86"
 
-  (4) Update PyTorch version to >=2.0.0, <2.9.0.
+  (4) Update PyTorch version to >=2.0.0.
 
 3. Install PPQ
 
 Method 1: Install the package using pip
 ```
-   pip install "torch<2.9.0" torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
    pip install esp-ppq
 ```
 
@@ -37,7 +37,7 @@ Method 2: Install from source with pip to stay synchronized with the master bran
 ```
    git clone https://github.com/espressif/esp-ppq.git
    cd esp-ppq
-   pip install "torch<2.9.0" torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
    pip install -e .
 ```
 
@@ -56,7 +56,7 @@ Method 4: Install from source using uv to stay in sync with the master branch
 ```
    git clone https://github.com/espressif/esp-ppq.git
    cd esp-ppq
-   uv pip install "torch<2.9.0" torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+   uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
    uv pip install -e .
 ```
 
@@ -67,7 +67,6 @@ docker build -t esp-ppq:your_tag https://github.com/espressif/esp-ppq.git
 > [!NOTE]
 > - The example code installs the Linux PyTorch CPU version. Please install the appropriate PyTorch version based on your actual needs.
 > - If installing the package with uv, simply modify the ``--torch-backend`` parameter, which will override the PyTorch URLs index configured in the project.
-> - The package is compatible with PyTorch versions >=2.0.0 and <2.9.0.
 
 ### License
 

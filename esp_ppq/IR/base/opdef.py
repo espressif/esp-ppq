@@ -692,7 +692,7 @@ def ScatterND_Socket(op: OperationBase) -> OpSocket:
             Tensor of rank r >= 1.
     """
     CHECK_OPSET(op=op, min_version_supported=11, max_version_supported=18)
-    in_plat = [TargetPlatform.UNSPECIFIED, TargetPlatform.FP32, TargetPlatform.UNSPECIFIED]
+    in_plat = [TargetPlatform.UNSPECIFIED, TargetPlatform.SOI, TargetPlatform.UNSPECIFIED]
     return OpSocket(
         op=op, in_plat=in_plat[: op.num_of_input], links=[VLink(in_idx=0, out_idx=0), VLink(in_idx=2, out_idx=0)]
     )

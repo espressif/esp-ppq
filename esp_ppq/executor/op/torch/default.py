@@ -2525,6 +2525,7 @@ def ScatterND_forward(
     indices = indices.reshape((-1, indices.shape[-1])).T.tolist()
     # update.shape = indices.shape[0:ind_dim-1] ++ data.shape[indices.shape[-1]:data.dim()-1]
     updates = updates.reshape((-1, *updates.shape[ind_dim - 1 :]))
+    indices = tuple(indices)  # use x[tuple(seq)] instead of x[seq] for torch v2.9.0 compatibility
     if reduction == 'none':
         output[indices] = updates
     elif reduction == 'add':

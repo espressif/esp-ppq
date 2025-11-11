@@ -78,7 +78,7 @@ SOI_OP = {'TopK', 'Shape', 'NonMaxSuppression'}
 # 强制联合定点的算子种类
 TYPES_FOR_ALIGNMENT = {
     'Elementwise': {'Add', 'Sub', 'Sum'},
-    'Concat': {'Concat'},
+    'Concat': {'Concat', 'ScatterND'},
     'Pooling': {'AveragePool', 'GlobalAveragePool'},
     'LogicalElementwise': {'Greater', 'Less', 'Equal', 'GreaterOrEqual', 'LessOrEqual'},
     'RNN': {'GRU', 'LSTM'},
