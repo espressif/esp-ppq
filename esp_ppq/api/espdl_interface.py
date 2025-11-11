@@ -355,22 +355,41 @@ def espdl_quantize_torch(
 
     base_file_name, _ = os.path.splitext(espdl_export_file)
     onnx_file_path = base_file_name + ".onnx"
-    torch.onnx.export(
-        model=model,
-        args=tuple(
-            [
-                torch.zeros(
-                    size=shape,
-                    device=device,
-                    dtype=torch.float32,
-                )
-                for shape in input_shape
-            ]
-        ),
-        f=onnx_file_path,
-        opset_version=opset_version,
-        do_constant_folding=True,
-    )
+    if torch.__version__ >= "2.9.0":
+        torch.onnx.export(
+            model=model,
+            args=tuple(
+                [
+                    torch.zeros(
+                        size=shape,
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    for shape in input_shape
+                ]
+            ),
+            f=onnx_file_path,
+            opset_version=opset_version,
+            do_constant_folding=True,
+            dynamo=False,
+        )
+    else:
+        torch.onnx.export(
+            model=model,
+            args=tuple(
+                [
+                    torch.zeros(
+                        size=shape,
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    for shape in input_shape
+                ]
+            ),
+            f=onnx_file_path,
+            opset_version=opset_version,
+            do_constant_folding=True,
+        )
 
     # step2: quantize onnx model and export espdl model
     return espdl_quantize_onnx(
