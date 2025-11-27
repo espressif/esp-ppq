@@ -101,20 +101,23 @@ def generate_test_value(
     if isinstance(inputs, dict):
         for name, value in inputs.items():
             if name in graph.inputs:
-                test_inputs_value[name] = value.clone().detach().cpu()
+                test_inputs_value[name] = value.clone().detach().to(running_device)
             else:
                 logger.error(f"Can not find input {name} in your graph inputs, please check.")
     else:
         inputs_tmp = executor.prepare_input(inputs=inputs)
-        test_inputs_value = {name: value.clone().detach().cpu() for name, value in inputs_tmp.items()}
+        test_inputs_value = {name: value.clone().detach().to(running_device) for name, value in inputs_tmp.items()}
 
     # get test_outputs_value
     if output_names is None:
         outputs_dictionary = graph.outputs
-        test_outputs_value = {key: outputs[idx].clone().detach().cpu() for idx, key in enumerate(outputs_dictionary)}
+        test_outputs_value = {
+            key: outputs[idx].clone().detach().to(running_device) for idx, key in enumerate(outputs_dictionary)
+        }
     else:
         test_outputs_value = {
-            output_name: output.clone().detach().cpu() for output_name, output in zip(output_names, outputs)
+            output_name: output.clone().detach().to(running_device)
+            for output_name, output in zip(output_names, outputs)
         }
 
     return {"inputs": test_inputs_value, "outputs": test_outputs_value}
