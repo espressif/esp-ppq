@@ -20,6 +20,7 @@ from esp_ppq.log import NaiveLogger
 from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 from .espdl import helper
+from .espdl.espdl_streaming import AutoStreamingPattern, StreamingTable, insert_streaming_nodes
 from .espdl.espdl_typedef import REDUCE_OP_SET, ExporterPatternInfo, LayoutAnnotation
 from .espdl.export_patterns import (
     AddLUTPattern,
@@ -75,6 +76,9 @@ class EspdlExporter(GraphExporter):
         encrypt_data: bool = False,
         int16_lut_step: int = 256,
         metadata_props: Dict[str, str] = None,
+        streaming_table: Dict[str, Dict[str, Any]] = None,
+        auto_streaming: bool = False,
+        streaming_input_shape: List[Any] = None,
         **kwargs: Any,
     ):
         """Export model to flatbuffers file
@@ -125,7 +129,9 @@ class EspdlExporter(GraphExporter):
             ],
         }
 
-        graph = self.prepare_graph(graph, exporter_patterns, int16_lut_step)
+        graph = self.prepare_graph(
+            graph, exporter_patterns, int16_lut_step, streaming_table, auto_streaming, streaming_input_shape
+        )
         file_base_name, _ = os.path.splitext(file_path)
 
         # if a valid config path is given, export quantization config to there.
@@ -170,6 +176,9 @@ class EspdlExporter(GraphExporter):
         graph: BaseGraph,
         exporter_patterns: Dict[str, List[OperationExporter]],
         int16_lut_step: int,
+        streaming_table: Dict[str, Dict[str, Any]] = None,
+        auto_streaming: bool = False,
+        streaming_input_shape: List[Any] = None,
     ) -> BaseGraph:
         """Prepare your graph for exporting.
 
@@ -210,6 +219,35 @@ class EspdlExporter(GraphExporter):
             exporter = pattern()
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
+
+        if auto_streaming or streaming_table is not None:
+            logger.info("Inserting streaming nodes into graph...")
+            StreamingTable().append(streaming_table)
+            if streaming_input_shape != None:
+                logger.info("Setting streaming input shape...")
+                if isinstance(streaming_input_shape, dict):
+                    for var_name in streaming_input_shape:
+                        shape = streaming_input_shape[var_name]
+                        if var_name in graph.inputs:
+                            graph.inputs[var_name].shape = shape
+                        else:
+                            logger.warning(f"Input variable {var_name} not found in graph inputs.")
+                elif isinstance(streaming_input_shape, list) and len(graph.inputs) == 1:
+                    for var in graph.inputs.values():
+                        var.shape = streaming_input_shape
+                    # graph.inputs[graph.inputs.keys[0]].shape = streaming_input_shape
+                else:
+                    raise ValueError("Invalid streaming_input_shape provided.")
+            else:
+                raise ValueError("streaming_input_shape must be provided when auto_streaming is enabled.")
+
+            # insert streaming node pattern
+            if auto_streaming:
+                exporter = AutoStreamingPattern()
+                for op in graph.topological_sort():
+                    exporter.export(op=op, graph=graph)
+            insert_streaming_nodes(graph)
+            StreamingTable().reset()
 
         # prepare LUT
         exporter = AddLUTPattern(int16_step=int16_lut_step)

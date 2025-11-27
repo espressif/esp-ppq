@@ -425,11 +425,15 @@ class BaseGraph(Serializable):
         # add to graph.
         if inserting_op.name not in self.operations.keys():
             self.append_operation(inserting_op)
+        target_op = variable.dest_ops[0]
 
         # create all links.
-        link_var = self.create_variable(
-            name=None, value=None, is_parameter=False, dest_ops=variable.dest_ops.copy(), source_op=inserting_op
+        name = f'PPQ_Variable_{self._num_of_generated_var}'
+        self._num_of_generated_var += 1
+        link_var = Variable(
+            name=name, value=None, is_parameter=False, dest_ops=variable.dest_ops.copy(), source_op=inserting_op
         )
+        self.append_variable(link_var)
 
         inserting_op.inputs.append(variable)
         inserting_op.outputs.append(link_var)
@@ -860,7 +864,7 @@ class BaseGraph(Serializable):
         if source_op is not None:
             if not isinstance(source_op, Operation):
                 raise TypeError(f'Parameter dest ops should be an Operation, however {type(source_op)} was given.')
-            op.outputs.append(created)
+            source_op.outputs.append(created)
 
         self.append_variable(created)
         return created

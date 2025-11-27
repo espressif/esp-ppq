@@ -10,6 +10,7 @@ from .espdl_interface import (
     espdl_quantize_onnx,
     espdl_quantize_torch,
     generate_test_value,
+    get_streaming_cache_attrs,
     get_target_platform,
 )
 from .fsys import (
