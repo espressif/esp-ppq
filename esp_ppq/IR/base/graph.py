@@ -425,7 +425,6 @@ class BaseGraph(Serializable):
         # add to graph.
         if inserting_op.name not in self.operations.keys():
             self.append_operation(inserting_op)
-        target_op = variable.dest_ops[0]
 
         # create all links.
         name = f'PPQ_Variable_{self._num_of_generated_var}'
