@@ -77,6 +77,26 @@ def get_target_platform(
     return platform
 
 
+def get_streaming_cache_attrs(
+    var_name: str, window_size: int, op_name: str = None, frame_axis: int = 2
+) -> Dict[str, Any]:
+    """
+    Get streaming attributes dictionary.
+    Args:
+        var_name (str): Name of the variable.
+        window_size (int): Size of the streaming window.
+        frame_axis (int, optional): Axis representing the frame dimension. Defaults to 2. (NCH/NCHW: 2, NHWC: 1)
+    Returns:
+        Dict[str, Any]: Dictionary containing streaming attributes.
+    """
+    attributes = {
+        'window_size': window_size,
+        'op_name': op_name,
+        'frame_axis': frame_axis,
+    }
+    return {var_name: attributes}
+
+
 def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu') -> List[Any]:
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
@@ -152,6 +172,9 @@ def espdl_quantize_onnx(
     export_config: bool = True,
     export_test_values: bool = False,
     test_output_names: List[str] = None,
+    auto_streaming: bool = False,
+    streaming_table: Dict[str, Dict[str, Any]] = None,
+    streaming_input_shape: List[Any] = None,
     verbose: int = 0,
     **kwargs: Any,
 ) -> BaseGraph:
@@ -287,6 +310,9 @@ def espdl_quantize_onnx(
             graph=ppq_graph,
             values_for_test=values_for_test,
             export_config=export_config,
+            auto_streaming=auto_streaming,
+            streaming_table=streaming_table,
+            streaming_input_shape=streaming_input_shape,
             **kwargs,
         )
     return ppq_graph
@@ -313,6 +339,9 @@ def espdl_quantize_torch(
     test_output_names: List[str] = None,
     verbose: int = 0,
     opset_version: int = 18,
+    auto_streaming: bool = False,
+    streaming_table: Dict[str, Dict[str, Any]] = None,
+    streaming_input_shape: Dict[str, List[int]] = None,
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
@@ -414,6 +443,9 @@ def espdl_quantize_torch(
         export_config=export_config,
         export_test_values=export_test_values,
         test_output_names=test_output_names,
+        auto_streaming=auto_streaming,
+        streaming_table=streaming_table,
+        streaming_input_shape=streaming_input_shape,
         verbose=verbose,
         **kwargs,
     )
