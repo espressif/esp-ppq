@@ -111,9 +111,9 @@ class OnnxParser(GraphBuilder):
                 if op.type == 'Constant' or op.type == 'ConstantOfShape':
                     # The attribute of 'Constant' node is a value, needs to convert to numpy array
                     value = numpy_helper.to_array(value).copy()
-                if op.type == 'Cast':
+                if op.type == 'Cast' and key == 'to':
                     # The attribute of 'Cast' node is data type (represented in int), need to convert to numpy data type
-                    value = helper.tensor_type_to_np_type[value]
+                    value = helper.tensor_dtype_to_np_dtype[value]
                 op.attributes[key] = value
 
         graph_initializers = []

@@ -421,6 +421,10 @@ class EspdlExporter(GraphExporter):
             value = attributes[key]
             if isinstance(value, DataType):
                 attributes[key] = value.value
+            elif isinstance(value, np.dtype):
+                value = DataType.convert_from_numpy(value)
+                attributes[key] = value.value
+
             if isinstance(value, torch.Tensor):
                 if value.numel() == 0:
                     attributes[key] = None
