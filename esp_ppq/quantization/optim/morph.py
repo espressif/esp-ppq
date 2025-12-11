@@ -377,3 +377,23 @@ class GRUSplitPass(QuantizationOptimizationPass):
             op.outputs.clear()
             graph.remove_operation(op)
             self.delete_hidden_vec(graph, hidden_vec)
+
+
+class ConvTransposeDecompositionPass(QuantizationOptimizationPass):
+    """Decompose ConvTranspose operations into InsertZeros + Conv.
+
+    This pass replaces ConvTranspose operations with a combination of
+    InsertZeros operation (for stride) followed by a standard Conv operation
+    with rotated and transposed kernel.
+
+    This decomposition is useful for platforms that don't support ConvTranspose
+    natively but support standard Conv operations.
+    """
+
+    def __init__(self, name: str = 'ConvTranspose Decomposition Pass') -> None:
+        super().__init__(name)
+
+    def optimize(self, graph: BaseGraph, dataloader: Iterable, executor: BaseGraphExecutor, **kwargs) -> None:
+        from esp_ppq.IR.morph import GraphDecomposer
+        decomposer = GraphDecomposer(graph)
+        decomposer.decompose_convtranspose()

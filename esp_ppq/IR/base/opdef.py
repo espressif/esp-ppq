@@ -981,6 +981,7 @@ DEFAULT_SOCKET_TABLE = {
     'GRU': DEFAULT_SOCKET_CREATOR,
     'PPQDeviceSwitch': DEFAULT_SOCKET_CREATOR,
     'Identity': DEFAULT_SOCKET_CREATOR,
+    'InsertZeros': DEFAULT_SOCKET_CREATOR,
     'OneHot': Onehot_Socket,
     'Reciprocal': DEFAULT_SOCKET_CREATOR,
     'GreaterOrEqual': Logical_Socket,

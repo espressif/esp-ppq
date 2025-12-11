@@ -5,6 +5,7 @@ from .equalization import ActivationEqualizationPass, ChannelwiseSplitPass, Laye
 from .extension import ExtensionPass
 from .legacy import AdaroundPass
 from .morph import (
+    ConvTransposeDecompositionPass,
     GRUSplitPass,
     HorizontalLayerSplitPass,
     MetaxGemmSplitPass,
