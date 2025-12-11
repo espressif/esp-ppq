@@ -1,28 +1,24 @@
 #!/usr/bin/env python3
 """Numerical validation of ConvTranspose decomposition."""
 
-import torch
-import torch.nn as nn
 from pathlib import Path
 
+import torch
+import torch.nn as nn
+
 from esp_ppq.api import load_onnx_graph
-from esp_ppq.IR.morph import GraphDecomposer
 from esp_ppq.executor import TorchExecutor
+from esp_ppq.IR.morph import GraphDecomposer
 
 
 def create_convtranspose_model():
     """Create a simple model with ConvTranspose layer."""
+
     class SimpleModel(nn.Module):
         def __init__(self):
             super().__init__()
             self.conv_transpose = nn.ConvTranspose2d(
-                in_channels=3,
-                out_channels=6,
-                kernel_size=3,
-                stride=2,
-                padding=1,
-                output_padding=1,
-                bias=True
+                in_channels=3, out_channels=6, kernel_size=3, stride=2, padding=1, output_padding=1, bias=True
             )
 
         def forward(self, x):
@@ -47,14 +43,7 @@ def test_numerical_accuracy():
 
     # Export model to ONNX
     onnx_path = Path('test_convtranspose_numerical.onnx')
-    torch.onnx.export(
-        model,
-        sample_input,
-        onnx_path,
-        input_names=['input'],
-        output_names=['output'],
-        opset_version=11
-    )
+    torch.onnx.export(model, sample_input, onnx_path, input_names=['input'], output_names=['output'], opset_version=11)
 
     # Load graph
     graph = load_onnx_graph(str(onnx_path))
@@ -71,7 +60,7 @@ def test_numerical_accuracy():
     # Ensure output variable has a source operation
     assert 'output' in graph.outputs, "Output variable 'output' not found in graph outputs"
     output_var = graph.outputs['output']
-    assert output_var.source_op is not None, f"Output variable 'output' has no source operation"
+    assert output_var.source_op is not None, "Output variable 'output' has no source operation"
 
     # Debug: print Conv operation details
     conv_ops = [op for op in graph.operations.values() if op.type == 'Conv']
@@ -79,7 +68,9 @@ def test_numerical_accuracy():
         print(f"Debug: Conv op '{conv_op.name}' inputs: {[var.name for var in conv_op.inputs]}")
         print(f"Debug: Conv op '{conv_op.name}' attributes: {conv_op.attributes}")
         for i, var in enumerate(conv_op.inputs):
-            print(f"Debug:   input {i} '{var.name}': is_parameter={var.is_parameter}, value type={type(var.value)}, shape={var.value.shape if var.value is not None else None}")
+            print(
+                f"Debug:   input {i} '{var.name}': is_parameter={var.is_parameter}, value type={type(var.value)}, shape={var.value.shape if var.value is not None else None}"
+            )
 
     # Create executor and run decomposed graph
     executor = TorchExecutor(graph, device='cpu')
@@ -106,7 +97,7 @@ def test_numerical_accuracy():
     max_diff = torch.max(abs_diff).item()
     mean_diff = torch.mean(abs_diff).item()
 
-    print(f"Numerical comparison:")
+    print("Numerical comparison:")
     print(f"  Max absolute difference: {max_diff:.6e}")
     print(f"  Mean absolute difference: {mean_diff:.6e}")
 
@@ -132,11 +123,28 @@ def test_various_configurations():
         {'in_channels': 1, 'out_channels': 2, 'kernel_size': 3, 'stride': 1, 'padding': 0, 'output_padding': 0},
         {'in_channels': 4, 'out_channels': 8, 'kernel_size': 5, 'stride': 2, 'padding': 2, 'output_padding': 0},
         {'in_channels': 2, 'out_channels': 4, 'kernel_size': 3, 'stride': 2, 'padding': 0, 'output_padding': 1},
+        {
+            'in_channels': 8,
+            'out_channels': 8,
+            'kernel_size': 5,
+            'stride': 2,
+            'padding': [1, 2],
+            'output_padding': [0, 1],
+        },
+        {'in_channels': 8, 'out_channels': 8, 'kernel_size': 1, 'stride': 2, 'padding': 0, 'output_padding': 0},
+        {
+            'in_channels': 8,
+            'out_channels': 8,
+            'kernel_size': 5,
+            'stride': [2, 3],
+            'padding': [2, 3],
+            'output_padding': [1, 2],
+        },
     ]
 
     all_success = True
     for i, config in enumerate(test_cases):
-        print(f"\nTest case {i+1}: {config}")
+        print(f"\nTest case {i + 1}: {config}")
 
         class TestModel(nn.Module):
             def __init__(self, config):
@@ -148,7 +156,7 @@ def test_various_configurations():
                     stride=config['stride'],
                     padding=config['padding'],
                     output_padding=config['output_padding'],
-                    bias=True
+                    bias=True,
                 )
 
             def forward(self, x):
@@ -168,12 +176,7 @@ def test_various_configurations():
         # Export and load graph
         onnx_path = Path(f'test_case_{i}.onnx')
         torch.onnx.export(
-            model,
-            sample_input,
-            onnx_path,
-            input_names=['input'],
-            output_names=['output'],
-            opset_version=11
+            model, sample_input, onnx_path, input_names=['input'], output_names=['output'], opset_version=11
         )
 
         graph = load_onnx_graph(str(onnx_path))
@@ -220,7 +223,7 @@ def test_conv1d_convtranspose():
 
     all_success = True
     for i, config in enumerate(test_cases):
-        print(f"\nTest Conv1D case {i+1}: {config}")
+        print(f"\nTest Conv1D case {i + 1}: {config}")
 
         class TestModel(nn.Module):
             def __init__(self, config):
@@ -232,7 +235,7 @@ def test_conv1d_convtranspose():
                     stride=config['stride'],
                     padding=config['padding'],
                     output_padding=config['output_padding'],
-                    bias=True
+                    bias=True,
                 )
 
             def forward(self, x):
@@ -252,12 +255,7 @@ def test_conv1d_convtranspose():
         # Export and load graph
         onnx_path = Path(f'test_conv1d_case_{i}.onnx')
         torch.onnx.export(
-            model,
-            sample_input,
-            onnx_path,
-            input_names=['input'],
-            output_names=['output'],
-            opset_version=11
+            model, sample_input, onnx_path, input_names=['input'], output_names=['output'], opset_version=11
         )
 
         graph = load_onnx_graph(str(onnx_path))
@@ -292,6 +290,7 @@ def test_conv1d_convtranspose():
 
     return all_success
 
+
 if __name__ == '__main__':
     try:
         print("=" * 60)
@@ -315,5 +314,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"\nError during testing: {e}")
         import traceback
+
         traceback.print_exc()
         exit(1)

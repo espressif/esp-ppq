@@ -1336,6 +1336,7 @@ class GraphDecomposer(GraphCommandProcessor):
             weight_value = weight_var.value
             weight_dim = weight_value.dim()
             spatial_dims = weight_dim - 2  # weight shape: [C_in, C_out, *spatial_kernel_dims]
+
             # Normalize attributes to lists of length spatial_dims
             def normalize_attr(attr, default, length, attr_name=""):
                 if isinstance(attr, (int, float)):
@@ -1346,7 +1347,9 @@ class GraphDecomposer(GraphCommandProcessor):
                     elif len(attr) > length:
                         return attr[:length]
                     else:
-                        raise ValueError(f'ConvTranspose {op.name} normalize_attr error: {attr}, {default}, {length}, {attr_name}')
+                        raise ValueError(
+                            f'ConvTranspose {op.name} normalize_attr error: {attr}, {default}, {length}, {attr_name}'
+                        )
                 else:
                     return [default] * length
 
@@ -1355,8 +1358,10 @@ class GraphDecomposer(GraphCommandProcessor):
             if kernel_shape_attr is not None:
                 kernel_shape_attr = normalize_attr(kernel_shape_attr, 1, spatial_dims, "kernel")
                 if kernel_shape_attr != kernel_shape:
-                    ppq_warning(f'ConvTranspose {op.name}: kernel_shape attribute {kernel_shape_attr} '
-                              f'does not match weight shape {kernel_shape}. Using weight shape.')
+                    ppq_warning(
+                        f'ConvTranspose {op.name}: kernel_shape attribute {kernel_shape_attr} '
+                        f'does not match weight shape {kernel_shape}. Using weight shape.'
+                    )
 
             strides = normalize_attr(strides, 1, spatial_dims, "stride")
             # Special handling for pads
@@ -1393,30 +1398,32 @@ class GraphDecomposer(GraphCommandProcessor):
             dilations = normalize_attr(dilations, 1, spatial_dims, "dilation")
 
             # Check if all strides are 1
-            # Create InsertZeros operation if stride > 1 
+            # Create InsertZeros operation if stride > 1
             all_strides_one = all(s == 1 for s in strides)
-            need_insert_zeros = not all_strides_one 
+            need_insert_zeros = not all_strides_one
 
             if need_insert_zeros:
                 # Create InsertZeros operation with stride and output_padding
                 insert_zeros_op = graph.create_operation(
                     op_type='InsertZeros',
                     attributes={'stride': strides, 'output_padding': output_padding},
-                    platform=op.platform
+                    platform=op.platform,
                 )
 
                 # Link input to InsertZeros using graph helper
                 input_var = op.inputs[0]
                 graph.insert_op_before(A=insert_zeros_op, B=op, input_idx=0)
 
-
             # Calculate new padding for Conv: kernel_size - padding - 1
             # For asymmetric padding, compute start and end separately
-            conv_pads = []
+            conv_pads_start = []
+            conv_pads_end = []
             for k, p_start, p_end in zip(kernel_shape, pads_start, pads_end):
-                conv_pad_start = k - p_start - 1
-                conv_pad_end = k - p_end - 1
-                conv_pads.extend([conv_pad_start, conv_pad_end])  # start and end (may be asymmetric)
+                pad_start = k - p_start - 1
+                pad_end = k - p_end - 1
+                conv_pads_start.append(pad_start)
+                conv_pads_end.append(pad_end)
+            conv_pads = conv_pads_start + conv_pads_end
 
             # Convert ConvTranspose to Conv operation
             op.type = 'Conv'
@@ -1437,6 +1444,7 @@ class GraphDecomposer(GraphCommandProcessor):
 
             # Update original weight variable for Conv
             weight_var.value = weight_for_conv
+
 
 class GraphDeviceSwitcher(GraphCommandProcessor):
     """Graph Device Switcher insert necessary switcher operation for graph

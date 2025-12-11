@@ -395,5 +395,6 @@ class ConvTransposeDecompositionPass(QuantizationOptimizationPass):
 
     def optimize(self, graph: BaseGraph, dataloader: Iterable, executor: BaseGraphExecutor, **kwargs) -> None:
         from esp_ppq.IR.morph import GraphDecomposer
+
         decomposer = GraphDecomposer(graph)
         decomposer.decompose_convtranspose()

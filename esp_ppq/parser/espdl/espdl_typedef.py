@@ -54,7 +54,7 @@ CONV_LAYOUT_OP_SET = {
     "GlobalMaxPool",
     "DepthToSpace",
     "SpaceToDepth",
-    "InsertZeros"
+    "InsertZeros",
 }
 ADD_LIKE_OP_SET = {
     "Add",

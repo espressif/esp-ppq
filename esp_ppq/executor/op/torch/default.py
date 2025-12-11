@@ -3968,8 +3968,9 @@ def InsertZeros_forward(
         stride_list = [stride] * num_spatial_dims
     elif isinstance(stride, list):
         if len(stride) != num_spatial_dims:
-            raise ValueError(f'Stride list length ({len(stride)}) does not match '
-                           f'number of spatial dimensions ({num_spatial_dims})')
+            raise ValueError(
+                f'Stride list length ({len(stride)}) does not match number of spatial dimensions ({num_spatial_dims})'
+            )
         stride_list = stride
     else:
         raise ValueError(f'Invalid stride attribute: {stride}')
@@ -3979,8 +3980,10 @@ def InsertZeros_forward(
         output_padding_list = [output_padding] * num_spatial_dims
     elif isinstance(output_padding, list):
         if len(output_padding) != num_spatial_dims:
-            raise ValueError(f'Output padding list length ({len(output_padding)}) does not match '
-                           f'number of spatial dimensions ({num_spatial_dims})')
+            raise ValueError(
+                f'Output padding list length ({len(output_padding)}) does not match '
+                f'number of spatial dimensions ({num_spatial_dims})'
+            )
         output_padding_list = output_padding
     else:
         raise ValueError(f'Invalid output_padding attribute: {output_padding}')
@@ -4022,21 +4025,21 @@ def InsertZeros_forward(
         idx_h = dim_indices[0]
         for i in range(batch):
             for c in range(channels):
-                output[i, c, idx_h] = x[i, c, :len(idx_h)]
+                output[i, c, idx_h] = x[i, c, : len(idx_h)]
     elif num_spatial_dims == 2:
         # 2D case
         idx_h, idx_w = dim_indices
         h_grid, w_grid = torch.meshgrid(idx_h, idx_w, indexing='ij')
         for i in range(batch):
             for c in range(channels):
-                output[i, c, h_grid, w_grid] = x[i, c, :h_grid.shape[0], :w_grid.shape[1]]
+                output[i, c, h_grid, w_grid] = x[i, c, : h_grid.shape[0], : w_grid.shape[1]]
     elif num_spatial_dims == 3:
         # 3D case
         idx_d, idx_h, idx_w = dim_indices
         d_grid, h_grid, w_grid = torch.meshgrid(idx_d, idx_h, idx_w, indexing='ij')
         for i in range(batch):
             for c in range(channels):
-                output[i, c, d_grid, h_grid, w_grid] = x[i, c, :d_grid.shape[0], :h_grid.shape[1], :w_grid.shape[2]]
+                output[i, c, d_grid, h_grid, w_grid] = x[i, c, : d_grid.shape[0], : h_grid.shape[1], : w_grid.shape[2]]
     else:
         raise ValueError(f'Unsupported number of spatial dimensions: {num_spatial_dims}')
 
