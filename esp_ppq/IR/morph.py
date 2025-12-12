@@ -1298,6 +1298,153 @@ class GraphDecomposer(GraphCommandProcessor):
     def decompose_gru(self):
         pass
 
+    def decompose_convtranspose(self):
+        """Decompose ConvTranspose operation into InsertZeros + Conv.
+
+        ConvTranspose(x, W, stride=s, padding=p, output_padding=op)
+        is equivalent to:
+
+        1. Insert zeros with stride s: x' = insert_zeros(x, stride=s)  # skip if stride=1
+        2. Rotate kernel 180 degrees: W' = flip(W, dims=spatial_dims)
+        3. Swap input/output channels: W'' = transpose(W', 0, 1)
+        4. Conv with padding = kernel_size - p - 1: y = conv(x', W'', stride=1, padding=k-p-1)
+        5. Add bias if present
+        6. Apply output padding if needed
+
+        This decomposition allows using standard Conv operation to implement ConvTranspose.
+        Supports 1D, 2D, and 3D ConvTranspose.
+        """
+        graph = self.graph
+        interested_ops = []
+        for operation in graph.operations.values():
+            if operation.type == 'ConvTranspose':
+                interested_ops.append(operation)
+
+        for op in interested_ops:
+            assert isinstance(op, Operation)
+
+            # Get ConvTranspose attributes
+            strides = op.attributes.get('strides', [1, 1])
+            pads_attr = op.attributes.get('pads', [0, 0, 0, 0])
+            output_padding = op.attributes.get('output_padding', [0, 0])
+            group = op.attributes.get('group', 1)
+            dilations = op.attributes.get('dilations', [1, 1])
+            kernel_shape_attr = op.attributes.get('kernel_shape', None)
+
+            # Determine spatial dimensions from weight tensor
+            weight_var = op.inputs[1]
+            weight_value = weight_var.value
+            weight_dim = weight_value.dim()
+            spatial_dims = weight_dim - 2  # weight shape: [C_in, C_out, *spatial_kernel_dims]
+
+            # Normalize attributes to lists of length spatial_dims
+            def normalize_attr(attr, default, length, attr_name=""):
+                if isinstance(attr, (int, float)):
+                    return [attr] * length
+                elif isinstance(attr, list):
+                    if len(attr) == length:
+                        return attr
+                    elif len(attr) > length:
+                        return attr[:length]
+                    else:
+                        raise ValueError(
+                            f'ConvTranspose {op.name} normalize_attr error: {attr}, {default}, {length}, {attr_name}'
+                        )
+                else:
+                    return [default] * length
+
+            # Kernel shape from weight tensor is authoritative
+            kernel_shape = list(weight_value.shape[2:])
+            if kernel_shape_attr is not None:
+                kernel_shape_attr = normalize_attr(kernel_shape_attr, 1, spatial_dims, "kernel")
+                if kernel_shape_attr != kernel_shape:
+                    ppq_warning(
+                        f'ConvTranspose {op.name}: kernel_shape attribute {kernel_shape_attr} '
+                        f'does not match weight shape {kernel_shape}. Using weight shape.'
+                    )
+
+            strides = normalize_attr(strides, 1, spatial_dims, "stride")
+            # Special handling for pads
+            # pads_attr is already obtained from op.attributes
+            if pads_attr is None:
+                # Default padding: 0 for all dimensions (start and end)
+                pads_start = [0] * spatial_dims
+                pads_end = [0] * spatial_dims
+            elif isinstance(pads_attr, (int, float)):
+                pads_start = [int(pads_attr)] * spatial_dims
+                pads_end = [int(pads_attr)] * spatial_dims
+            elif isinstance(pads_attr, list):
+                if len(pads_attr) == spatial_dims:
+                    # Only start padding provided, assume symmetric
+                    pads_start = pads_attr
+                    pads_end = pads_attr
+                elif len(pads_attr) == 2 * spatial_dims:
+                    # Full padding: [start_1, start_2, ..., end_1, end_2, ...]
+                    pads_start = pads_attr[:spatial_dims]
+                    pads_end = pads_attr[spatial_dims:]
+                else:
+                    # Try to extend or truncate
+                    if len(pads_attr) > spatial_dims:
+                        pads_start = pads_attr[:spatial_dims]
+                        pads_end = pads_attr[:spatial_dims]  # assume symmetric
+                    else:
+                        pads_start = pads_attr + [0] * (spatial_dims - len(pads_attr))
+                        pads_end = pads_start  # assume symmetric
+            else:
+                pads_start = [0] * spatial_dims
+                pads_end = [0] * spatial_dims
+
+            output_padding = normalize_attr(output_padding, 0, spatial_dims, "outut_padding")
+            dilations = normalize_attr(dilations, 1, spatial_dims, "dilation")
+
+            # Check if all strides are 1
+            # Create InsertZeros operation if stride > 1
+            all_strides_one = all(s == 1 for s in strides)
+            need_insert_zeros = not all_strides_one
+
+            if need_insert_zeros:
+                # Create InsertZeros operation with stride and output_padding
+                insert_zeros_op = graph.create_operation(
+                    op_type='InsertZeros',
+                    attributes={'stride': strides, 'output_padding': output_padding},
+                    platform=op.platform,
+                )
+
+                # Link input to InsertZeros using graph helper
+                input_var = op.inputs[0]
+                graph.insert_op_before(A=insert_zeros_op, B=op, input_idx=0)
+
+            # Calculate new padding for Conv: kernel_size - padding - 1
+            # For asymmetric padding, compute start and end separately
+            conv_pads_start = []
+            conv_pads_end = []
+            for k, p_start, p_end in zip(kernel_shape, pads_start, pads_end):
+                pad_start = k - p_start - 1
+                pad_end = k - p_end - 1
+                conv_pads_start.append(pad_start)
+                conv_pads_end.append(pad_end)
+            conv_pads = conv_pads_start + conv_pads_end
+
+            # Convert ConvTranspose to Conv operation
+            op.type = 'Conv'
+            op.attributes.clear()
+            op.attributes['strides'] = [1] * spatial_dims
+            op.attributes['pads'] = conv_pads
+            op.attributes['dilations'] = dilations
+            op.attributes['group'] = group
+            op.attributes['kernel_shape'] = kernel_shape
+
+            weight_value = weight_var.value.clone()  # Clone to avoid modifying original
+            # Flip all spatial dimensions (dims 2 and above)
+            spatial_dims_indices = list(range(2, weight_dim))
+            weight_flipped = torch.flip(weight_value, dims=spatial_dims_indices)
+            # Transpose input/output channels: ConvTranspose weight shape is [C_in, C_out, *spatial]
+            # Conv weight shape is [C_out, C_in, *spatial]
+            weight_for_conv = weight_flipped.transpose(0, 1).contiguous()
+
+            # Update original weight variable for Conv
+            weight_var.value = weight_for_conv
+
 
 class GraphDeviceSwitcher(GraphCommandProcessor):
     """Graph Device Switcher insert necessary switcher operation for graph

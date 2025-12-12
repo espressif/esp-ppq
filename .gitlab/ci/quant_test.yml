@@ -5,7 +5,7 @@
   dependencies: []
   timeout: 3 hour
   script:
-    - pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    - pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
     - pip install -e .
     - python esp_ppq/samples/quantize_torch_model_espdl.py -t ${TARGET} -b ${BITS}
 

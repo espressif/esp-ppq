@@ -408,6 +408,10 @@ class QuantizationSetting:
         self.extension = False
         self.extension_setting = TemplateSetting()
 
+        # ConvTranspose 分解相关配置
+        # ConvTranspose decomposition configuration
+        self.convtranspose_decomposition = True
+
         # 程序签名
         self.version = PPQ_CONFIG.VERSION
         self.signature = PPQ_CONFIG.NAME

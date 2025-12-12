@@ -446,4 +446,7 @@ class BaseQuantizer(metaclass=ABCMeta):
                 )
             )
 
+        if setting.convtranspose_decomposition:
+            list_of_passes.append(ConvTransposeDecompositionPass())
+
         return QuantizationOptimizationPipeline(passes=list_of_passes)
