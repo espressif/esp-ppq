@@ -55,6 +55,19 @@ def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
         return value.tolist()
 
 
+def set_streaming_input_shape(origin_shape, shape, perm) -> None:
+    """Set streaming input shape for graph inputs.
+
+    Args:
+        graph (BaseGraph): Processing graph.
+        streaming_input_shape (Dict[str, List[Any]]): A dictionary mapping input variable names to their streaming shapes.
+    """
+    for i in range(len(shape)):
+        if shape[i] != origin_shape[i]:
+            StreamingTable().set_input_frame_axis(perm[i])
+            StreamingTable().set_input_frame_num(shape[i])
+
+
 class EspdlExporter(GraphExporter):
     """
     The EspdlExporter is used to export computational graphs into the esp-dl standard format.
@@ -220,6 +233,7 @@ class EspdlExporter(GraphExporter):
             for op in graph.topological_sort():
                 exporter.export(op=op, graph=graph)
 
+        info = ExporterPatternInfo()
         if auto_streaming or streaming_table is not None:
             logger.info("Inserting streaming nodes into graph...")
             StreamingTable().append(streaming_table)
@@ -229,11 +243,15 @@ class EspdlExporter(GraphExporter):
                     for var_name in streaming_input_shape:
                         shape = streaming_input_shape[var_name]
                         if var_name in graph.inputs:
+                            set_streaming_input_shape(
+                                graph.inputs[var_name].shape, shape, info.get_var_permute(var_name)
+                            )
                             graph.inputs[var_name].shape = shape
                         else:
                             logger.warning(f"Input variable {var_name} not found in graph inputs.")
                 elif isinstance(streaming_input_shape, list) and len(graph.inputs) == 1:
                     for var in graph.inputs.values():
+                        set_streaming_input_shape(var.shape, streaming_input_shape, info.get_var_permute(var.name))
                         var.shape = streaming_input_shape
                     # graph.inputs[graph.inputs.keys[0]].shape = streaming_input_shape
                 else:
@@ -254,7 +272,6 @@ class EspdlExporter(GraphExporter):
         for op in graph.topological_sort():
             exporter.export(op=op, graph=graph)
 
-        info = ExporterPatternInfo()
         for variable in graph.variables.values():
             if variable.is_parameter or len(variable.name) == 0:
                 continue

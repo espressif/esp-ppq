@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import sys
@@ -70,6 +71,8 @@ STREADMING_BYPASS_OP_SET = ACTIVATION_OP_SET | MATH_OP_SET | QUANT_OP_SET | ADD_
 
 class StreamingTable(metaclass=SingletonMeta):
     _table: Dict[str, Dict[str, Any]] = {}
+    _input_frame_axis: int = 1
+    _input_frame_num: int = 1
 
     def reset(self, graph: BaseGraph = None) -> None:
         self._table = {}
@@ -86,11 +89,11 @@ class StreamingTable(metaclass=SingletonMeta):
                 self._table.update(item)
         return self._table
 
-    def add(self, var_name: str, op_name: str, window_size: int, frame_axis: int = 1) -> None:
+    def add(self, var_name: str, op_name: str, window_size: int, frame_axis: int = None) -> None:
         self._table[var_name] = {
             'op_name': op_name,
             'window_size': window_size,
-            'frame_axis': frame_axis,
+            'frame_axis': frame_axis if frame_axis is not None else self._input_frame_axis,
         }
 
     def check(self, graph: BaseGraph) -> bool:
@@ -106,6 +109,12 @@ class StreamingTable(metaclass=SingletonMeta):
 
     def print(self) -> None:
         print(json.dumps(self._table, indent=4))
+
+    def set_input_frame_axis(self, axis: int) -> None:
+        self._input_frame_axis = axis
+
+    def set_input_frame_num(self, num: int) -> None:
+        self._input_frame_num = num
 
     # ---------- add dict interface ----------
     def __contains__(self, var_name: str) -> bool:
@@ -192,21 +201,24 @@ def insert_streaming_cache_op(graph: BaseGraph, var_name: str, attrs: Dict[str, 
     if op_name:
         if var_input_index != None:
             graph.insert_op_before(A=created, B=op, input_idx=var_input_index)
+            print(f"Inserted StreamingCache Op: {created.name} before Operation: {op.name} on Variable: {var.name}")
         elif var_output_index != None:
             graph.insert_op_after(A=created, B=op, output_idx=var_output_index)
     else:
         graph.insert_op_on_var(created, var_name)
 
     new_var = created.outputs[0]
-    new_var.shape = var.shape
-    if frame_axis < 0:
-        frame_axis = len(var.shape) + frame_axis
-    new_var.shape[frame_axis] = window_size
+    new_var.shape = copy.deepcopy(var.shape)
+    # print(f"Inserted StreamingCache Op: {created.name} on Variable: {var.name} {new_var.name}")
+    # print(f"Original shape ---->: {var.shape} {new_var.shape}")
+    perm = info.get_var_permute(var_name)
+    frame_axis_perm = perm.index(frame_axis)
+    new_var.shape[frame_axis_perm] = window_size + var.shape[frame_axis_perm] - 1
+    print(f"New shape: {new_var.shape}", var.shape)
     new_var.is_parameter = False
     new_var.dtype = var.dtype
-    info.add_var_layout(new_var.name, info.get_var_layout(var_name))
     info.add_var_exponents(new_var.name, info.get_var_exponents(var_name))
-    info.add_var_permute(new_var.name, info.get_var_permute(var_name))
+    info.add_var_permute(new_var.name, perm)
 
     return created
 
@@ -279,7 +291,7 @@ class AutoStreamingPattern(OperationExporter):
             else:
                 window_size = get_conv_cache_window_size(op)
                 if window_size > 1:
-                    streaming_table.add(input_var.name, op.name, window_size, frame_axis=1)
+                    streaming_table.add(input_var.name, op.name, window_size)
                     logger.info(
                         f"Insert streaming node for op {op.name} with window size {window_size} on variable {input_var.name}."
                     )
