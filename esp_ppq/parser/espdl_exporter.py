@@ -62,10 +62,14 @@ def set_streaming_input_shape(origin_shape, shape, perm) -> None:
         graph (BaseGraph): Processing graph.
         streaming_input_shape (Dict[str, List[Any]]): A dictionary mapping input variable names to their streaming shapes.
     """
+    diff_dim = 0
     for i in range(len(shape)):
         if shape[i] != origin_shape[i]:
             StreamingTable().set_input_frame_axis(perm[i])
             StreamingTable().set_input_frame_num(shape[i])
+            diff_dim += 1
+    if diff_dim != 1:
+        raise ValueError(f"Only one dimension can be different for streaming input shape. {origin_shape} -> {shape}")
 
 
 class EspdlExporter(GraphExporter):

@@ -201,7 +201,6 @@ def insert_streaming_cache_op(graph: BaseGraph, var_name: str, attrs: Dict[str, 
     if op_name:
         if var_input_index != None:
             graph.insert_op_before(A=created, B=op, input_idx=var_input_index)
-            print(f"Inserted StreamingCache Op: {created.name} before Operation: {op.name} on Variable: {var.name}")
         elif var_output_index != None:
             graph.insert_op_after(A=created, B=op, output_idx=var_output_index)
     else:
@@ -209,12 +208,9 @@ def insert_streaming_cache_op(graph: BaseGraph, var_name: str, attrs: Dict[str, 
 
     new_var = created.outputs[0]
     new_var.shape = copy.deepcopy(var.shape)
-    # print(f"Inserted StreamingCache Op: {created.name} on Variable: {var.name} {new_var.name}")
-    # print(f"Original shape ---->: {var.shape} {new_var.shape}")
     perm = info.get_var_permute(var_name)
     frame_axis_perm = perm.index(frame_axis)
     new_var.shape[frame_axis_perm] = window_size + var.shape[frame_axis_perm] - 1
-    print(f"New shape: {new_var.shape}", var.shape)
     new_var.is_parameter = False
     new_var.dtype = var.dtype
     info.add_var_exponents(new_var.name, info.get_var_exponents(var_name))
