@@ -18,7 +18,7 @@ from esp_ppq.core import (
 from esp_ppq.IR import BaseGraph, Operation, OperationExporter, Variable
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.log import NaiveLogger
-from esp_ppq.parser.espdl.espdl_typedef import ExporterPatternInfo
+from esp_ppq.parser.espdl.espdl_typedef import EspQuantType, ExporterPatternInfo
 from esp_ppq.utils.round import ppq_tensor_round
 
 logger = NaiveLogger.get_logger("ESPDL")
@@ -394,6 +394,7 @@ def insert_quantize_node(graph: BaseGraph, var: Variable, config: TensorQuantiza
             graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
         else:
             raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
+        created.platform = op.platform
 
         graph.create_variable(name=None, value=scale, is_parameter=True, dest_ops=[created])
         graph.create_variable(name=None, value=offset, is_parameter=True, dest_ops=[created])
@@ -439,7 +440,7 @@ def insert_requantize_node(
             graph.insert_op_after(A=created, B=op, output_idx=op.outputs.index(var))
         else:
             raise ValueError(f"Unexpected Error in Exporting Op {op.name}({op.type}).")
-
+        created.platform = op.platform
         rescale = scale / upstream_scale
         reoffset = ppq_tensor_round(offset - ppq_tensor_round(upstream_offset / rescale, config.rounding)).type(
             offset_dtype
