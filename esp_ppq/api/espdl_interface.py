@@ -77,15 +77,16 @@ def get_target_platform(
     return platform
 
 
-def get_streaming_cache_attrs(
-    var_name: str, window_size: int, op_name: str = None, frame_axis: int = 2
+def insert_streaming_cache_on_var(
+    var_name: str, window_size: int, op_name: str = None, frame_axis: int = 1
 ) -> Dict[str, Any]:
     """
     Get streaming attributes dictionary.
     Args:
         var_name (str): Name of the variable.
         window_size (int): Size of the streaming window.
-        frame_axis (int, optional): Axis representing the frame dimension. Defaults to 2. (NCH/NCHW: 2, NHWC: 1)
+        op_name (str, optional): Name of the src or dest operation. Defaults to None.
+        frame_axis (int, optional): Axis representing the frame dimension. Defaults to 1. (NCH/NCHW: 2, NHWC: 1)
     Returns:
         Dict[str, Any]: Dictionary containing streaming attributes.
     """

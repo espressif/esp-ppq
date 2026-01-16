@@ -143,6 +143,9 @@ def insert_streaming_cache_op(graph: BaseGraph, var_name: str, attrs: Dict[str, 
     window_size = attrs['window_size']
     op_name = attrs.get('op_name', None)
     frame_axis = attrs.get('frame_axis', 1)
+    if window_size <= 1:
+        logger.info(f"Bypass inserting StreamingCache on Variable {var_name} due to window_size <= 1.")
+        return None
     created = None
     op = None
     var = graph.variables[var_name]

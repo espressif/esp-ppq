@@ -10,8 +10,8 @@ from .espdl_interface import (
     espdl_quantize_onnx,
     espdl_quantize_torch,
     generate_test_value,
-    get_streaming_cache_attrs,
     get_target_platform,
+    insert_streaming_cache_on_var,
 )
 from .fsys import (
     compare_cosine_similarity_between_results,
