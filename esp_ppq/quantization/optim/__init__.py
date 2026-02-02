@@ -1,9 +1,9 @@
 from .baking import ParameterBakingPass
 from .base import QuantizationOptimizationPass, QuantizationOptimizationPipeline
 from .calibration import (
-    ClsPreSigmoidLogitsCalibrationPass,
     IsotoneCalibrationPass,
     PPLDSPTIReCalibrationPass,
+    QuantConfigModifyPass,
     RuntimeCalibrationPass,
 )
 from .equalization import ActivationEqualizationPass, ChannelwiseSplitPass, LayerwiseEqualizationPass

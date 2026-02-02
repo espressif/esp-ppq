@@ -215,10 +215,9 @@ class ActivationQuantizationSetting:
         self.calib_algorithm = None
 
 
-class ClsPreSigmoidLogitsSetting:
+class QuantConfigModifySetting:
     def __init__(self) -> None:
-        self.interested_layers = []
-        self.percentile = 0.9999
+        self.custom_config = {}
 
 
 class ParameterQuantizationSetting:
@@ -389,8 +388,8 @@ class QuantizationSetting:
         self.quantize_activation = True
         self.quantize_activation_setting = ActivationQuantizationSetting()
 
-        self.quantize_cls_pre_sigmoid_logits = False
-        self.quantize_cls_pre_sigmoid_logits_setting = ClsPreSigmoidLogitsSetting()
+        self.quant_config_modify = False
+        self.quant_config_modify_setting = QuantConfigModifySetting()
 
         # 参数量化与相关配置
         self.quantize_parameter = True
@@ -510,7 +509,7 @@ class QuantizationSettingFactory:
         default_setting.quantize_activation_setting.calib_algorithm = 'kl'
         default_setting.fusion_setting.align_elementwise_to = 'Align to Output'
         default_setting.fusion_setting.force_alignment_overlap = False
-        default_setting.quantize_cls_pre_sigmoid_logits = False
+        default_setting.quant_config_modify = False
         return default_setting
 
     @staticmethod
