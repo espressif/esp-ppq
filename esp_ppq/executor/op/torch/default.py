@@ -4414,6 +4414,7 @@ DEFAULT_BACKEND_TABLE = {
     'Max': Eltwise_forward,
     'MaxPool': MaxPool2d_forward,
     'Min': Eltwise_forward,
+    'Mod': Mod_forward,
     'Mul': Mul_forward,
     'MultiHeadAttention': MultiHeadAttention_forward,
     'NonMaxSuppression': _NMS_forward,

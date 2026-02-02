@@ -482,3 +482,62 @@ class IsotoneCalibrationPass(RuntimeCalibrationPass):
                         )
 
         super().optimize(graph=graph, **kwargs)
+
+
+class ClsPreSigmoidLogitsCalibrationPass(RuntimeCalibrationPass):
+    """
+    Set quantization scale of selected conv outputs in YOLO models
+    """
+
+    def __init__(
+        self,
+        conv_names: List[str],
+        percentile: float = 0.99,
+        verbose: bool = True,
+        method: str = None,
+        override: bool = False,
+        calib_steps: int = 32,
+    ) -> None:
+        super().__init__(method=method, override=override, calib_steps=calib_steps)
+        self.conv_names = conv_names
+        self.percentile = percentile
+        self.verbose = verbose
+
+    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+        for conv_name in self.conv_names:
+            if conv_name not in graph.operations:
+                raise keyError(f'Operation {conv_name} not found in graph.')
+
+            op = graph.operations[conv_name]
+
+            if not isinstance(op, QuantableOperation):
+                raise TypeError(f'Operation {conv_name} is not QuantableOperation')
+
+            # YOLO11/YOLO26 cls branch last conv has one output
+            out_cfg = op.output_quant_config[0]
+
+            if out_cfg.dominated_by is not out_cfg:
+                try:
+                    dom_name = out_cfg.dominated_by.operation.name
+                except AttributeError:
+                    dom_name = "UnknownOp"
+                if self.verbose:
+                    print(f'[Skip] {conv_name} output is dominated by {dom_name}')
+                continue
+
+            # calibration config
+            out_cfg.state = QuantizationStates.INITIAL
+            original_ob = out_cfg.observer_algorithm
+            out_cfg.observer_algorithm = 'percentile'
+            out_cfg.detail['percentile'] = self.percentile
+
+            # scale = 0.0625
+            out_cfg.scale = torch.tensor([0.0625], dtype=torch.float32).squeeze(0)
+            out_cfg.offset = torch.tensor([0], dtype=torch.float32).squeeze(0)
+            out_cfg.state = QuantizationStates.ACTIVATED
+
+            if self.verbose:
+                print(
+                    f'[Rewrite] Conv {conv_name} output calibration from {original_ob} -> Percentile({self.percentile})'
+                )
+        super().optimize(graph=graph, **kwargs)

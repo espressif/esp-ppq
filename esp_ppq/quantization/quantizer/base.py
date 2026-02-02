@@ -313,7 +313,17 @@ class BaseQuantizer(metaclass=ABCMeta):
 
         if setting.quantize_activation:
             act_setting = setting.quantize_activation_setting
-            list_of_passes.append(RuntimeCalibrationPass(method=act_setting.calib_algorithm))
+            if not setting.quantize_cls_pre_sigmoid_logits:
+                list_of_passes.append(RuntimeCalibrationPass(method=act_setting.calib_algorithm))
+            else:
+                cls_pre_sigmoid_logits_setting = setting.quantize_cls_pre_sigmoid_logits_setting
+                list_of_passes.append(
+                    ClsoutCalibrationPass(
+                        conv_names=cls_pre_sigmoid_logits_setting.interested_layers,
+                        percentile=cls_pre_sigmoid_logits_setting.percentile,
+                        method=act_setting.calib_algorithm,
+                    )
+                )
 
         if setting.fusion:
             if fusion_setting.align_quantization:
