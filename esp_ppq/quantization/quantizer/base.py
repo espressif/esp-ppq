@@ -315,6 +315,14 @@ class BaseQuantizer(metaclass=ABCMeta):
             act_setting = setting.quantize_activation_setting
             list_of_passes.append(RuntimeCalibrationPass(method=act_setting.calib_algorithm))
 
+            if setting.quant_config_modify:
+                quant_config_modify_setting = setting.quant_config_modify_setting
+                list_of_passes.append(
+                    QuantConfigModifyPass(
+                        custom_config=quant_config_modify_setting.custom_config,
+                    )
+                )
+
         if setting.fusion:
             if fusion_setting.align_quantization:
                 list_of_passes.append(

@@ -482,3 +482,53 @@ class IsotoneCalibrationPass(RuntimeCalibrationPass):
                         )
 
         super().optimize(graph=graph, **kwargs)
+
+
+class QuantConfigModifyPass(QuantizationOptimizationPass):
+    """
+    Set quantization scale of selected layers
+    Note: only modify the first output by default
+    """
+
+    def __init__(
+        self,
+        custom_config: Dict[str, float],
+        verbose: bool = True,
+    ) -> None:
+        super().__init__(name='PPQ Quant Config Modify Pass')
+        self.custom_config = custom_config
+        self.verbose = verbose
+
+    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+        for layer_name in self.custom_config.keys():
+            if layer_name not in graph.operations:
+                raise KeyError(f'Operation {layer_name} not found in graph.')
+
+            op = graph.operations[layer_name]
+
+            if not isinstance(op, QuantableOperation):
+                raise TypeError(f'Operation {layer_name} is not QuantableOperation')
+
+            out_cfg = op.output_quant_config[0]
+
+            if out_cfg.dominated_by is not out_cfg:
+                try:
+                    dom_name = out_cfg.dominated_by.operation.name
+                except AttributeError:
+                    dom_name = "UnknownOp"
+                if self.verbose:
+                    print(f'[Skip] {layer_name} output is dominated by {dom_name}')
+                continue
+
+            # calibration config
+            out_cfg.state = QuantizationStates.INITIAL
+
+            # scale
+            out_cfg.scale = torch.tensor([self.custom_config[layer_name]], dtype=torch.float32).squeeze(0)
+            out_cfg.offset = torch.tensor([0], dtype=torch.float32).squeeze(0)
+            out_cfg.state = QuantizationStates.ACTIVATED
+
+            if self.verbose:
+                print(
+                    f'[Focused Quantization]Set OP {layer_name} output quantization scale to {self.custom_config[layer_name]}'
+                )

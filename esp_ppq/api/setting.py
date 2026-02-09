@@ -215,6 +215,11 @@ class ActivationQuantizationSetting:
         self.calib_algorithm = None
 
 
+class QuantConfigModifySetting:
+    def __init__(self) -> None:
+        self.custom_config = {}
+
+
 class ParameterQuantizationSetting:
     def __init__(self) -> None:
         # 参数校准算法，不区分大小写，可以选择 minmax, percentile, kl, MSE, None
@@ -383,6 +388,9 @@ class QuantizationSetting:
         self.quantize_activation = True
         self.quantize_activation_setting = ActivationQuantizationSetting()
 
+        self.quant_config_modify = False
+        self.quant_config_modify_setting = QuantConfigModifySetting()
+
         # 参数量化与相关配置
         self.quantize_parameter = True
         self.quantize_parameter_setting = ParameterQuantizationSetting()
@@ -501,6 +509,7 @@ class QuantizationSettingFactory:
         default_setting.quantize_activation_setting.calib_algorithm = 'kl'
         default_setting.fusion_setting.align_elementwise_to = 'Align to Output'
         default_setting.fusion_setting.force_alignment_overlap = False
+        default_setting.quant_config_modify = False
         return default_setting
 
     @staticmethod
