@@ -644,7 +644,7 @@ class AddLUTPattern(OperationExporter):
         operation_forward_func = platform_dispatching_table[op.type]
 
         # Calculate output and lut
-        input = torch.arange(min, max + 1, step=step, dtype=torch.float)
+        input = torch.arange(min, max + step, step=step, dtype=torch.float)
         input = input * self.get_scale(op.inputs[0], info)
         inputs = [input]
 
