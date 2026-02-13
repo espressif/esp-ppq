@@ -56,5 +56,4 @@
 .rules:deploy:create_version_tag:
   rules:
     - <<: *if-protected
-    - <<: *if-dev-push
       changes: *patterns-new-version
