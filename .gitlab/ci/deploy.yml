@@ -16,3 +16,20 @@ push_to_github:
     - git remote remove github &>/dev/null || true
     - git remote add github https://${GITHUB_PUSH_TOKEN}@github.com/espressif/esp-ppq.git
     - source ${CI_PROJECT_DIR}/.gitlab/tool/push_to_github.sh
+
+create_version_tag:
+  stage: deploy
+  extends:
+    - .rules:deploy:create_version_tag
+  when: on_success
+  image: espressif/idf:latest
+  tags:
+    - github_sync
+  variables:
+    GIT_STRATEGY: clone
+  dependencies: []
+  before_script:
+    - pip install toml -q
+  script:
+    - VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+    - source ${CI_PROJECT_DIR}/.gitlab/tool/create_version_tag.sh

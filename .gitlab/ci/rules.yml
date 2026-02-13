@@ -5,6 +5,9 @@
 .patterns-gitlab-ci: &patterns-gitlab-ci
   - ".gitlab/ci/*"
 
+.patterns-new-version: &patterns-new-version
+  - "pyproject.toml"
+
 # esp_ppq folder, in the alphabetic order
 .patterns-esp_ppq: &patterns-esp_ppq
   - "pyproject.toml"
@@ -47,3 +50,10 @@
 .rules:deploy:push_to_github:
   rules:
     - <<: *if-protected
+
+
+# rules for deploy
+.rules:deploy:create_version_tag:
+  rules:
+    - <<: *if-protected
+      changes: *patterns-new-version
