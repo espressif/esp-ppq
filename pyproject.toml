@@ -68,6 +68,7 @@ explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
+# Install GPU pytorch
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
 
