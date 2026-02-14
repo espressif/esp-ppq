@@ -310,6 +310,38 @@ class LSQSetting:
         self.block_size = 4
 
 
+class TQTSetting:
+    def __init__(self) -> None:
+        # should only contain computing ops, if given, ops in interested_layers will be checked and
+        # if conditions are satisfied, weight, scale of weight, scale of activation will be trained
+        # with mse optimization goal, if not given, every condition-satisfied computing op will be
+        # optimized
+        self.interested_layers = []
+
+        # initial learning rate, by default Adam optimizer and a multistep scheduler with 0.1 decay
+        # are used for convergence
+        self.lr = 1e-5
+
+        # collecting device for block input and output
+        # turn this to cuda if you have gpu
+        self.collecting_device = 'cpu'
+
+        # num of training steps, please adjust it to your needs
+        self.steps = 500
+
+        # is scale trainable
+        self.is_scale_trainable = True
+
+        # regularization term
+        self.gamma = 0.0
+
+        # block size of graph cutting.
+        self.block_size = 4
+
+        # make exponents closer to int
+        self.int_lambda = 0.0
+
+
 class TemplateSetting:
     """TemplateSetting 只是为了向你展示如何创建一个新的 Setting 并传递给相对应的 pass 传递的过程在
     esp_ppq.quantization.quantizer.base.py 里面.
@@ -398,6 +430,9 @@ class QuantizationSetting:
         # 是否执行网络微调
         self.lsq_optimization = False
         self.lsq_optimization_setting = LSQSetting()
+
+        self.tqt_optimization = False
+        self.tqt_optimization_setting = TQTSetting()
 
         self.blockwise_reconstruction = False
         self.blockwise_reconstruction_setting = BlockwiseReconstructionSetting()

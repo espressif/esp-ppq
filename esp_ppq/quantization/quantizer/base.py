@@ -376,6 +376,28 @@ class BaseQuantizer(metaclass=ABCMeta):
                 )
             )
 
+        if setting.tqt_optimization:
+            tqt_setting = setting.tqt_optimization_setting
+            list_of_passes.append(
+                TrainedQuantizationThresholdPass(
+                    interested_layers=tqt_setting.interested_layers,
+                    lr=tqt_setting.lr,
+                    collecting_device=tqt_setting.collecting_device,
+                    steps=tqt_setting.steps,
+                    gamma=tqt_setting.gamma,
+                    is_scale_trainable=tqt_setting.is_scale_trainable,
+                    block_size=tqt_setting.block_size,
+                    int_lambda=tqt_setting.int_lambda,
+                )
+            )
+            # requant passive parameters
+            param_setting = setting.quantize_parameter_setting
+            list_of_passes.append(
+                PassiveParameterQuantizePass(
+                    clip_visiblity=param_setting.clip_visiblity, pad_visiblity=param_setting.pad_visiblity
+                )
+            )
+
         if setting.blockwise_reconstruction:
             blockwise_reconstruction_setting = setting.blockwise_reconstruction_setting
             list_of_passes.append(

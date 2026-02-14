@@ -17,6 +17,7 @@ from esp_ppq.api.setting import (
     QuantizationSetting,
     QuantizationSettingFactory,
     TemplateSetting,
+    TQTSetting,
 )
 from esp_ppq.core import *
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor, TorchQuantizeDelegator

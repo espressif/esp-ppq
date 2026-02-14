@@ -57,5 +57,6 @@ from .setting import (
     QuantizationSettingFactory,
     SSDEqualizationSetting,
     TemplateSetting,
+    TQTSetting,
     WeightSplitSetting,
 )
