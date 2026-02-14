@@ -28,4 +28,4 @@ from .refine import (
     SwishFusionPass,
 )
 from .ssd import SSDEqualizationPass
-from .training import BiasCorrectionPass, LearnedStepSizePass, RoundTuningPass
+from .training import BiasCorrectionPass, LearnedStepSizePass, RoundTuningPass, TrainedQuantizationThresholdPass

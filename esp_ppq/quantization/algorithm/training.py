@@ -652,3 +652,205 @@ class RoundTruningDelegator(TorchQuantizeDelegator):
             )
         else:
             raise Exception('Oops, this should not happen.')
+
+
+class CuTQT_LT(Function):
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        quant_min: int,
+        quant_max: int,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
+        if not PPQ_CONFIG.USING_CUDA_KERNEL:
+            raise PermissionError('Can not invoke CuTQT, Cuda kernel is not compiled.')
+        from esp_ppq.core import CUDA
+
+        # quantization function, pure cuda implmentation
+        quantized = CUDA.LinearQuantize_T(
+            tensor=tensor, scales=scales, offsets=offsets, minimum=quant_min, maximum=quant_max, rounding=rounding.value
+        )
+        # https://pytorch.org/docs/stable/generated/torch.autograd.function.FunctionCtx.save_for_backward.html
+        ctx.save_for_backward(tensor, scales, offsets)
+        ctx._quant_params = [quant_min, quant_max, rounding.value]
+        return quantized
+
+    @staticmethod
+    def backward(ctx, dy: torch.Tensor):
+        if not PPQ_CONFIG.USING_CUDA_KERNEL:
+            raise PermissionError('Can not invoke CuTQT, Cuda kernel is not compiled.')
+        from esp_ppq.core import CUDA
+
+        dy = dy.contiguous()
+        tensor, scales, offsets = ctx.saved_tensors
+        quant_min, quant_max, rounding = ctx._quant_params
+        dx, ds = CUDA.LinearQuantize_T_B(tensor, scales, offsets, dy, quant_min, quant_max, rounding)
+        ds = ds * (scales * torch.log(torch.tensor(2.0, device=ds.device)))
+        return dx, ds, None, None, None, None, None
+
+
+class CuTQT_LC(Function):
+    @staticmethod
+    def forward(
+        ctx,
+        tensor: torch.Tensor,
+        scales: torch.Tensor,
+        offsets: torch.Tensor,
+        channel_axis: int,
+        quant_min: int,
+        quant_max: int,
+        rounding: RoundingPolicy,
+    ) -> torch.Tensor:
+        if not PPQ_CONFIG.USING_CUDA_KERNEL:
+            raise PermissionError('Can not invoke CuTQT, PPQ_CONFIG.USING_CUDA_KERNEL = False.')
+        from esp_ppq.core import CUDA
+
+        quantized = CUDA.LinearQuantize_C(
+            tensor=tensor,
+            scales=scales,
+            offsets=offsets,
+            channel_axis=channel_axis,
+            minimum=quant_min,
+            maximum=quant_max,
+            rounding=rounding.value,
+        )
+        # https://pytorch.org/docs/stable/generated/torch.autograd.function.FunctionCtx.save_for_backward.html
+        ctx.save_for_backward(tensor, scales, offsets)
+        ctx._quant_params = [quant_min, quant_max, channel_axis, rounding.value]
+        return quantized
+
+    @staticmethod
+    def backward(ctx, dy: torch.Tensor):
+        if not PPQ_CONFIG.USING_CUDA_KERNEL:
+            raise PermissionError('Can not invoke CuTQT, PPQ_CONFIG.USING_CUDA_KERNEL = False.')
+        from esp_ppq.core import CUDA
+
+        dy = dy.contiguous()
+        tensor, scales, offsets = ctx.saved_tensors
+        quant_min, quant_max, channel_axis, rounding = ctx._quant_params
+        dx, ds = CUDA.LinearQuantize_C_B(tensor, scales, offsets, dy, quant_min, quant_max, channel_axis, rounding)
+        ds = ds * (scales * torch.log(torch.tensor(2.0, device=ds.device)))
+        return dx, ds, None, None, None, None, None, None
+
+
+class TQTDelegator(TorchQuantizeDelegator):
+    def __init__(
+        self,
+        config: TensorQuantizationConfig,
+        var: Variable,
+        is_parameter_trainable: bool = True,
+        is_scale_trainable: bool = True,
+    ) -> None:
+        self.config = config
+        self.is_parameter = var.is_parameter
+        self.var = var
+        self.policy = config.policy
+        self.passive = config.state == QuantizationStates.PASSIVE
+
+        self.param_backup = None
+        if self.is_parameter and is_parameter_trainable:
+            self.param_backup = self.var.value.clone()
+
+        # There is 4 checks for scale/threshold training:
+        #   1. scale is valid
+        #   2. state is active
+        #   3. have POWER_OF_2 + Linear + SYMMETRICAL policy
+        #   4. is_scale_trainable = True
+        self.scale_backup = None
+        self.is_scale_trainable = False
+        if is_scale_trainable:
+            policy_check = config.policy.has_property(QuantizationProperty.POWER_OF_2)
+            linear_check = config.policy.has_property(QuantizationProperty.LINEAR)
+            offset_check = config.policy.has_property(QuantizationProperty.SYMMETRICAL)
+            state_check = (config.state == QuantizationStates.ACTIVATED) and (config.dominated_by == config)
+            value_check = isinstance(config.scale, torch.Tensor)
+            if policy_check and state_check and value_check and linear_check and offset_check:
+                self.is_scale_trainable = True
+                self.scale_backup = self.config.scale.detach().clone()
+                self.log2_scale = torch.log2(self.config.scale.detach()).clone().to(self.config.scale.device)
+
+                self.log2_scale.requires_grad_(True)
+
+        # offset = 0
+        self.offset_backup = self.config.offset.detach().clone() if config.offset is not None else None
+        self.is_offset_trainable = False
+
+    def trainable_tensors(self) -> List[torch.Tensor]:
+        params = []
+        if self.is_offset_trainable:
+            params.append(self.config.offset)
+        if self.is_scale_trainable:
+            # params.append(self.config.scale)
+            params.append(self.log2_scale)
+        if self.is_parameter:
+            params.append(self.var.value)
+        return params
+
+    def withdraw(self) -> None:
+        with torch.no_grad():
+            if self.scale_backup is not None and hasattr(self, 'log2_scale'):
+                self.log2_scale.data.copy_(torch.log2(self.scale_backup).to(self.log2_scale.device))
+                self.config.scale.copy_(self.scale_backup)
+            if self.offset_backup is not None:
+                self.config.offset.copy_(self.offset_backup)
+            if self.param_backup is not None:
+                self.var.value.copy_(self.param_backup)
+
+    def finalize(self) -> None:
+        self.scale_backup = None
+        self.offset_backup = None
+        self.param_backup = None
+        pass  # do nothing here.
+
+    def __call__(self, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
+        if tensor.is_cuda and PPQ_CONFIG.USING_CUDA_KERNEL:
+            if config.policy.has_property(QuantizationProperty.LINEAR):
+                if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
+                    config.scale = torch.pow(self.log2_scale, 1)
+                    return CuTQT_LC.apply(
+                        tensor,
+                        config.scale,
+                        config.offset,
+                        config.channel_axis,
+                        config.quant_min,
+                        config.quant_max,
+                        config.rounding,
+                    )
+                elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
+                    config.scale = torch.pow(self.log2_scale, 1)
+                    return CuTQT_LT.apply(
+                        tensor, config.scale, config.offset, config.quant_min, config.quant_max, config.rounding
+                    )
+
+            elif config.policy.has_property(QuantizationProperty.FLOATING):
+                # For floating quantization, scale is not trainable.
+                return PPQuantFunction(tensor=tensor, config=config)
+
+        else:
+            scale, offset = config.scale, config.offset
+            qmax, qmin = config.quant_max, config.quant_min
+            if self.is_scale_trainable:
+                alpha = self.log2_scale
+                # STE integer exponent
+                alpha_ste = alpha + (torch.round(alpha) - alpha).detach()
+
+                scale = torch.pow(2.0, alpha_ste)
+                self.log2_scale.data.clamp_(-16, 16)
+
+                # grad_scale = 1 / (tensor.numel() * config.quant_max) ** 0.5
+                # log2_scale = log2_scale * grad_factor + (log2_scale - log2_scale * grad_factor).detach()
+                # scale = torch.pow(2.0, log2_scale)
+
+            if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
+                shape = [1 if axis != config.channel_axis else -1 for axis in range(tensor.ndim)]
+                scale = scale.view(shape)
+                offset = offset.view(shape)
+
+            quantized = ppq_tensor_round((tensor / scale), config.rounding) + offset.detach()
+            quantized = torch.clamp(quantized, config.quant_min, config.quant_max)
+            quantized = (quantized - offset.detach()) * scale
+            quantized = quantized
+            return quantized
