@@ -524,8 +524,10 @@ class QuantConfigModifyPass(QuantizationOptimizationPass):
             out_cfg.state = QuantizationStates.INITIAL
 
             # scale
-            out_cfg.scale = torch.tensor([self.custom_config[layer_name]], dtype=torch.float32).squeeze(0)
-            out_cfg.offset = torch.tensor([0], dtype=torch.float32).squeeze(0)
+            out_cfg.scale = torch.tensor(
+                [self.custom_config[layer_name]], dtype=torch.float32, device=out_cfg.scale.device
+            ).squeeze(0)
+            out_cfg.offset = torch.tensor([0], dtype=torch.float32, device=out_cfg.scale.device).squeeze(0)
             out_cfg.state = QuantizationStates.ACTIVATED
 
             if self.verbose:

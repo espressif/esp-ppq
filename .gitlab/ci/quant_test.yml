@@ -4,6 +4,10 @@
   tags: ["build", "amd64"]
   dependencies: []
   timeout: 3 hour
+  before_script:
+    - apt-get update
+    - apt-get install -y cmake build-essential
+    - pip install --upgrade pip
   script:
     - pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cpu
     - pip install -e .

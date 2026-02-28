@@ -688,7 +688,7 @@ class CuTQT_LT(Function):
         tensor, scales, offsets = ctx.saved_tensors
         quant_min, quant_max, rounding = ctx._quant_params
         dx, ds = CUDA.LinearQuantize_T_B(tensor, scales, offsets, dy, quant_min, quant_max, rounding)
-        ds = ds * (scales * torch.log(torch.tensor(2.0, device=ds.device)))
+        ds = ds * (scales * torch.log(torch.tensor(2.0, device=ds.device)))  # here is dalpha
         return dx, ds, None, None, None, None, None
 
 
@@ -808,11 +808,18 @@ class TQTDelegator(TorchQuantizeDelegator):
     def __call__(self, tensor: torch.Tensor, config: TensorQuantizationConfig) -> torch.Tensor:
         if tensor.is_cuda and PPQ_CONFIG.USING_CUDA_KERNEL:
             if config.policy.has_property(QuantizationProperty.LINEAR):
+                if self.is_scale_trainable:
+                    alpha = self.log2_scale
+                    # STE integer exponent
+                    alpha_ste = alpha + (torch.round(alpha) - alpha).detach()
+                    scale = torch.pow(2.0, alpha_ste)
+                else:
+                    scale = config.scale
+
                 if config.policy.has_property(QuantizationProperty.PER_CHANNEL):
-                    config.scale = torch.pow(self.log2_scale, 1)
                     return CuTQT_LC.apply(
                         tensor,
-                        config.scale,
+                        scale,
                         config.offset,
                         config.channel_axis,
                         config.quant_min,
@@ -820,9 +827,8 @@ class TQTDelegator(TorchQuantizeDelegator):
                         config.rounding,
                     )
                 elif config.policy.has_property(QuantizationProperty.PER_TENSOR):
-                    config.scale = torch.pow(self.log2_scale, 1)
                     return CuTQT_LT.apply(
-                        tensor, config.scale, config.offset, config.quant_min, config.quant_max, config.rounding
+                        tensor, scale, config.offset, config.quant_min, config.quant_max, config.rounding
                     )
 
             elif config.policy.has_property(QuantizationProperty.FLOATING):
@@ -838,7 +844,6 @@ class TQTDelegator(TorchQuantizeDelegator):
                 alpha_ste = alpha + (torch.round(alpha) - alpha).detach()
 
                 scale = torch.pow(2.0, alpha_ste)
-                self.log2_scale.data.clamp_(-16, 16)
 
                 # grad_scale = 1 / (tensor.numel() * config.quant_max) ** 0.5
                 # log2_scale = log2_scale * grad_factor + (log2_scale - log2_scale * grad_factor).detach()

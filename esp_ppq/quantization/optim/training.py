@@ -905,6 +905,7 @@ class LearnedStepSizePass(TrainingBasedPass):
         print(f'Learning Rate:             {self.lr}')
         print(f'Steps:                     {self.steps}')
         print(f'Gamma:                     {self.gamma}')
+
         print('')  # blank line
 
         # do per-block finetune
@@ -1315,6 +1316,16 @@ class TrainedQuantizationThresholdPass(TrainingBasedPass):
         self.optimizer = optimizer
         self.int_lambda = int_lambda
 
+    @empty_ppq_cache
+    def enable_block_gradient(self, block: TrainableBlock):
+        """TQT trains log2_scale, not config.scale; keep config.scale.requires_grad=False"""
+        super().enable_block_gradient(block)
+        for op in block.rps:
+            if isinstance(op, QuantableOperation):
+                for cfg, _ in op.config_with_variable:
+                    if isinstance(cfg.scale, torch.Tensor):
+                        cfg.scale.requires_grad = False
+
     def finetune(
         self,
         steps: int,
@@ -1404,7 +1415,11 @@ class TrainedQuantizationThresholdPass(TrainingBasedPass):
                 if isinstance(op, QuantableOperation) and op.is_computing_op:
                     weight = op.inputs[1].value
                     wconfig = op.config.input_quantization_config[1]
-                    loss += torch_mean_square_error(weight, PPQLinearQuantFunction(weight, wconfig)) * self.gamma
+                    if not wconfig.policy.has_property(QuantizationProperty.LINEAR):
+                        continue
+                    quantized = PPQLinearQuantFunction(weight, wconfig)
+                    if quantized is not None:
+                        loss += torch_mean_square_error(weight, quantized) * self.gamma
 
             # backward from loss
             assert isinstance(loss, torch.Tensor)
@@ -1421,6 +1436,18 @@ class TrainedQuantizationThresholdPass(TrainingBasedPass):
         if post_loss > pre_loss:
             for cfg, delegator in delegators.items():
                 delegator.withdraw()
+        else:
+            # write back trained TQT scale to config.scale
+            for cfg, delegator in delegators.items():
+                is_scale_trained = getattr(delegator, 'is_scale_trainable', False) is True and hasattr(
+                    delegator, 'log2_scale'
+                )
+                if is_scale_trained:
+                    with torch.no_grad():
+                        trained_scale = torch.pow(2.0, torch.round(delegator.log2_scale))
+                        if trained_scale.device != cfg.scale.device:
+                            trained_scale = trained_scale.to(cfg.scale.device)
+                        cfg.scale.copy_(trained_scale)
 
         for cfg, delegator in delegators.items():
             delegator.finalize()
@@ -1453,6 +1480,7 @@ class TrainedQuantizationThresholdPass(TrainingBasedPass):
         print(f'Learning Rate:             {self.lr}')
         print(f'Steps:                     {self.steps}')
         print(f'Gamma:                     {self.gamma}')
+        print(f'int_lambda:                {self.int_lambda}')
         print('')  # blank line
 
         # do per-block finetune
