@@ -264,6 +264,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             'DepthToSpace',
             'SpaceToDepth',
             'InsertZeros',
+            'Mod',
         }
 
     @property

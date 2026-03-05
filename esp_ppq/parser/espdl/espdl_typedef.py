@@ -68,6 +68,7 @@ ADD_LIKE_OP_SET = {
     "GreaterOrEqual",
     "LessOrEqual",
     "Pow",
+    "Mod",
 }
 OTHER_OP_SET = {
     "MatMul",
