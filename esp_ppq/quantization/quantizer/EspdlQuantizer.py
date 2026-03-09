@@ -97,7 +97,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
                     operation.inputs[index].name is None or len(operation.inputs[index].name) == 0
                 ):  # Do not quantize bias
                     base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
-        elif operation.type in {"Softmax"}:
+        elif operation.type in {"Softmax", "LogSoftmax"}:
             # reset output to float32
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
 
@@ -214,6 +214,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "GlobalMaxPool",
             "GlobalAveragePool",
             "Softmax",
+            "LogSoftmax",
             "Mul",
             "Add",
             "Max",
@@ -264,6 +265,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             'DepthToSpace',
             'SpaceToDepth',
             'InsertZeros',
+            'Mod',
         }
 
     @property
