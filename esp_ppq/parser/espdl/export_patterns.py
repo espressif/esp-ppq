@@ -5,6 +5,8 @@ import numpy as np
 import torch
 
 from esp_ppq.core import (
+    ESPDL_CONV_LIKE_FUSED_ACTIVATIONS,
+    ESPDL_CONV_LIKE_FUSED_OPS,
     GRU_QUANT_EXPONENT,
     LSTM_QUANT_EXPONENT,
     DataType,
@@ -313,12 +315,12 @@ class FuseReluLikePattern(OperationExporter):
         if op.name not in graph.operations:
             return op
 
-        if op.type in ["Conv", "Gemm", "MatMul"]:
+        if op.type in ESPDL_CONV_LIKE_FUSED_OPS:
             op.attributes["activation"] = "Linear"
             downstream_op = graph.get_downstream_operations(op)
             if len(downstream_op) == 1:  # the downstream op have only one op and this op is relu
                 # if downstream_op[0].type in ["Relu", "Clip"]:
-                if downstream_op[0].type in ["Relu"]:
+                if downstream_op[0].type in ESPDL_CONV_LIKE_FUSED_ACTIVATIONS:
                     logger.debug(f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}")
                     conv_quant_config = op.config
                     relu_quant_config = downstream_op[0].config
