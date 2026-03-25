@@ -4,6 +4,9 @@ import torch
 
 from esp_ppq.core import (
     ALIGNMENT_MANUL_OVERRIDE,
+    ESPDL_CONV_LIKE_FUSED_ACTIVATIONS,
+    ESPDL_CONV_LIKE_FUSED_OPS,
+    OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE,
     PASSIVE_OPERATIONS,
     TYPES_FOR_ALIGNMENT,
     QuantizationProperty,
@@ -334,6 +337,26 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                     len(graph.get_downstream_operations(computing_op)) == 1
                     and len(graph.get_upstream_operations(act_op)) == 1
                 ):
+                    # ESP-DL implements fusion for Conv-like operators,
+                    # which requires unification to the maximum quantization bit width.
+                    if (
+                        computing_op.platform != act_op.platform
+                        and computing_op.type in ESPDL_CONV_LIKE_FUSED_OPS
+                        and act_op.type in ESPDL_CONV_LIKE_FUSED_ACTIVATIONS
+                    ):
+                        act_op_output_config = act_op.config.output_quantization_config[0]
+                        max_num_of_bits = max(
+                            computing_op.config.output_quantization_config[0].num_of_bits,
+                            act_op_output_config.num_of_bits,
+                        )
+                        if act_op_output_config.num_of_bits < max_num_of_bits:
+                            kl_bins = 32 * (1 << (max_num_of_bits - 1))
+                            act_op.platform = computing_op.platform
+                            act_op_output_config.num_of_bits = max_num_of_bits
+                            act_op_output_config.quant_max = int(pow(2, max_num_of_bits - 1)) - 1
+                            act_op_output_config.quant_min = -int(pow(2, max_num_of_bits - 1))
+                            act_op_output_config.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = kl_bins
+
                     computing_op.config.output_quantization_config[
                         0
                     ].dominated_by = act_op.config.output_quantization_config[0]

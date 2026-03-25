@@ -135,6 +135,9 @@ ORT_OOS_FUSE_START_OPS = {'Conv', 'GlobalAveragePool', 'AveragePool', 'Add', 'Mu
 # 事实上就算后端不融合这些层，执行联合定点也是有益无害的。
 LINEAR_ACTIVATIONS = {'Relu', 'Clip'}
 COMPELING_OP_TYPES = {'Add', ' Sub', 'Concat'}
+# ESPDL Fusion Operator List
+ESPDL_CONV_LIKE_FUSED_OPS = {'Conv', 'Gemm', 'MatMul'}
+ESPDL_CONV_LIKE_FUSED_ACTIVATIONS = {'Relu'}
 
 # 误差容忍度
 CHECKPOINT_TOLERANCE = 1
