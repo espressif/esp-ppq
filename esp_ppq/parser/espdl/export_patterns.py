@@ -345,7 +345,7 @@ class QuantVariableToIntPattern(OperationExporter):
         if config.policy.has_property(QuantizationProperty.ASYMMETRICAL):
             raise ValueError("Critical Quantization Error! Asymmetrical config detected.")
 
-        if not config.scale:
+        if config.scale is None:
             return None
 
         exponent = None

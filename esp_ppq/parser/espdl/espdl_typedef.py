@@ -190,6 +190,8 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
 
     def add_lut(self, lut_name: str, lut: torch.Tensor, exponent: Union[int, List[int]]):
         self.luts[lut_name] = lut
+        if isinstance(exponent, int):
+            exponent = [exponent]
         self.var_exponents[lut_name] = exponent
 
     def print(self):
