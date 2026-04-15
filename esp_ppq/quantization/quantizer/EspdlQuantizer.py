@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import re
+from dataclasses import dataclass
 
 from esp_ppq.api.setting import QuantizationSetting
 from esp_ppq.core import (
@@ -18,6 +21,63 @@ from esp_ppq.quantization.optim import QuantizationOptimizationPipeline
 from .base import BaseQuantizer
 
 
+def _quant_range(bits: int) -> tuple[int, int]:
+    """Return (quant_min, quant_max) for signed symmetric quantization."""
+    half = 1 << (bits - 1)
+    return -half, half - 1
+
+
+def _kl_hist_bins(bits: int) -> int:
+    """Return KL histogram bin count for given bit width."""
+    return 32 * (1 << (bits - 1))
+
+
+def _apply_bit_width(config, bits: int, state=QuantizationStates.PASSIVE_INIT, observer: str = "minmax") -> None:
+    """Set bit width, quant range, state and observer on a TensorQuantizationConfig."""
+    config.num_of_bits = bits
+    config.quant_min, config.quant_max = _quant_range(bits)
+    config.state = state
+    config.observer_algorithm = observer
+
+
+_GRU_BIAS_INDICES = (3,)  # bias
+_LSTM_BIAS_INDICES = (3, 6)  # bias, initial_c
+
+
+@dataclass(frozen=True)
+class _PlatformQuantConfig:
+    num_of_bits: int
+    bias_bits: int
+    rounding: RoundingPolicy
+
+
+_PLATFORM_CONFIGS: dict[TargetPlatform, _PlatformQuantConfig] = {
+    TargetPlatform.ESPDL_INT8: _PlatformQuantConfig(8, 32, RoundingPolicy.ROUND_HALF_EVEN),
+    TargetPlatform.ESPDL_INT16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_EVEN),
+    TargetPlatform.ESPDL_H_PRE_INT16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_EVEN),
+    TargetPlatform.ESPDL_S3_INT8: _PlatformQuantConfig(8, 20, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_S3_INT16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_S3_H_PRE_INT16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_C_INT8: _PlatformQuantConfig(8, 32, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_C_INT16: _PlatformQuantConfig(16, 64, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_C_H_PRE_INT16: _PlatformQuantConfig(16, 64, RoundingPolicy.ROUND_HALF_UP),
+}
+
+
+_P4_PLATFORMS = {
+    TargetPlatform.ESPDL_INT8,
+    TargetPlatform.ESPDL_INT16,
+    TargetPlatform.ESPDL_H_PRE_INT16,
+}
+
+_PER_CHANNEL_POLICY = QuantizationPolicy(
+    QuantizationProperty.SYMMETRICAL
+    + QuantizationProperty.LINEAR
+    + QuantizationProperty.PER_CHANNEL
+    + QuantizationProperty.POWER_OF_2
+)
+
+
 class BaseEspdlQuantizer(BaseQuantizer):
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
@@ -25,10 +85,6 @@ class BaseEspdlQuantizer(BaseQuantizer):
         self._quant_min = -128
         self._quant_max = +127
         self._custom_tqc = None
-
-    def build_quant_pipeline(self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
-        pipeline = super().build_quant_pipeline(setting)
-        return pipeline
 
     def create_espdl_quant_config(
         self,
@@ -49,142 +105,103 @@ class BaseEspdlQuantizer(BaseQuantizer):
             observer_algorithm="percentile",
         )
 
+        kl_bins = _kl_hist_bins(num_of_bits)
         for index in range(operation.num_of_input):
             if not operation.inputs[index].is_parameter:
                 base_quant_config.input_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = (
-                    32 * int(pow(2, num_of_bits - 1))
+                    kl_bins
                 )
 
         for index in range(operation.num_of_output):
-            base_quant_config.output_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = 32 * int(
-                pow(2, num_of_bits - 1)
-            )
+            base_quant_config.output_quantization_config[index].detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = kl_bins
 
         if operation.type in {"Conv", "ConvTranspose", "Gemm"}:
-            # reset num_of_bits of bias to 32 bits
             assert operation.num_of_input > 0, "Seems you got a Conv layer with no parameters."
 
-            # if operation has bias
+            # Per-channel weight quantization for ESP32-P4 platforms
+            if operation.platform in _P4_PLATFORMS and operation.num_of_input > 1:
+                weight_config = base_quant_config.input_quantization_config[1]
+                weight_config.policy = _PER_CHANNEL_POLICY
+                if operation.type == "ConvTranspose":
+                    weight_config.channel_axis = 1
+                elif operation.type == "Gemm":
+                    if operation.attributes.get('transB', 0) == 1:
+                        weight_config.channel_axis = 0
+                    else:
+                        weight_config.channel_axis = 1
+                else:
+                    weight_config.channel_axis = 0
+                weight_config.observer_algorithm = 'minmax'
+
             if operation.num_of_input > 2:
                 bias_config = base_quant_config.input_quantization_config[-1]
-                bias_config.num_of_bits = bias_bits
-                bias_config.quant_max = int(pow(2, bias_config.num_of_bits - 1)) - 1
-                bias_config.quant_min = -int(pow(2, bias_config.num_of_bits - 1))
-                bias_config.state = QuantizationStates.PASSIVE_INIT
-                bias_config.observer_algorithm = "minmax"
+                if operation.platform in _P4_PLATFORMS:
+                    bias_config.policy = _PER_CHANNEL_POLICY
+                    bias_config.channel_axis = 0
+                _apply_bit_width(bias_config, bias_bits)
         elif operation.type in {"GRU", "LSTM"}:
-            reset_variables = [3]  # 3:bias for GRU
-            if operation.type == "LSTM":
-                reset_variables = [3, 6]  # 3:bias, 6: initial_c for LSTM
-            for index in reset_variables:
+            bias_indices = _LSTM_BIAS_INDICES if operation.type == "LSTM" else _GRU_BIAS_INDICES
+            for index in bias_indices:
                 if operation.num_of_input > index:
-                    config = base_quant_config.input_quantization_config[index]
-                    config.num_of_bits = 16
-                    config.quant_max = int(pow(2, config.num_of_bits - 1)) - 1
-                    config.quant_min = -int(pow(2, config.num_of_bits - 1))
-                    config.state = QuantizationStates.PASSIVE_INIT
-                    config.observer_algorithm = "minmax"
+                    _apply_bit_width(base_quant_config.input_quantization_config[index], 16)
 
             if operation.num_of_output == 3:
-                cell_config = base_quant_config.output_quantization_config[2]
-                cell_config.num_of_bits = 16
-                cell_config.quant_max = int(pow(2, cell_config.num_of_bits - 1)) - 1
-                cell_config.quant_min = -int(pow(2, cell_config.num_of_bits - 1))
-                cell_config.state = QuantizationStates.PASSIVE_INIT
-                cell_config.observer_algorithm = "minmax"
+                _apply_bit_width(base_quant_config.output_quantization_config[2], 16)
             for index in range(len(operation.inputs)):
-                if (
-                    operation.inputs[index].name is None or len(operation.inputs[index].name) == 0
-                ):  # Do not quantize bias
+                if not operation.inputs[index].name:
                     base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
         elif operation.type in {"Softmax", "LogSoftmax"}:
-            # reset output to float32
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
 
         if operation.type in PASSIVE_OPERATIONS:
-            # Those op are not active op.
             base_quant_config.is_active_quant_op = False
 
-        # Use custom TQC to override configured TQC.
-        if self._custom_tqc and self._custom_tqc.get(operation.name):
-            configs = self._custom_tqc.get(operation.name)
-            for tqc_name in configs.keys():
-                if not configs[tqc_name].get("bit_width"):
-                    continue
-
-                tqc_index = int(re.findall(r"\d+", tqc_name)[0])
-                if "input" in tqc_name:
-                    if tqc_index >= operation.num_of_input:
-                        ppq_warning(f"Your input tqc index has exceeds num_of_input({operation.num_of_input})!")
-                        continue
-
-                    base_quant_config.input_quantization_config[tqc_index].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.input_quantization_config[tqc_index].quant_max = (
-                        +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    )
-                    base_quant_config.input_quantization_config[tqc_index].quant_min = -int(
-                        pow(2, configs[tqc_name]["bit_width"] - 1)
-                    )
-                    base_quant_config.input_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
-                elif "output" in tqc_name:
-                    if tqc_index >= operation.num_of_output:
-                        ppq_warning(f"Your output tqc index has exceeds num_of_output({operation.num_of_output})!")
-                        continue
-
-                    base_quant_config.output_quantization_config[tqc_index].num_of_bits = configs[tqc_name]["bit_width"]
-                    base_quant_config.output_quantization_config[tqc_index].quant_max = (
-                        +int(pow(2, configs[tqc_name]["bit_width"] - 1)) - 1
-                    )
-                    base_quant_config.output_quantization_config[tqc_index].quant_min = -int(
-                        pow(2, configs[tqc_name]["bit_width"] - 1)
-                    )
-                    base_quant_config.output_quantization_config[tqc_index].detail[
-                        OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE
-                    ] = 32 * int(pow(2, configs[tqc_name]["bit_width"] - 1))
+        self._apply_custom_tqc(operation, base_quant_config)
 
         return base_quant_config
+
+    def _apply_custom_tqc(self, operation: Operation, config: OperationQuantizationConfig) -> None:
+        if not self._custom_tqc or not self._custom_tqc.get(operation.name):
+            return
+
+        op_configs = self._custom_tqc[operation.name]
+        for tqc_name, tqc_value in op_configs.items():
+            bits = tqc_value.get("bit_width")
+            if not bits:
+                continue
+
+            tqc_index = int(re.findall(r"\d+", tqc_name)[0])
+            if "input" in tqc_name:
+                tqc_list, limit = config.input_quantization_config, operation.num_of_input
+                direction = "input"
+            elif "output" in tqc_name:
+                tqc_list, limit = config.output_quantization_config, operation.num_of_output
+                direction = "output"
+            else:
+                continue
+
+            if tqc_index >= limit:
+                ppq_warning(f"Your {direction} tqc index has exceeds num_of_{direction}({limit})!")
+                continue
+
+            tqc = tqc_list[tqc_index]
+            tqc.num_of_bits = bits
+            tqc.quant_min, tqc.quant_max = _quant_range(bits)
+            tqc.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = _kl_hist_bins(bits)
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
         if operation.platform == self.target_platform:
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min
             quant_max = self._quant_max
-        elif operation.platform in [
-            TargetPlatform.ESPDL_INT8,
-            TargetPlatform.ESPDL_S3_INT8,
-            TargetPlatform.ESPDL_C_INT8,
-        ]:
-            num_of_bits = 8
-            quant_min = -128
-            quant_max = 127
-        elif operation.platform in [
-            TargetPlatform.ESPDL_INT16,
-            TargetPlatform.ESPDL_H_PRE_INT16,
-            TargetPlatform.ESPDL_S3_INT16,
-            TargetPlatform.ESPDL_S3_H_PRE_INT16,
-            TargetPlatform.ESPDL_C_INT16,
-            TargetPlatform.ESPDL_C_H_PRE_INT16,
-        ]:
-            num_of_bits = 16
-            quant_min = -32768
-            quant_max = 32767
+            bias_bits = _PLATFORM_CONFIGS[self.target_platform].bias_bits
+        elif operation.platform in _PLATFORM_CONFIGS:
+            pcfg = _PLATFORM_CONFIGS[operation.platform]
+            num_of_bits = pcfg.num_of_bits
+            quant_min, quant_max = _quant_range(num_of_bits)
+            bias_bits = pcfg.bias_bits
         else:
             raise KeyError(f"EspdlQuantizer do not support operation platform : {operation.platform}.")
-
-        bias_bits = 32
-        if operation.platform == TargetPlatform.ESPDL_S3_INT8:
-            bias_bits = 20
-        elif operation.platform in [
-            TargetPlatform.ESPDL_INT16,
-            TargetPlatform.ESPDL_H_PRE_INT16,
-            TargetPlatform.ESPDL_S3_INT16,
-            TargetPlatform.ESPDL_S3_H_PRE_INT16,
-        ]:
-            bias_bits = 40
-        elif operation.platform in [TargetPlatform.ESPDL_C_INT16, TargetPlatform.ESPDL_C_H_PRE_INT16]:
-            bias_bits = 64
 
         return self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
 
@@ -278,7 +295,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
         )
 
     @property
-    def rounding_policy(self):
+    def rounding_policy(self) -> RoundingPolicy:
         return RoundingPolicy.ROUND_HALF_EVEN
 
     @property
@@ -293,7 +310,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
         return {"Relu", "Clip"}
 
     @property
-    def custom_tqc(self) -> dict:
+    def custom_tqc(self) -> dict | None:
         return self._custom_tqc
 
     # The custom_op_tqc format is as follows:
@@ -316,17 +333,14 @@ class BaseEspdlQuantizer(BaseQuantizer):
 
 
 class EspdlQuantizer(BaseEspdlQuantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
+    pass
 
 
 class EspdlInt16Quantizer(BaseEspdlQuantizer):
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 16
-        self._quant_min = -32768
-        self._quant_max = +32767
-        self._custom_tqc = None
+        self._quant_min, self._quant_max = _quant_range(self._num_of_bits)
 
     @property
     def target_platform(self) -> TargetPlatform:
@@ -334,24 +348,18 @@ class EspdlInt16Quantizer(BaseEspdlQuantizer):
 
 
 class EspdlHPreInt16Quantizer(EspdlInt16Quantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
-
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_H_PRE_INT16
 
 
 class EspdlS3Quantizer(BaseEspdlQuantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
-
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_S3_INT8
 
     @property
-    def rounding_policy(self):
+    def rounding_policy(self) -> RoundingPolicy:
         return RoundingPolicy.ROUND_HALF_UP
 
 
@@ -359,38 +367,30 @@ class EspdlS3Int16Quantizer(BaseEspdlQuantizer):
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 16
-        self._quant_min = -32768
-        self._quant_max = +32767
-        self._custom_tqc = None
+        self._quant_min, self._quant_max = _quant_range(self._num_of_bits)
 
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_S3_INT16
 
     @property
-    def rounding_policy(self):
+    def rounding_policy(self) -> RoundingPolicy:
         return RoundingPolicy.ROUND_HALF_UP
 
 
 class EspdlS3HPreInt16Quantizer(EspdlS3Int16Quantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
-
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_S3_H_PRE_INT16
 
 
 class EspdlCQuantizer(BaseEspdlQuantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
-
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_C_INT8
 
     @property
-    def rounding_policy(self):
+    def rounding_policy(self) -> RoundingPolicy:
         return RoundingPolicy.ROUND_HALF_UP
 
 
@@ -398,23 +398,18 @@ class EspdlCInt16Quantizer(BaseEspdlQuantizer):
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 16
-        self._quant_min = -32768
-        self._quant_max = +32767
-        self._custom_tqc = None
+        self._quant_min, self._quant_max = _quant_range(self._num_of_bits)
 
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_C_INT16
 
     @property
-    def rounding_policy(self):
+    def rounding_policy(self) -> RoundingPolicy:
         return RoundingPolicy.ROUND_HALF_UP
 
 
 class EspdlCHPreInt16Quantizer(EspdlCInt16Quantizer):
-    def __init__(self, graph: BaseGraph) -> None:
-        super().__init__(graph=graph)
-
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_C_H_PRE_INT16
