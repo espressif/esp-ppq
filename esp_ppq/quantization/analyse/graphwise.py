@@ -42,12 +42,16 @@ class DetailedRecorder(RuntimeHook):
 
     def pre_forward_hook(self, inputs: List[torch.Tensor], **kwargs) -> list:
         for idx, input in enumerate(inputs):
-            self.i_storage[idx].append(tensor_random_fetch(input, seed=10086, num_of_fetches=self.fetchs).to('cpu'))
+            if input is not None:
+                self.i_storage[idx].append(tensor_random_fetch(input, seed=10086, num_of_fetches=self.fetchs).to('cpu'))
         return super().pre_forward_hook(inputs, **kwargs)
 
     def post_forward_hook(self, outputs: List[torch.Tensor], **kwargs) -> list:
         for idx, output in enumerate(outputs):
-            self.o_storage[idx].append(tensor_random_fetch(output, seed=10086, num_of_fetches=self.fetchs).to('cpu'))
+            if output is not None:
+                self.o_storage[idx].append(
+                    tensor_random_fetch(output, seed=10086, num_of_fetches=self.fetchs).to('cpu')
+                )
         return super().post_forward_hook(outputs, **kwargs)
 
     def clear(self):
@@ -376,11 +380,15 @@ def statistical_analyse(
         for idx, input_var in enumerate(operation.inputs):
             x_qt = record['Quantized Input'][idx]
             x_fp = record['Dequantized Input'][idx]
+            if len(x_qt) == 0 or len(x_fp) == 0:
+                continue
             records.append(StatisticalErrorAnalyser(x_fp=x_fp, x_qt=x_qt, op=operation, var=input_var).stat())
 
         for idx, output_var in enumerate(operation.outputs):
             x_qt = record['Quantized Output'][idx]
             x_fp = record['Dequantized Output'][idx]
+            if len(x_qt) == 0 or len(x_fp) == 0:
+                continue
             records.append(StatisticalErrorAnalyser(x_fp=x_fp, x_qt=x_qt, op=operation, var=output_var).stat())
 
     return records
