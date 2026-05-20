@@ -30,9 +30,17 @@ def PPQuantFunction(tensor: torch.Tensor, config: TensorQuantizationConfig) -> t
 
         INT8  = Clip(Round((FP32 / scale)))
 
+    ### 可选输入 (Optional ONNX Inputs)
+
+        ONNX 算子允许可选输入缺省 (e.g. ``Clip`` 的 ``max`` 在
+        ``F.normalize`` 导出的 ``clamp_min`` 中为空), 此时 PPQ 解析后
+        ``var.value is None``. 对 ``None`` 不做任何量化, 直接透传 —
+        下游算子 (例如 ``Clip_forward`` -> ``torch.clamp``) 会按
+        "无该侧界" 的语义处理.
+
     """
     if tensor is None:
-        raise ValueError('Tensor is empty.')
+        return tensor
     if config.policy.has_property(QuantizationProperty.LINEAR):
         if not config.policy.has_property(QuantizationProperty.DYNAMIC):
             return PPQLinearQuantFunction(tensor, config)

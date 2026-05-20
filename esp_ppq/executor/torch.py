@@ -644,6 +644,13 @@ class TorchExecutor(BaseGraphExecutor, torch.nn.Module):
         self._runnable_graph(GraphDeployCommand(device=self._device))
 
     def quantize_function(self, tensor: torch.Tensor, config: TensorQuantizationConfig = None) -> torch.Tensor:
+        # ONNX optional inputs that are not provided (e.g. the trailing ``max``
+        # in a ``Clip`` produced by ``F.normalize``'s ``clamp_min(eps)``) are
+        # parsed as variables whose ``.value`` is None. There is nothing to
+        # quantize here — pass through so the op kernel (torch.clamp etc.) can
+        # apply its own "missing-input" semantics.
+        if tensor is None:
+            return tensor
         if config is None or not QuantizationStates.is_activated(config.state):
             return tensor
         elif config in self._delegates:
