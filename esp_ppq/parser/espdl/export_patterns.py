@@ -652,7 +652,15 @@ class AddLUTPattern(OperationExporter):
 
         if len(op.inputs) > 1:
             for op_input in op.inputs[1:]:
-                inputs.append(op_input.value * self.get_scale(op_input, info))
+                # ONNX optional inputs (e.g. the trailing ``max`` of a Clip
+                # produced by ``F.normalize`` -> ``clamp_min(eps)``) are
+                # parsed with ``value=None``. Forward through as-is so the
+                # op kernel (torch.clamp etc.) applies its missing-input
+                # semantics; multiplying ``None * scale`` would TypeError.
+                if op_input.value is None:
+                    inputs.append(None)
+                else:
+                    inputs.append(op_input.value * self.get_scale(op_input, info))
         output = operation_forward_func(op, inputs)
         device = op.output_quant_config[0].scale.device
         lut = PPQLinearQuant_toInt(output.to(device), op.output_quant_config[0])

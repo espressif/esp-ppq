@@ -30,6 +30,10 @@ from esp_ppq.quantization.optim import *
 logger = NaiveLogger.get_logger('ESPDL')
 
 
+_PIE_V1_TARGETS = {"esp32s3"}
+_PIE_V2_TARGETS = {"esp32p4", "esp32s31"}
+
+
 def get_target_platform(
     target: str,
     num_of_bits: int = 8,
@@ -52,17 +56,17 @@ def get_target_platform(
     if float:
         platform = TargetPlatform.FP32
     else:
-        if num_of_bits == 8 and target == "esp32p4":
+        if num_of_bits == 8 and target in _PIE_V2_TARGETS:
             platform = TargetPlatform.ESPDL_INT8
-        elif num_of_bits == 16 and target == "esp32p4" and not hi_precision:
+        elif num_of_bits == 16 and target in _PIE_V2_TARGETS and not hi_precision:
             platform = TargetPlatform.ESPDL_INT16
-        elif num_of_bits == 8 and target == "esp32s3":
+        elif num_of_bits == 8 and target in _PIE_V1_TARGETS:
             platform = TargetPlatform.ESPDL_S3_INT8
-        elif num_of_bits == 16 and target == "esp32s3" and not hi_precision:
+        elif num_of_bits == 16 and target in _PIE_V1_TARGETS and not hi_precision:
             platform = TargetPlatform.ESPDL_S3_INT16
-        elif num_of_bits == 16 and target == "esp32p4" and hi_precision:
+        elif num_of_bits == 16 and target in _PIE_V2_TARGETS and hi_precision:
             platform = TargetPlatform.ESPDL_H_PRE_INT16
-        elif num_of_bits == 16 and target == "esp32s3" and hi_precision:
+        elif num_of_bits == 16 and target in _PIE_V1_TARGETS and hi_precision:
             platform = TargetPlatform.ESPDL_S3_H_PRE_INT16
         elif num_of_bits == 8 and target == "c":
             platform = TargetPlatform.ESPDL_C_INT8
@@ -187,7 +191,7 @@ def espdl_quantize_onnx(
         calib_steps (int): calibration steps
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
-        target: target chip, support "esp32p4", "esp32s3" or "c"
+        target: target chip, support "esp32p4", "esp32s31", "esp32s3" or "c"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.
@@ -353,7 +357,7 @@ def espdl_quantize_torch(
         calib_steps (int): calibration steps
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
-        target: target chip, support "esp32p4", "esp32s3" or "c"
+        target: target chip, support "esp32p4", "esp32s31", "esp32s3" or "c"
         num_of_bits: the number of quantizer bits, 8 or 16
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.

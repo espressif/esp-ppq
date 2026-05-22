@@ -64,7 +64,7 @@ if __name__ == "__main__":
         "--target",
         type=str,
         default="esp32p4",
-        help="esp32p4, esp32s3 or c, (defaults: esp32p4).",
+        help="esp32p4, esp32s31, esp32s3 or c, (defaults: esp32p4).",
     )
     parser.add_argument(
         "-b",
