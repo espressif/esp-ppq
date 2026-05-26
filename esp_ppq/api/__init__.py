@@ -1,3 +1,8 @@
+from esp_ppq.autoquant import (
+    AutoQuantSearchSetting,
+    espdl_auto_quantize_onnx,
+    low_latency_candidate_filter,
+)
 from esp_ppq.lib import (
     register_calibration_observer,
     register_network_exporter,
