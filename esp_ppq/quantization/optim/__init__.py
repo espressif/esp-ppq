@@ -25,6 +25,7 @@ from .refine import (
     QuantAlignmentPass,
     QuantizeFusionPass,
     QuantizeSimplifyPass,
+    RMSNormFusionPass,
     SwishFusionPass,
 )
 from .ssd import SSDEqualizationPass

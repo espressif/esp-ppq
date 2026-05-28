@@ -1531,9 +1531,9 @@ def Slice_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
     if flip_dims:
         data = torch.flip(data, dims=flip_dims)
     if pos_axes_slices:
-        data = data[pos_axes_slices]
+        data = data[tuple(pos_axes_slices)]
     if neg_axes_slices:
-        data = data[neg_axes_slices]
+        data = data[tuple(neg_axes_slices)]
     return data
 
 
@@ -2741,6 +2741,95 @@ def LayerNorm_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBacke
 
     normalized_shape = weight.shape
     output = F.layer_norm(x, normalized_shape, weight, bias, eps)
+    return output
+
+
+def RMSNormalization_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    """
+    This is RMS normalization defined in ONNX as function as described in the paper https://arxiv.org/pdf/1910.07467.
+    The overall computation can be split into two stages. The root mean squared norm is taken over the last D dimensions,
+    where D is the dimension of normalized_shape. For example, if normalized_shape is (3, 5) (a 2-dimensional shape),
+    the rms norm is computed over the last 2 dimensions of the input.
+
+    The computation required by standardization can be described by the following equations.
+    XSquared = Mul(X, X)
+    XSquaredMean = ReduceMean<axes=normalized_axes>(XSquared)
+    MeanSquareEpsilon = Add(XSquaredMean, epsilon)
+    RMS = Sqrt(MeanSquareEpsilon)
+    Normalized = Div(X, RMS)
+    where normalized_axes is [axis, ..., rank of X - 1].
+
+    The second stage then scales the outcome of the first stage using:
+    Y = Mul(Normalized, Scale)
+
+    Version
+    This version of the operator has been available since version 23 of the default ONNX operator set.
+
+    Attributes
+        axis : int (default is -1)
+            The first normalization dimension. If rank(X) is r, axis' allowed range is [-r, r).
+            Negative value means counting dimensions from the back.
+
+        epsilon : float (default is 1e-05)
+            The epsilon value to use to avoid division by zero.
+
+        stash_type : int (default is 1)
+            The floating-point precision used in stage one of the computation.
+
+    Inputs (2)
+        X : T
+            Tensor to be normalized.
+
+        scale : V
+            Scale tensor.
+
+    Outputs
+        Y : V
+            Normalized tensor.
+    """
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=2, max_num_of_input=2)
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+
+    x, scale = values[0], values[1]
+
+    eps = op.attributes.get('epsilon', 1e-5)
+    axis = op.attributes.get('axis', -1)
+    stash_type = op.attributes.get('stash_type', 1)
+
+    normalized_shape = scale.shape
+
+    if axis < 0:
+        axis = x.ndim + axis
+    if axis != x.ndim - len(normalized_shape):
+        raise ValueError(
+            f'RMSNormalization expects axis={axis} but scale shape {normalized_shape} '
+            f'implies axis={x.ndim - len(normalized_shape)}'
+        )
+
+    orig_dtype = x.dtype
+
+    # stash_type 1 = float32
+    if stash_type == 1:
+        compute_dtype = torch.float32
+    else:
+        compute_dtype = orig_dtype
+
+    x_compute = x.to(compute_dtype) if orig_dtype != compute_dtype else x
+    scale_compute = scale.to(compute_dtype) if scale.dtype != compute_dtype else scale
+
+    # RMS = sqrt(mean(X^2) + epsilon)
+    x_squared = x_compute.pow(2)
+    normalized_axes = list(range(axis, x.ndim))
+    x_squared_mean = x_squared.mean(dim=normalized_axes, keepdim=True)
+    rms = torch.sqrt(x_squared_mean + eps)
+
+    normalized = x_compute / rms
+    output = normalized * scale_compute
+
+    if output.dtype != orig_dtype:
+        output = output.to(orig_dtype)
     return output
 
 
@@ -4480,6 +4569,7 @@ DEFAULT_BACKEND_TABLE = {
     'Identity': Identity_forward,
     'OneHot': Onehot_forward,
     'Reciprocal': Reciprocal_forward,
+    'RMSNormalization': RMSNormalization_forward,
     'LSTM': LSTM_forward,
     'Sum': Sum_forward,
     'Elu': Elu_forward,

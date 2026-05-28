@@ -804,3 +804,261 @@ class NxpQuantizeFusionPass(QuantizationOptimizationPass):
                 concat_cfg = concat.config.output_quantization_config[0]
                 upstream_cfg.dominated_by = concat_cfg
                 upstream_cfg.state = QuantizationStates.OVERLAPPED
+
+
+class RMSNormFusionPass(QuantizationOptimizationPass):
+    """
+    ## PPQ RMSNorm Fusion Pass
+
+    Detects the decomposed RMS normalization subgraph and fuses it into a single
+    ``RMSNormalization`` operation.
+
+    **Before fusion (decomposed ONNX function body):**
+    ::
+
+        in_x ──→ Pow(2) ──→ ReduceMean ──→ [Add(ε)] ──→ Sqrt ──→ Reciprocal ──┐
+          │                                                                       ├─→ Mul ──→ normal_x ──→ Mul ──→ output
+          └───────────────────────────────────────────────────────────────────────┘                 ↑
+                                                                                               scale
+
+    **After fusion:**
+    ::
+
+        in_x ──→ RMSNormalization ──→ output
+        scale ──→
+    """
+
+    def __init__(self, name: str = 'PPQ RMSNorm Fusion Pass') -> None:
+        super().__init__(name)
+
+    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+        # Manual trace from each Pow op instead of pattern_matching,
+        # because the graph input variable has no source_op.
+        self._fuse_from_pow(graph)
+
+    @staticmethod
+    def _same_source(a: Variable, b: Variable) -> bool:
+        """Return True when *a* and *b* represent the same tensor.
+
+        Two variables are the same tensor when they are the identical object or
+        when they share a non-None ``source_op`` and the same output index.
+        """
+        if a is b:
+            return True
+        src_a, src_b = a.source_op, b.source_op
+        if src_a is None or src_b is None:
+            return False
+        if src_a is not src_b:
+            return False
+        try:
+            return src_a.outputs.index(a) == src_b.outputs.index(b)
+        except ValueError:
+            return False
+
+    @staticmethod
+    @staticmethod
+    def _var_or_alias_is_input(var: Variable, op: Operation) -> bool:
+        """Return True when *var* (or any alias sharing the same tensor) is an
+        input of *op*."""
+        for inp in op.inputs:
+            if RMSNormFusionPass._same_source(var, inp):
+                return True
+        return False
+
+    def _fuse_from_pow(self, graph: BaseGraph) -> None:
+        """Iterate over all Pow ops and trace the RMSNorm chain forward."""
+        for op in list(graph.operations.values()):
+            if op.type != 'Pow':
+                continue
+            self._try_chain_from_pow(graph, op)
+
+    def _try_chain_from_pow(self, graph: BaseGraph, pow_op: Operation) -> None:
+        # Must have exactly 2 inputs: the tensor X and the exponent constant
+        if pow_op.num_of_input != 2:
+            return
+        # The non-parameter input is X
+        in_x = None
+        for inp in pow_op.inputs:
+            if not inp.is_parameter:
+                in_x = inp
+                break
+        if in_x is None:
+            return
+
+        # pow_op → ReduceMean
+        pow_out = pow_op.outputs[0]
+        if len(pow_out.dest_ops) != 1:
+            return
+        reduce_op = pow_out.dest_ops[0]
+        if reduce_op.type != 'ReduceMean':
+            return
+
+        # ReduceMean → [Add(eps)] or → Sqrt
+        reduce_out = reduce_op.outputs[0]
+        if len(reduce_out.dest_ops) != 1:
+            return
+        next_op = reduce_out.dest_ops[0]
+
+        add_op = None
+        if next_op.type == 'Add':
+            add_op = next_op
+            add_out = add_op.outputs[0]
+            if len(add_out.dest_ops) != 1:
+                return
+            sqrt_op = add_out.dest_ops[0]
+        elif next_op.type == 'Sqrt':
+            sqrt_op = next_op
+        else:
+            return
+        if sqrt_op.type != 'Sqrt':
+            return
+
+        # Sqrt → Reciprocal or → Div
+        sqrt_out = sqrt_op.outputs[0]
+        if len(sqrt_out.dest_ops) != 1:
+            return
+        norm_op = sqrt_out.dest_ops[0]
+
+        if norm_op.type == 'Reciprocal':
+            # Reciprocal → Mul(X, 1/rms)
+            rcp_out = norm_op.outputs[0]
+            if len(rcp_out.dest_ops) != 1:
+                return
+            mul_norm_op = rcp_out.dest_ops[0]
+            if mul_norm_op.type != 'Mul':
+                return
+            # Mul must take in_x AND reciprocal output
+            if not self._var_or_alias_is_input(in_x, mul_norm_op) or rcp_out not in mul_norm_op.inputs:
+                return
+            norm_out = mul_norm_op.outputs[0]
+            ops_to_remove = [pow_op, reduce_op, sqrt_op, norm_op, mul_norm_op]
+            if add_op:
+                ops_to_remove.append(add_op)
+        elif norm_op.type == 'Div':
+            if self._var_or_alias_is_input(in_x, norm_op) and sqrt_out in norm_op.inputs:
+                # Div(X, rms)  —  X is normalised in-place
+                mul_norm_op = None
+                norm_out = norm_op.outputs[0]
+                ops_to_remove = [pow_op, reduce_op, sqrt_op, norm_op]
+                if add_op:
+                    ops_to_remove.append(add_op)
+            elif sqrt_out in norm_op.inputs:
+                # Div(const, rms)  —  Div acts as Reciprocal; a following
+                # Mul(X, 1/rms) completes the normalisation.
+                div_out = norm_op.outputs[0]
+                if len(div_out.dest_ops) != 1:
+                    return
+                mul_norm_op = div_out.dest_ops[0]
+                if mul_norm_op.type != 'Mul':
+                    return
+                if not self._var_or_alias_is_input(in_x, mul_norm_op) or div_out not in mul_norm_op.inputs:
+                    return
+                norm_out = mul_norm_op.outputs[0]
+                ops_to_remove = [pow_op, reduce_op, sqrt_op, norm_op, mul_norm_op]
+                if add_op:
+                    ops_to_remove.append(add_op)
+            else:
+                return
+        else:
+            return
+
+        # norm_out → Mul(scale)
+        if len(norm_out.dest_ops) != 1:
+            return
+        scaling_op = norm_out.dest_ops[0]
+        if scaling_op.type != 'Mul':
+            return
+        # Find scale_var: the input of scaling_op that is NOT norm_out
+        if scaling_op.inputs[0] is norm_out:
+            scale_var = scaling_op.inputs[1]
+        elif scaling_op.inputs[1] is norm_out:
+            scale_var = scaling_op.inputs[0]
+        else:
+            return
+        ops_to_remove.append(scaling_op)
+
+        # ---- extract axis from ReduceMean ----
+        # axes can be an attribute (opset <= 17) or an input (opset >= 18)
+        axes = reduce_op.attributes.get('axes', None)
+        if axes is None:
+            for inp in reduce_op.inputs[1:]:
+                if inp.value is not None:
+                    try:
+                        val = inp.value
+                        if hasattr(val, 'tolist'):
+                            axes = val.tolist()
+                        else:
+                            axes = list(val)
+                        break
+                    except Exception:
+                        pass
+        if axes is None:
+            return
+        if isinstance(axes, (list, tuple)):
+            axis = axes[0] if len(axes) > 0 else -1
+        else:
+            axis = axes
+
+        # ---- extract epsilon ----
+        epsilon = 1e-5
+        if add_op is not None:
+            for inp in add_op.inputs:
+                if inp.value is not None:
+                    try:
+                        val = inp.value
+                        if hasattr(val, 'numel') and val.numel() == 1:
+                            epsilon = float(val.item())
+                        elif isinstance(val, (int, float)):
+                            epsilon = float(val)
+                    except Exception:
+                        pass
+        else:
+            epsilon = reduce_op.attributes.get('epsilon', sqrt_op.attributes.get('epsilon', 1e-5))
+
+        # ---- build fused op ----
+        output_var = scaling_op.outputs[0]
+
+        if pow_op in in_x.dest_ops:
+            in_x.dest_ops.remove(pow_op)
+        if mul_norm_op is not None and mul_norm_op in in_x.dest_ops:
+            in_x.dest_ops.remove(mul_norm_op)
+        if norm_op is not mul_norm_op and norm_op in in_x.dest_ops:
+            in_x.dest_ops.remove(norm_op)
+        if scaling_op in scale_var.dest_ops:
+            scale_var.dest_ops.remove(scaling_op)
+
+        rmsnorm_op = graph.create_operation(
+            op_type='RMSNormalization',
+            name=scaling_op.name + '_rmsnorm',
+            attributes={'axis': int(axis), 'epsilon': float(epsilon), 'stash_type': 1},
+            platform=scaling_op.platform,
+            inputs=[in_x, scale_var],
+            outputs=[output_var],
+        )
+        output_var.source_op = rmsnorm_op
+
+        # ---- remove old ops ----
+        vars_to_remove = []
+        for op in ops_to_remove:
+            for var in op.outputs:
+                if var is not output_var and var is not norm_out:
+                    vars_to_remove.append(var)
+
+        for op in ops_to_remove:
+            if op.name not in graph.operations:
+                continue
+            for inp in op.inputs.copy():
+                try:
+                    inp.dest_ops.remove(op)
+                except ValueError:
+                    pass
+            for out in op.outputs.copy():
+                if out is not output_var:
+                    out.source_op = None
+            op.inputs.clear()
+            op.outputs.clear()
+            graph.operations.pop(op.name)
+
+        for var in vars_to_remove:
+            if var.name in graph.variables and var.source_op is None and len(var.dest_ops) == 0:
+                graph.variables.pop(var.name)

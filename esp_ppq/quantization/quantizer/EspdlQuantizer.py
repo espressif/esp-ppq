@@ -261,6 +261,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "MatMul",
             "Attention",
             "LayerNormalization",
+            "RMSNormalization",
             "Gelu",
             "PPQBiasFusedMatMul",
             "Split",

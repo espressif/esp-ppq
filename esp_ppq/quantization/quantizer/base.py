@@ -479,4 +479,10 @@ class BaseQuantizer(metaclass=ABCMeta):
         if setting.convtranspose_decomposition:
             list_of_passes.append(ConvTransposeDecompositionPass())
 
+        # RMSNormFusionPass fuses decomposed RMSNorm subgraphs before
+        # quantization and meta-tracing.  It must stay in the pre-quant
+        # pipeline so the executor's _executing_order is recomputed
+        # (via executor.load_graph()) after the graph rewrite.
+        list_of_passes.append(RMSNormFusionPass())
+
         return QuantizationOptimizationPipeline(passes=list_of_passes)
