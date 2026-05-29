@@ -19,6 +19,7 @@ from .morph import (
 )
 from .parameters import ParameterQuantizePass, PassiveParameterQuantizePass
 from .refine import (
+    LpNormalizationFusionPass,
     MishFusionPass,
     NxpInputRoundingRefinePass,
     NxpQuantizeFusionPass,

@@ -4461,6 +4461,16 @@ def Swish_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
     return F.silu(input_value)
 
 
+def LpNormalization_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=1)
+    [x] = values
+    axis = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='axis', default=-1)
+    p = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='p', default=2)
+    return F.normalize(x, p=p, dim=axis)
+
+
 DEFAULT_BACKEND_TABLE = {
     'Abs': Abs_forward,
     'AdaptiveAvgPool2d': AdaptiveAvgPool2d_forward,
@@ -4499,6 +4509,7 @@ DEFAULT_BACKEND_TABLE = {
     'Less': Less_forward,
     'LessOrEqual': LessOrEqual_forward,
     'LogSoftmax': LogSoftmax_forward,
+    'LpNormalization': LpNormalization_forward,
     'MatMul': MatMul_forward,
     'Max': Eltwise_forward,
     'MaxPool': MaxPool2d_forward,

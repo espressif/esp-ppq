@@ -26,6 +26,168 @@ from esp_ppq.quantization.observer.range import minmax_to_scale_offset
 from .base import QuantizationOptimizationPass
 
 
+class LpNormalizationFusionPass(QuantizationOptimizationPass):
+    """
+    ## PPQ LpNormalization Fusion Pass
+
+    Detects the decomposed Lp normalization subgraph and fuses it into a single
+    ``LpNormalization`` operation.
+
+    **Before fusion (decomposed ONNX function body):**
+    ::
+
+        in_x ──→ ReduceL2 ──→ Clip ──→ Expand ──┐
+          │                                         ├─→ Div ──→ output
+          └─────────────────────────────────────────┘
+
+    **After fusion:**
+    ::
+
+        in_x ──→ LpNormalization ──→ output
+    """
+
+    def __init__(self, name: str = 'PPQ LpNormalization Fusion Pass') -> None:
+        super().__init__(name)
+
+    def optimize(self, graph: BaseGraph, **kwargs) -> None:
+        self._fuse_from_reduce_l2(graph)
+
+    @staticmethod
+    def _same_source(a: Variable, b: Variable) -> bool:
+        """Return True when *a* and *b* represent the same tensor."""
+        if a is b:
+            return True
+        src_a, src_b = a.source_op, b.source_op
+        if src_a is None or src_b is None:
+            return False
+        if src_a is not src_b:
+            return False
+        try:
+            return src_a.outputs.index(a) == src_b.outputs.index(b)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _var_or_alias_is_input(var: Variable, op: Operation) -> bool:
+        for inp in op.inputs:
+            if LpNormalizationFusionPass._same_source(var, inp):
+                return True
+        return False
+
+    def _fuse_from_reduce_l2(self, graph: BaseGraph) -> None:
+        for op in list(graph.operations.values()):
+            if op.type != 'ReduceL2':
+                continue
+            self._try_chain_from_reduce_l2(graph, op)
+
+    def _try_chain_from_reduce_l2(self, graph: BaseGraph, reduce_op: Operation) -> None:
+        # ReduceL2 must have input X (the tensor to normalize)
+        if reduce_op.num_of_input < 1:
+            return
+        in_x = reduce_op.inputs[0]
+        if in_x.is_parameter:
+            return
+
+        # ReduceL2 → Clip (clip norm to a minimum to avoid division by zero)
+        reduce_out = reduce_op.outputs[0]
+        if len(reduce_out.dest_ops) != 1:
+            return
+        clip_op = reduce_out.dest_ops[0]
+        if clip_op.type != 'Clip':
+            return
+
+        # Clip → Expand (broadcast norm back to original shape)
+        clip_out = clip_op.outputs[0]
+        if len(clip_out.dest_ops) != 1:
+            return
+        expand_op = clip_out.dest_ops[0]
+        if expand_op.type != 'Expand':
+            return
+
+        # Expand → Div, and Div also consumes in_x
+        expand_out = expand_op.outputs[0]
+        div_op = None
+        for dest in expand_out.dest_ops:
+            if dest.type == 'Div':
+                div_op = dest
+                break
+        if div_op is None:
+            return
+
+        if not self._var_or_alias_is_input(in_x, div_op):
+            return
+        if not self._var_or_alias_is_input(expand_out, div_op):
+            return
+
+        # ---- extract axis from ReduceL2 ----
+        axes = reduce_op.attributes.get('axes', None)
+        if axes is None:
+            for inp in reduce_op.inputs[1:]:
+                if inp.value is not None:
+                    try:
+                        val = inp.value
+                        if hasattr(val, 'tolist'):
+                            axes = val.tolist()
+                        else:
+                            axes = list(val)
+                        break
+                    except Exception:
+                        pass
+        if axes is None:
+            return
+
+        if isinstance(axes, (list, tuple)):
+            axis = axes[0] if len(axes) > 0 else -1
+        else:
+            axis = axes
+
+        # ---- build fused op ----
+        output_var = div_op.outputs[0]
+
+        # Update in_x's dest_ops
+        if reduce_op in in_x.dest_ops:
+            in_x.dest_ops.remove(reduce_op)
+        if div_op in in_x.dest_ops:
+            in_x.dest_ops.remove(div_op)
+
+        lpnorm_op = graph.create_operation(
+            op_type='LpNormalization',
+            name=div_op.name + '_lpnorm',
+            attributes={'axis': int(axis), 'p': 2},
+            platform=div_op.platform,
+            inputs=[in_x],
+            outputs=[output_var],
+        )
+        output_var.source_op = lpnorm_op
+
+        # ---- remove old ops ----
+        ops_to_remove = [reduce_op, clip_op, expand_op, div_op]
+        vars_to_remove = []
+        for old_op in ops_to_remove:
+            for var in old_op.outputs:
+                if var is not output_var:
+                    vars_to_remove.append(var)
+
+        for old_op in ops_to_remove:
+            if old_op.name not in graph.operations:
+                continue
+            for inp in old_op.inputs.copy():
+                try:
+                    inp.dest_ops.remove(old_op)
+                except ValueError:
+                    pass
+            for out in old_op.outputs.copy():
+                if out is not output_var:
+                    out.source_op = None
+            old_op.inputs.clear()
+            old_op.outputs.clear()
+            graph.operations.pop(old_op.name)
+
+        for var in vars_to_remove:
+            if var.name in graph.variables and var.source_op is None and len(var.dest_ops) == 0:
+                graph.variables.pop(var.name)
+
+
 class QuantizeSimplifyPass(QuantizationOptimizationPass):
     """
     ## PPQ Quantize Simplify Pass(通用量化精简过程)
@@ -855,7 +1017,6 @@ class RMSNormFusionPass(QuantizationOptimizationPass):
         except ValueError:
             return False
 
-    @staticmethod
     @staticmethod
     def _var_or_alias_is_input(var: Variable, op: Operation) -> bool:
         """Return True when *var* (or any alias sharing the same tensor) is an

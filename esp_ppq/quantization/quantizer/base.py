@@ -485,4 +485,8 @@ class BaseQuantizer(metaclass=ABCMeta):
         # (via executor.load_graph()) after the graph rewrite.
         list_of_passes.append(RMSNormFusionPass())
 
+        # LpNormalizationFusionPass fuses decomposed Lp norm subgraphs
+        # (ReduceL2 → Clip → Expand → Div) into a single LpNormalization op.
+        list_of_passes.append(LpNormalizationFusionPass())
+
         return QuantizationOptimizationPipeline(passes=list_of_passes)

@@ -91,6 +91,7 @@ OTHER_OP_SET = {
     "Expand",
     "LayerNorm",
     "LayerNormalization",
+    "LpNormalization",
     "RMSNormalization",
     "Max",
     "Min",

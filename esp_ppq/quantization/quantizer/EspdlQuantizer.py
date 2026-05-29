@@ -232,6 +232,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             "GlobalAveragePool",
             "Softmax",
             "LogSoftmax",
+            "LpNormalization",
             "Mul",
             "Add",
             "Max",
