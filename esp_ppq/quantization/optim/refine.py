@@ -137,6 +137,8 @@ class LpNormalizationFusionPass(QuantizationOptimizationPass):
             return
 
         if isinstance(axes, (list, tuple)):
+            if len(axes) != 1:
+                return  # LpNormalization normalizes along a single axis only
             axis = axes[0] if len(axes) > 0 else -1
         else:
             axis = axes
@@ -1156,9 +1158,28 @@ class RMSNormFusionPass(QuantizationOptimizationPass):
         if axes is None:
             return
         if isinstance(axes, (list, tuple)):
+            if len(axes) == 0:
+                return
             axis = axes[0] if len(axes) > 0 else -1
         else:
             axis = axes
+            axes = [axes]  # normalize scalar to list for validation below
+
+        # RMSNormalization normalizes over [axis, axis+1, ..., rank-1].
+        # Verify that the original ReduceMean axes exactly match this range.
+        if all(a < 0 for a in axes):
+            # All axes are negative: range must be [-len(axes), ..., -1]
+            if sorted(axes) != list(range(-len(axes), 0)):
+                return
+        elif in_x.shape is not None:
+            rank = len(in_x.shape)
+            resolved_axis = axis if axis >= 0 else rank + axis
+            expected_axes = list(range(resolved_axis, rank))
+            normalized_axes = [a if a >= 0 else rank + a for a in axes]
+            if sorted(normalized_axes) != sorted(expected_axes):
+                return
+        else:
+            return  # cannot validate positive axes without rank
 
         # ---- extract epsilon ----
         epsilon = 1e-5
@@ -1202,7 +1223,7 @@ class RMSNormFusionPass(QuantizationOptimizationPass):
         vars_to_remove = []
         for op in ops_to_remove:
             for var in op.outputs:
-                if var is not output_var and var is not norm_out:
+                if var is not output_var:
                     vars_to_remove.append(var)
 
         for op in ops_to_remove:

@@ -164,6 +164,8 @@ def test_espdl_pipeline():
 
         print('PASS: test_espdl_pipeline')
 
+    except AssertionError:
+        raise
     except Exception as e:
         print(f'SKIP: test_espdl_pipeline — environment limitation: {e}')
 

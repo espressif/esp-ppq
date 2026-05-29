@@ -208,7 +208,7 @@ def test_transpose_swish():
         nodes,
         'transpose_swish',
         [helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, 3, 8, 8])],
-        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 4, 8, 8])],
+        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 8, 8, 4])],
         initializer=initializers,
     )
     model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid('', 18)])
@@ -311,7 +311,7 @@ def test_multi_passthrough_swish():
     initializers += [
         helper.make_tensor('conv_w', TensorProto.FLOAT, [4, 3, 3, 3], conv_w.flatten()),
         helper.make_tensor('conv_b', TensorProto.FLOAT, [4], conv_b.flatten()),
-        helper.make_tensor('shape', TensorProto.INT64, [3], [1, 32, 4]),
+        helper.make_tensor('shape', TensorProto.INT64, [3], [1, 64, 4]),
     ]
     nodes.append(
         helper.make_node('Conv', ['input', 'conv_w', 'conv_b'], ['conv_out'], kernel_shape=[3, 3], pads=[1, 1, 1, 1])
@@ -325,7 +325,7 @@ def test_multi_passthrough_swish():
         nodes,
         'multi_passthrough',
         [helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, 3, 8, 8])],
-        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 32, 4])],
+        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 64, 4])],
         initializer=initializers,
     )
     model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid('', 18)])
@@ -392,7 +392,7 @@ def test_espdl_pipeline_swish():
         nodes,
         'pipeline_swish',
         [helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, 3, 8, 8])],
-        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 4, 8, 8])],
+        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 8, 8, 4])],
         initializer=initializers,
     )
     model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid('', 18)])

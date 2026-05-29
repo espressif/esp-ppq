@@ -109,7 +109,7 @@ def test_reciprocal_fusion_direct():
 
     # Verify intermediate ops were removed
     remaining_types = {op.type for op in graph.operations.values()}
-    for removed in ('Pow', 'Reciprocal', 'Add'):
+    for removed in ('Pow', 'Reciprocal', 'Add', 'Sqrt'):
         assert removed not in remaining_types, f'{removed} should have been removed by fusion'
 
     os.unlink(onnx_path)
@@ -187,6 +187,8 @@ def test_espdl_quantize_torch_with_rmsnorm():
 
         print('PASS: test_espdl_quantize_torch_with_rmsnorm')
 
+    except AssertionError:
+        raise
     except Exception as e:
         print(f'SKIP: test_espdl_quantize_torch_with_rmsnorm — environment limitation: {e}')
 

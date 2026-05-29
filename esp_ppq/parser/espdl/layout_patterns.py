@@ -414,8 +414,10 @@ class FuseTransposeActivationPattern(OperationExporter):
         perm2 = transpose2_op.attributes["perm"]
         fused_perm = transpose_shape(perm1, perm2)
 
-        # Remove the first Transpose, connecting its input to the Activation
-        graph = fuse_downstream_operation(graph, op, keep_coherence=True)
+        # Remove the first Transpose, connecting its input to the Activation.
+        # Use remove_operation (not fuse_downstream_operation) to avoid
+        # destroying the input variable when it has other consumers.
+        graph.remove_operation(op, keep_coherence=True)
         transpose2_op.attributes["perm"] = fused_perm
 
         if fused_perm == [i for i in range(len(fused_perm))]:
