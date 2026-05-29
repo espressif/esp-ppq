@@ -21,6 +21,7 @@ from esp_ppq.parser.espdl.espdl_graph_utils import (
     transpose_shape,
 )
 from esp_ppq.parser.espdl.espdl_typedef import (
+    ACTIVATION_OP_SET,
     ADD_LIKE_OP_SET,
     AXIS_TRANSFORM_OP_SET,
     CONV_LAYOUT_OP_SET,
@@ -379,6 +380,51 @@ class ResetResizePattern(OperationExporter):
         return op
 
 
+class FuseTransposeActivationPattern(OperationExporter):
+    """
+    Fuse Transpose -> Activation -> Transpose pattern.
+    Remove the first Transpose, fuse its perm into the second Transpose.
+    If the fused perm is identity, remove the second Transpose as well.
+    """
+
+    def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.name not in graph.operations:
+            return op
+
+        if op.type != "Transpose":
+            return op
+
+        downstream_ops = graph.get_downstream_operations(op)
+        if len(downstream_ops) != 1:
+            return op
+
+        activation_op = downstream_ops[0]
+        if activation_op.type not in ACTIVATION_OP_SET or activation_op.type == 'PRelu':
+            return op
+
+        activation_downstream = graph.get_downstream_operations(activation_op)
+        if len(activation_downstream) != 1 or activation_downstream[0].type != "Transpose":
+            return op
+
+        transpose2_op = activation_downstream[0]
+        if transpose2_op.name not in graph.operations:
+            return op
+
+        perm1 = op.attributes["perm"]
+        perm2 = transpose2_op.attributes["perm"]
+        fused_perm = transpose_shape(perm1, perm2)
+
+        # Remove the first Transpose, connecting its input to the Activation
+        graph = fuse_downstream_operation(graph, op, keep_coherence=True)
+        transpose2_op.attributes["perm"] = fused_perm
+
+        if fused_perm == [i for i in range(len(fused_perm))]:
+            # Fused to identity, remove the second Transpose as well
+            graph.remove_operation(transpose2_op, keep_coherence=True)
+
+        return op
+
+
 class FuseTransposePattern(OperationExporter):
     """
     Fuse Transpose Pattern
@@ -451,6 +497,11 @@ def reset_graph_layout(graph: BaseGraph):
                 break
         if flag:
             logger.error(f"Can not reset {op.type}:{op.name} layout")
+
+    # fuse Transpose -> Activation -> Transpose
+    pattern = FuseTransposeActivationPattern()
+    for op in graph.topological_sort():
+        pattern.export(op, graph)
 
     # fuse transpose op
     pattern = FuseTransposePattern()
