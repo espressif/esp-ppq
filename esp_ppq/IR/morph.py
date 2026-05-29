@@ -2,7 +2,13 @@ from typing import Any, List
 
 import torch
 
-from esp_ppq.core import DataType, convert_any_to_python_primary_type, convert_any_to_torch_tensor, ppq_warning
+from esp_ppq.core import (
+    PASSIVE_OPERATIONS,
+    DataType,
+    convert_any_to_python_primary_type,
+    convert_any_to_torch_tensor,
+    ppq_warning,
+)
 from esp_ppq.IR.search import SearchableGraph
 
 from .base.command import (
@@ -976,27 +982,39 @@ class GraphMerger(GraphCommandProcessor):
     def fuse_swish(self):
         """
         Fuse Pattern like Sigmoid + Mul to Swish.
+        Accepts a layout-passthrough op (Transpose, Reshape, etc.) between
+        the computing op and the Swish subgraph.
         """
         search_engine = SearchableGraph(graph=self.graph)
         patterns = search_engine.pattern_matching(
-            patterns=[lambda x: x.is_computing_op, 'Sigmoid', 'Mul'], edges=[[0, 1], [1, 2], [0, 2]], exclusive=True
+            patterns=[lambda x: x.is_computing_op or x.type in PASSIVE_OPERATIONS, 'Sigmoid', 'Mul'],
+            edges=[[0, 1], [1, 2], [0, 2]],
+            exclusive=True,
         )
 
         for pattern in patterns:
-            computing, sigmoid, mul = pattern
+            src, sigmoid, mul = pattern
+
+            # The single variable connecting src → sigmoid → mul.
+            # Capture it before any graph mutation so we are robust
+            # against src having multiple outputs (e.g. Split, MaxPool
+            # with indices).
+            sigmoid_in = sigmoid.inputs[0]
+            mul_outs = mul.outputs.copy()
+            if sigmoid_in not in src.outputs or sigmoid_in not in mul.inputs:
+                continue  # edge constraint violated — skip
 
             for var in sigmoid.outputs:
                 self.graph.remove_variable(var)
             self.graph.remove_operation(sigmoid)
-
-            input_vars = computing.outputs.copy()
-            output_vars = mul.outputs.copy()
-
             self.graph.remove_operation(mul)
+
             self.graph.create_operation(
-                op_type='Swish', inputs=input_vars, outputs=output_vars, name=f'{computing.name}/Swish'
+                op_type='Swish',
+                inputs=[sigmoid_in],
+                outputs=mul_outs,
+                name=f'{src.name}/Swish',
             )
-            assert len(input_vars) == 1, 'Fusion failed, Pattern unrecognized.'
 
     def fuse_bias_add(self):
         """

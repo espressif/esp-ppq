@@ -308,7 +308,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
         Returns:
             set: _description_
         """
-        return {"Relu", "Clip"}
+        return {"Relu", "Clip", "Swish"}
 
     @property
     def custom_tqc(self) -> dict | None:
