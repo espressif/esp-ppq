@@ -12,6 +12,8 @@ from esp_ppq.core.common import (
     FORMATTER_FORMAT_CONSTANT_INPUT,
     FORMATTER_FUSE_BIAS_ADD,
     FORMATTER_FUSE_BN,
+    FORMATTER_FUSE_LP_NORMALIZATION,
+    FORMATTER_FUSE_RMSNORM,
     FORMATTER_FUSE_SWISH,
     FORMATTER_REMOVE_IDENTITY,
     FORMATTER_REMOVE_ISOLATED,
@@ -560,6 +562,12 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
 
     if FORMATTER_FUSE_SWISH:
         formatter(GraphCommand(GraphCommandType.FUSE_SWISH))
+
+    if FORMATTER_FUSE_RMSNORM:
+        formatter(GraphCommand(GraphCommandType.FUSE_RMSNORM))
+
+    if FORMATTER_FUSE_LP_NORMALIZATION:
+        formatter(GraphCommand(GraphCommandType.FUSE_LP_NORMALIZATION))
 
     formatter(GraphCommand(GraphCommandType.FORMAT_CAST))
     formatter(GraphCommand(GraphCommandType.FORMAT_SLICE))

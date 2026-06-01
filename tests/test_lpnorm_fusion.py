@@ -18,7 +18,7 @@ import torch.nn as nn
 
 from esp_ppq import TargetPlatform, TorchExecutor
 from esp_ppq.api import load_onnx_graph
-from esp_ppq.quantization.optim.refine import LpNormalizationFusionPass
+from esp_ppq.IR import GraphMerger
 
 
 def _export_model_to_onnx(model: nn.Module, input_shape, opset=11) -> str:
@@ -74,8 +74,7 @@ def test_fusion_direct():
     dispatch_graph(graph, platform=TargetPlatform.ESPDL_INT8, dispatcher='conservative')
 
     # Run fusion
-    fusion_pass = LpNormalizationFusionPass()
-    fusion_pass.optimize(graph)
+    GraphMerger(graph).fuse_lp_normalization()
 
     assert _has_lpnorm_ops(graph), (
         f'Expected LpNormalization op after fusion. Ops: {[op.type for op in graph.operations.values()]}'
@@ -107,8 +106,7 @@ def test_forward_correctness():
     ref_output = executor_before.forward(inputs=test_input)
 
     # Run fusion
-    fusion_pass = LpNormalizationFusionPass()
-    fusion_pass.optimize(graph)
+    GraphMerger(graph).fuse_lp_normalization()
 
     assert _has_lpnorm_ops(graph)
 

@@ -18,7 +18,7 @@ from esp_ppq.api import load_onnx_graph
 from esp_ppq.api.espdl_interface import espdl_quantize_torch
 from esp_ppq.api.setting import QuantizationSettingFactory
 from esp_ppq.core import ppq_warning
-from esp_ppq.quantization.optim.refine import RMSNormFusionPass
+from esp_ppq.IR import GraphMerger
 
 
 def _export_model_to_onnx(model: nn.Module, input_shape, opset=11) -> str:
@@ -90,8 +90,9 @@ def test_reciprocal_fusion_direct():
     graph = load_onnx_graph(onnx_path)
     assert graph is not None
 
-    # Verify decomposed pattern exists before fusion
-    assert not _has_rmsnorm_ops(graph), 'Should not have RMSNormalization before fusion'
+    # NOTE: RMSNorm fusion is enabled by default in format_graph (invoked by
+    # load_onnx_graph), so the subgraph is already fused at this point. The
+    # explicit fuse_rmsnorm() call below is therefore idempotent.
 
     # Dispatch to a quantizable platform
     from esp_ppq.api import dispatch_graph
@@ -99,8 +100,7 @@ def test_reciprocal_fusion_direct():
     dispatch_graph(graph, platform=TargetPlatform.ESPDL_INT8, dispatcher='conservative')
 
     # Run fusion
-    fusion_pass = RMSNormFusionPass()
-    fusion_pass.optimize(graph)
+    GraphMerger(graph).fuse_rmsnorm()
 
     # Verify fusion result
     assert _has_rmsnorm_ops(graph), (
@@ -124,14 +124,14 @@ def test_div_fusion_direct():
     graph = load_onnx_graph(onnx_path)
     assert graph is not None
 
-    assert not _has_rmsnorm_ops(graph), 'Should not have RMSNormalization before fusion'
+    # RMSNorm fusion is enabled by default in format_graph (see load_onnx_graph),
+    # so the subgraph is already fused here; fuse_rmsnorm() below is idempotent.
 
     from esp_ppq.api import dispatch_graph
 
     dispatch_graph(graph, platform=TargetPlatform.ESPDL_INT8, dispatcher='conservative')
 
-    fusion_pass = RMSNormFusionPass()
-    fusion_pass.optimize(graph)
+    GraphMerger(graph).fuse_rmsnorm()
 
     assert _has_rmsnorm_ops(graph), f'Expected RMSNormalization op after fusion. Ops: {list(graph.operations.keys())}'
 
@@ -210,8 +210,7 @@ def test_rmsnorm_forward_correctness():
     ref_output = executor_before.forward(inputs=test_input)
 
     # Run fusion
-    fusion_pass = RMSNormFusionPass()
-    fusion_pass.optimize(graph)
+    GraphMerger(graph).fuse_rmsnorm()
 
     assert _has_rmsnorm_ops(graph)
 

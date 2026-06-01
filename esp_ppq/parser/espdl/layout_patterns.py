@@ -25,6 +25,7 @@ from esp_ppq.parser.espdl.espdl_typedef import (
     ADD_LIKE_OP_SET,
     AXIS_TRANSFORM_OP_SET,
     CONV_LAYOUT_OP_SET,
+    LP_NORM_OP_SET,
     OTHER_OP_SET,
     PASSIVE_LAYOUT_OP_SET,
     REDUCE_OP_SET,
@@ -169,9 +170,13 @@ class BypassAddLikePattern(OperationExporter):
                 else:
                     target_perm = self._choose_target_perm(input1_perm, input2_perm, len(output.shape))
                     if input1_perm != target_perm:
-                        insert_transpose_node(graph, input1, op, target_perm)
+                        inverse_perm = get_inverse_transpose(input1_perm)
+                        new_perm = transpose_shape(inverse_perm, target_perm)
+                        insert_transpose_node(graph, input1, op, new_perm)
                     if input2_perm != target_perm:
-                        insert_transpose_node(graph, input2, op, target_perm)
+                        inverse_perm = get_inverse_transpose(input2_perm)
+                        new_perm = transpose_shape(inverse_perm, target_perm)
+                        insert_transpose_node(graph, input2, op, new_perm)
                     info.add_var_permute(output.name, target_perm)
             elif input2.is_parameter:
                 # output inherits non-parameter input's perm; parameter is layout-agnostic
@@ -194,8 +199,11 @@ class AxisTransformPattern(OperationExporter):
         var_perm = info.get_var_permute(input.name)
         if var_perm and var_perm != get_default_perm(input):
             # There is already a permute, change axis accordingly
-            if op.type in SOFTMAX_LIKE_OP_SET:
-                axis = (int(op.attributes["axis"]) + len(var_perm)) % len(var_perm)
+            if op.type in SOFTMAX_LIKE_OP_SET or op.type in LP_NORM_OP_SET:
+                # Softmax, LogSoftmax, and LpNormalization default axis to -1;
+                # ONNX Split defaults to 0.
+                default_axis = 0 if op.type == 'Split' else -1
+                axis = (int(op.attributes.get("axis", default_axis)) + len(var_perm)) % len(var_perm)
                 new_axis = var_perm.index(axis)
                 op.attributes["axis"] = new_axis
             elif op.type in REDUCE_OP_SET:
@@ -451,6 +459,11 @@ class FuseTransposeActivationPattern(OperationExporter):
         # Use remove_operation (not fuse_downstream_operation) to avoid
         # destroying the input variable when it has other consumers.
         graph.remove_operation(op, keep_coherence=True)
+
+        # Activation is element-wise; its output shape must match its (new) input shape.
+        for out_var in activation_op.outputs:
+            out_var.shape = activation_op.inputs[0].shape
+
         transpose2_op.attributes["perm"] = fused_perm
 
         if fused_perm == [i for i in range(len(fused_perm))]:

@@ -91,7 +91,6 @@ OTHER_OP_SET = {
     "Expand",
     "LayerNorm",
     "LayerNormalization",
-    "LpNormalization",
     "RMSNormalization",
     "Max",
     "Min",
@@ -105,6 +104,8 @@ OTHER_OP_SET = {
 }
 
 SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax", "Split"}
+# Ops that normalize/operate along a single `axis` attribute, transformed like softmax.
+LP_NORM_OP_SET = {"LpNormalization"}
 REDUCE_OP_SET = {
     "ReduceL1",
     "ReduceL2",
@@ -117,7 +118,7 @@ REDUCE_OP_SET = {
     "ReduceLogSum",
     "ReduceLogSumExp",
 }
-AXIS_TRANSFORM_OP_SET = SOFTMAX_LIKE_OP_SET | REDUCE_OP_SET
+AXIS_TRANSFORM_OP_SET = SOFTMAX_LIKE_OP_SET | LP_NORM_OP_SET | REDUCE_OP_SET
 # QUANT_EXCLUDE_OP_SET refers to operators that do not participate
 # in the operations of quantize, dequantize, or requantize.
 QUANT_EXCLUDE_OP_SET = {"Shape"}
