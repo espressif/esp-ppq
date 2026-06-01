@@ -1438,9 +1438,24 @@ class GraphDecomposer(GraphCommandProcessor):
             # Flip all spatial dimensions (dims 2 and above)
             spatial_dims_indices = list(range(2, weight_dim))
             weight_flipped = torch.flip(weight_value, dims=spatial_dims_indices)
-            # Transpose input/output channels: ConvTranspose weight shape is [C_in, C_out, *spatial]
-            # Conv weight shape is [C_out, C_in, *spatial]
-            weight_for_conv = weight_flipped.transpose(0, 1).contiguous()
+            # Swap input/output channels, group-aware.
+            # ConvTranspose weight shape is [C_in, C_out / group, *spatial];
+            # the equivalent Conv weight shape is [C_out, C_in / group, *spatial].
+            # A plain transpose(0, 1) is only correct for group == 1; for grouped/depthwise
+            # ConvTranspose it yields the wrong shape ([C_out / group, C_in, *spatial]) and the
+            # following Conv fails (e.g. "Given groups=G, expected weight to be at least G at
+            # dimension 0, but got weight of size [1, C_in, ...]"). Do the swap within each group.
+            c_in = weight_flipped.shape[0]
+            c_out_per_group = weight_flipped.shape[1]
+            spatial = list(weight_flipped.shape[2:])
+            c_in_per_group = c_in // group
+            c_out = c_out_per_group * group
+            weight_for_conv = (
+                weight_flipped.reshape(group, c_in_per_group, c_out_per_group, *spatial)
+                .transpose(1, 2)
+                .reshape(c_out, c_in_per_group, *spatial)
+                .contiguous()
+            )
 
             # Update original weight variable for Conv
             weight_var.value = weight_for_conv
