@@ -410,6 +410,14 @@ def make_tensor(
         raise ValueError(
             f"Number of values does not match tensor's size. Expected {expected_size}, but it is {len(vals)}. "
         )
+    # Coerce rank-0 (scalar) tensors to shape [1]. esp-dl's fbs loader
+    # (FbsModel::get_operation_parameter) reads a tensor's data using its dims and crashes with a
+    # null-pointer LoadProhibited (EXCVADDR=0x0) during Model::load() when dims is empty. Scalar
+    # params occur for e.g. the scale/zero_point of QuantizeLinear/RequantizeLinear ops inserted at
+    # branch-boundary scale changes. This mirrors the rank-0 -> [1] coercion already applied to test
+    # input/output values above.
+    if len(dims) == 0:
+        dims = [1]
     dims = builder.CreateNumpyVector(np.array(dims, dtype=np.int64))
     exponents = builder.CreateNumpyVector(np.array(exponents, dtype=np.int64))
     if doc_string:
