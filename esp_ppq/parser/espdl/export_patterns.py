@@ -121,12 +121,17 @@ class InsertQuantNodePattern(OperationExporter):
                             == QuantizationStates.FP32
                         ) and var.source_op.type not in QUANT_EXCLUDE_OP_SET:
                             logger.debug(f"Insert Quantize Node for {op.name}:{var.name}")
-                            insert_quantize_node(
+                            created = insert_quantize_node(
                                 graph=graph,
                                 var=inserting_var,
                                 config=config,
                                 op=inserting_op,
                             )
+                            if created:
+                                info = ExporterPatternInfo()
+                                var_perm = info.get_var_permute(inserting_var.name)
+                                if var_perm:
+                                    info.add_var_permute(created.outputs[0].name, var_perm)
         return op
 
 
@@ -159,13 +164,18 @@ class InsertRequantNodePattern(OperationExporter):
                         ):
                             # if config
                             logger.debug(f"Insert Requantize Node for {op.name}:{var.name}")
-                            insert_requantize_node(
+                            created = insert_requantize_node(
                                 graph=graph,
                                 var=inserting_var,
                                 upstream_config=source_op_output_config,
                                 config=config,
                                 op=inserting_op,
                             )
+                            if created:
+                                info = ExporterPatternInfo()
+                                var_perm = info.get_var_permute(inserting_var.name)
+                                if var_perm:
+                                    info.add_var_permute(created.outputs[0].name, var_perm)
 
         return op
 
@@ -190,12 +200,17 @@ class InsertDequantNodePattern(OperationExporter):
                             and dest_op.type not in QUANT_EXCLUDE_OP_SET
                         ):
                             logger.debug(f"Insert Dequantize Node for {op.name}:{var.name}")
-                            insert_dequantize_node(
+                            created = insert_dequantize_node(
                                 graph=graph,
                                 var=inserting_var,
                                 config=config,
                                 op=dest_op,
                             )
+                            if created:
+                                info = ExporterPatternInfo()
+                                var_perm = info.get_var_permute(inserting_var.name)
+                                if var_perm:
+                                    info.add_var_permute(created.outputs[0].name, var_perm)
         return op
 
 

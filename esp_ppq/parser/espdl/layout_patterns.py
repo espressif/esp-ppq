@@ -119,6 +119,33 @@ class BypassAddLikePattern(OperationExporter):
     two input and one output,
     """
 
+    @staticmethod
+    def _choose_target_perm(perm1, perm2, ndim):
+        """Choose target perm, preferring NHWC layout over identity."""
+        if ndim == 4:
+            nhwc = [0, 2, 3, 1]
+        elif ndim == 3:
+            nhwc = [0, 2, 1]
+        else:
+            nhwc = None
+
+        # Prefer NHWC if exactly one side has it
+        nhwc1 = nhwc is not None and perm1 == nhwc
+        nhwc2 = nhwc is not None and perm2 == nhwc
+        if nhwc1 and not nhwc2:
+            return perm1
+        if nhwc2 and not nhwc1:
+            return perm2
+
+        # Prefer non-identity over identity
+        default = [i for i in range(ndim)]
+        if perm1 != default and perm2 == default:
+            return perm1
+        if perm2 != default and perm1 == default:
+            return perm2
+
+        return perm1
+
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         if op.type in ADD_LIKE_OP_SET:
             info = ExporterPatternInfo()
@@ -127,24 +154,30 @@ class BypassAddLikePattern(OperationExporter):
             output = op.outputs[0]
             input1_perm = info.get_var_permute(input1.name)
             input2_perm = info.get_var_permute(input2.name)
-            output_perm = None
+
+            # Normalize None perms to default identity before comparison
+            if not input1.is_parameter and input1_perm is None:
+                input1_perm = get_default_perm(input1)
+                info.add_var_permute(input1.name, input1_perm)
+            if not input2.is_parameter and input2_perm is None:
+                input2_perm = get_default_perm(input2)
+                info.add_var_permute(input2.name, input2_perm)
+
             if not input1.is_parameter and not input2.is_parameter:
                 if input1_perm == input2_perm:
-                    if input1_perm:
-                        # using upstream's perm
-                        output_perm = input1_perm
-                    else:
-                        # input1_perm is None, add new perm
-                        info.add_var_permute(input1.name, get_default_perm(input1))
-                        info.add_var_permute(input2.name, get_default_perm(input2))
-                        output_perm = get_default_perm(output)
-                    # logger.debug(f"{info.get_var_permute(input1.name)}, {info.get_var_permute(input2.name)}, {output_perm}")
-                    info.add_var_permute(output.name, output_perm)
+                    info.add_var_permute(output.name, input1_perm)
                 else:
-                    # insert transpose node and restore origin shape
-                    return restore_origin_shape(op, graph)
-            elif input2.is_parameter or input1.is_parameter:
-                return restore_origin_shape(op, graph)
+                    target_perm = self._choose_target_perm(input1_perm, input2_perm, len(output.shape))
+                    if input1_perm != target_perm:
+                        insert_transpose_node(graph, input1, op, target_perm)
+                    if input2_perm != target_perm:
+                        insert_transpose_node(graph, input2, op, target_perm)
+                    info.add_var_permute(output.name, target_perm)
+            elif input2.is_parameter:
+                # output inherits non-parameter input's perm; parameter is layout-agnostic
+                info.add_var_permute(output.name, input1_perm)
+            elif input1.is_parameter:
+                info.add_var_permute(output.name, input2_perm)
 
         return op
 

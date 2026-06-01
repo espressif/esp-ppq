@@ -133,12 +133,12 @@ class EspdlExporter(GraphExporter):
         exporter_patterns = {
             "pre_patterns": [
                 FuseReluLikePattern,
-                InsertQuantNodePattern,
-                InsertRequantNodePattern,
-                InsertDequantNodePattern,
                 InsertPreNodeOfMatMulPattern,
             ],
             "post_patterns": [
+                InsertQuantNodePattern,
+                InsertRequantNodePattern,
+                InsertDequantNodePattern,
                 InsertQuantTypePattern,
                 QuantVariableToIntPattern,
                 ResetParamLayoutPattern,
