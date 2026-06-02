@@ -169,7 +169,7 @@ def espdl_quantize_onnx(
     num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
-    dispatching_method: str = "conservative",
+    dispatching_method: str = "allin",
     setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
@@ -244,7 +244,7 @@ def espdl_quantize_onnx(
         dummy_inputs = get_random_inputs(input_shape, input_dtype, device)
 
     if target_platform != TargetPlatform.FP32:
-        if dispatching_override is not None or dispatching_method != "conservative":
+        if dispatching_override is not None or dispatching_method != "allin":
             logger.warning(
                 "It is recommended to use the setting parameter. The dispatching_override and dispatching_method will be deprecated."
             )
@@ -252,7 +252,7 @@ def espdl_quantize_onnx(
         if setting is None:
             setting = QuantizationSettingFactory.espdl_setting()
 
-        if dispatching_method != "conservative":
+        if dispatching_method != "allin":
             setting.dispatcher = dispatching_method
 
         if dispatching_override is not None:
@@ -334,7 +334,7 @@ def espdl_quantize_torch(
     num_of_bits: int = 8,
     collate_fn: Callable = None,
     dispatching_override: Dict[str, TargetPlatform] = None,
-    dispatching_method: str = "conservative",
+    dispatching_method: str = "allin",
     setting: QuantizationSetting = None,
     device: str = "cpu",
     error_report: bool = True,
