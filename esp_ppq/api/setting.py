@@ -544,6 +544,7 @@ class QuantizationSettingFactory:
         default_setting.quantize_activation_setting.calib_algorithm = 'kl'
         default_setting.fusion_setting.align_elementwise_to = 'Align to Output'
         default_setting.fusion_setting.force_alignment_overlap = False
+        default_setting.dispatcher = "allin"
         default_setting.quant_config_modify = False
         return default_setting
 

@@ -495,7 +495,7 @@ class EspdlExporter(GraphExporter):
                     logger.error(f"{variable.name} permute do not match shape")
                 var_shape = transpose_shape(var_shape, perm)
             elif var_shape is not None and len(var_shape) == 0:
-                var_shape = torch.tensor([1]).shape
+                pass  # keep scalar shape as []
 
         # if variable not in exponents, set exponent to 0
         var_exponents = exponent
@@ -520,7 +520,6 @@ class EspdlExporter(GraphExporter):
                     value = [
                         value.item(),
                     ]  # it is fine for onnx, shape for this value will be []
-                    var_shape = torch.tensor(value).shape
                     is_raw_format = True
             else:
                 value = value  # value is python primary type.

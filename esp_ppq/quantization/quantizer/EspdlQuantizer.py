@@ -150,6 +150,9 @@ class BaseEspdlQuantizer(BaseQuantizer):
             for index in range(len(operation.inputs)):
                 if not operation.inputs[index].name:
                     base_quant_config.input_quantization_config[index].state = QuantizationStates.FP32
+        elif operation.type == "RMSNormalization":
+            if operation.num_of_input > 1:
+                base_quant_config.input_quantization_config[1].state = QuantizationStates.FP32
         elif operation.type in {"Softmax", "LogSoftmax"}:
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
 
