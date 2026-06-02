@@ -168,6 +168,12 @@ class BypassAddLikePattern(OperationExporter):
                 if input1_perm == input2_perm:
                     info.add_var_permute(output.name, input1_perm)
                 else:
+                    # When inputs have different ranks (broadcasting),
+                    # fall back to restoring original shapes since a
+                    # transpose cannot bridge different numbers of dimensions.
+                    if len(input1_perm) != len(input2_perm):
+                        return restore_origin_shape(op, graph)
+
                     target_perm = self._choose_target_perm(input1_perm, input2_perm, len(output.shape))
                     if input1_perm != target_perm:
                         inverse_perm = get_inverse_transpose(input1_perm)

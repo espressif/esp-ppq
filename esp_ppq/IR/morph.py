@@ -1287,9 +1287,9 @@ class GraphMerger(GraphCommandProcessor):
         for op in list(self.graph.operations.values()):
             if op.type != 'Pow':
                 continue
-            self._try_fuse_fuse_rmsnorm(op)
+            self._try_fuse_rmsnorm(op)
 
-    def _try_fuse_fuse_rmsnorm(self, pow_op: Operation) -> None:
+    def _try_fuse_rmsnorm(self, pow_op: Operation) -> None:
         graph = self.graph
         # Must have exactly 2 inputs: the tensor X and the exponent constant
         if pow_op.num_of_input != 2:
@@ -1415,7 +1415,7 @@ class GraphMerger(GraphCommandProcessor):
         if isinstance(axes, (list, tuple)):
             if len(axes) == 0:
                 return
-            axis = axes[0] if len(axes) > 0 else -1
+            axis = min(axes) if len(axes) > 0 else -1
         else:
             axis = axes
             axes = [axes]  # normalize scalar to list for validation below
@@ -1588,7 +1588,7 @@ class GraphMerger(GraphCommandProcessor):
         if isinstance(axes, (list, tuple)):
             if len(axes) != 1:
                 return  # LpNormalization normalizes along a single axis only
-            axis = axes[0] if len(axes) > 0 else -1
+            axis = min(axes) if len(axes) > 0 else -1
         else:
             axis = axes
 

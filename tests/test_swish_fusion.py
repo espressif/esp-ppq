@@ -43,6 +43,14 @@ from esp_ppq.quantization.optim.refine import QuantizeFusionPass
 # ONNX model builders — manually constructed so PyTorch's exporter doesn't
 # pre-fuse ``x * sigmoid(x)`` into a native Swish node.
 # ---------------------------------------------------------------------------
+def _compute_output_shape(shape, op_type, attr):
+    """Return the output shape after applying a passthrough operation."""
+    if op_type == 'Transpose':
+        perm = attr.get('perm', list(range(len(shape))))
+        return [shape[p] for p in perm]
+    return shape
+
+
 def _make_swish_onnx(op_before_mul=None, op_before_sigmoid=None):
     """Build an ONNX model with decomposed Swish::
 
@@ -70,6 +78,7 @@ def _make_swish_onnx(op_before_mul=None, op_before_sigmoid=None):
     value_infos.append(helper.make_tensor_value_info('conv_out', TensorProto.FLOAT, [1, 4, 8, 8]))
     current_sig_var = 'conv_out'
     current_mul_var = 'conv_out'
+    current_shape = [1, 4, 8, 8]
 
     if op_before_sigmoid:
         op_type, attr = op_before_sigmoid
@@ -78,13 +87,16 @@ def _make_swish_onnx(op_before_mul=None, op_before_sigmoid=None):
         value_infos.append(helper.make_tensor_value_info('pre_sig_out', TensorProto.FLOAT, None))
         current_sig_var = 'pre_sig_out'
         current_mul_var = 'pre_sig_out'
+        current_shape = _compute_output_shape(current_shape, op_type, attr)
 
     if op_before_mul:
         op_type, attr = op_before_mul
         n = helper.make_node(op_type, [current_mul_var], ['pre_mul_out'], **attr)
         nodes.append(n)
         value_infos.append(helper.make_tensor_value_info('pre_mul_out', TensorProto.FLOAT, None))
+        current_sig_var = 'pre_mul_out'
         current_mul_var = 'pre_mul_out'
+        current_shape = _compute_output_shape(current_shape, op_type, attr)
 
     nodes.append(helper.make_node('Sigmoid', [current_sig_var], ['sig_out']))
     value_infos.append(helper.make_tensor_value_info('sig_out', TensorProto.FLOAT, None))
@@ -94,7 +106,7 @@ def _make_swish_onnx(op_before_mul=None, op_before_sigmoid=None):
         nodes,
         'swish_test',
         [helper.make_tensor_value_info('input', TensorProto.FLOAT, [1, 3, 8, 8])],
-        [helper.make_tensor_value_info('output', TensorProto.FLOAT, [1, 4, 8, 8])],
+        [helper.make_tensor_value_info('output', TensorProto.FLOAT, current_shape)],
         initializer=initializers,
         value_info=value_infos,
     )
