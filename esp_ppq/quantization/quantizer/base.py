@@ -479,4 +479,8 @@ class BaseQuantizer(metaclass=ABCMeta):
         if setting.convtranspose_decomposition:
             list_of_passes.append(ConvTransposeDecompositionPass())
 
+        # NOTE: RMSNorm / Lp normalization subgraph fusion now happens during
+        # graph formatting (GraphMerger.fuse_rmsnorm / fuse_lp_normalization,
+        # enabled by default via FORMATTER_FUSE_RMSNORM / FORMATTER_FUSE_LP_NORMALIZATION).
+
         return QuantizationOptimizationPipeline(passes=list_of_passes)

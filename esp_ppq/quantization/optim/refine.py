@@ -237,11 +237,10 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
             if 'Swish' in self.activation_types:
                 search_engine = SearchableGraph(graph)
                 patterns = search_engine.pattern_matching(
-                    patterns=[lambda x: x.is_computing_op, 'Sigmoid', 'Mul'],
+                    patterns=[lambda x: x.is_computing_op or x.type in PASSIVE_OPERATIONS, 'Sigmoid', 'Mul'],
                     edges=[[0, 1], [1, 2], [0, 2]],
                     exclusive=True,
                 )
-
                 for pattern in patterns:
                     if any([not isinstance(op, QuantableOperation) for op in pattern]):
                         ppq_warning(
@@ -257,18 +256,25 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                             'so that graph fusion can not merge their quantization configuration.'
                         )
                         continue
-                    computing, sigmoid, mul = pattern
+                    src, sigmoid, mul = pattern
 
-                    assert isinstance(computing, QuantableOperation)
                     assert isinstance(sigmoid, QuantableOperation)
                     assert isinstance(mul, QuantableOperation)
 
                     master_config = mul.config.output_quantization_config[0]
-                    computing.config.output_quantization_config[0].dominated_by = master_config
                     sigmoid.config.input_quantization_config[0].dominated_by = master_config
                     sigmoid.config.output_quantization_config[0].dominated_by = master_config
                     mul.config.input_quantization_config[0].dominated_by = master_config
                     mul.config.input_quantization_config[1].dominated_by = master_config
+                    # Dominate the output of the matched source op (may be a
+                    # computing op or a layout-passthrough like Transpose).
+                    src.config.output_quantization_config[0].dominated_by = master_config
+                    if src.type in PASSIVE_OPERATIONS:
+                        # Also dominate the input so that the later passive-op
+                        # fusion pass (which sets output.dominated_by = TQC)
+                        # resolves both sides to master_config, keeping the
+                        # calibration observer on Swish's output.
+                        src.config.input_quantization_config[0].dominated_by = master_config
 
             if 'Mish' in self.activation_types:
                 search_engine = SearchableGraph(graph)

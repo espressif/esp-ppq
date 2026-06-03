@@ -118,6 +118,12 @@ class GraphCommandType(Enum):
     # Fuse splited swish
     FUSE_SWISH = 36
 
+    # Fuse decomposed RMS normalization subgraph into a single RMSNormalization op
+    FUSE_RMSNORM = 37
+
+    # Fuse decomposed Lp normalization subgraph into a single LpNormalization op
+    FUSE_LP_NORMALIZATION = 38
+
 
 class GraphCommand:
     def __init__(self, command_type: GraphCommandType, **kwargs) -> None:

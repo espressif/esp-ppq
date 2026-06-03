@@ -21,9 +21,11 @@ from esp_ppq.parser.espdl.espdl_graph_utils import (
     transpose_shape,
 )
 from esp_ppq.parser.espdl.espdl_typedef import (
+    ACTIVATION_OP_SET,
     ADD_LIKE_OP_SET,
     AXIS_TRANSFORM_OP_SET,
     CONV_LAYOUT_OP_SET,
+    LP_NORM_OP_SET,
     OTHER_OP_SET,
     PASSIVE_LAYOUT_OP_SET,
     REDUCE_OP_SET,
@@ -118,6 +120,33 @@ class BypassAddLikePattern(OperationExporter):
     two input and one output,
     """
 
+    @staticmethod
+    def _choose_target_perm(perm1, perm2, ndim):
+        """Choose target perm, preferring NHWC layout over identity."""
+        if ndim == 4:
+            nhwc = [0, 2, 3, 1]
+        elif ndim == 3:
+            nhwc = [0, 2, 1]
+        else:
+            nhwc = None
+
+        # Prefer NHWC if exactly one side has it
+        nhwc1 = nhwc is not None and perm1 == nhwc
+        nhwc2 = nhwc is not None and perm2 == nhwc
+        if nhwc1 and not nhwc2:
+            return perm1
+        if nhwc2 and not nhwc1:
+            return perm2
+
+        # Prefer non-identity over identity
+        default = [i for i in range(ndim)]
+        if perm1 != default and perm2 == default:
+            return perm1
+        if perm2 != default and perm1 == default:
+            return perm2
+
+        return perm1
+
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         if op.type in ADD_LIKE_OP_SET:
             info = ExporterPatternInfo()
@@ -126,24 +155,40 @@ class BypassAddLikePattern(OperationExporter):
             output = op.outputs[0]
             input1_perm = info.get_var_permute(input1.name)
             input2_perm = info.get_var_permute(input2.name)
-            output_perm = None
+
+            # Normalize None perms to default identity before comparison
+            if not input1.is_parameter and input1_perm is None:
+                input1_perm = get_default_perm(input1)
+                info.add_var_permute(input1.name, input1_perm)
+            if not input2.is_parameter and input2_perm is None:
+                input2_perm = get_default_perm(input2)
+                info.add_var_permute(input2.name, input2_perm)
+
             if not input1.is_parameter and not input2.is_parameter:
                 if input1_perm == input2_perm:
-                    if input1_perm:
-                        # using upstream's perm
-                        output_perm = input1_perm
-                    else:
-                        # input1_perm is None, add new perm
-                        info.add_var_permute(input1.name, get_default_perm(input1))
-                        info.add_var_permute(input2.name, get_default_perm(input2))
-                        output_perm = get_default_perm(output)
-                    # logger.debug(f"{info.get_var_permute(input1.name)}, {info.get_var_permute(input2.name)}, {output_perm}")
-                    info.add_var_permute(output.name, output_perm)
+                    info.add_var_permute(output.name, input1_perm)
                 else:
-                    # insert transpose node and restore origin shape
-                    return restore_origin_shape(op, graph)
-            elif input2.is_parameter or input1.is_parameter:
-                return restore_origin_shape(op, graph)
+                    # When inputs have different ranks (broadcasting),
+                    # fall back to restoring original shapes since a
+                    # transpose cannot bridge different numbers of dimensions.
+                    if len(input1_perm) != len(input2_perm):
+                        return restore_origin_shape(op, graph)
+
+                    target_perm = self._choose_target_perm(input1_perm, input2_perm, len(output.shape))
+                    if input1_perm != target_perm:
+                        inverse_perm = get_inverse_transpose(input1_perm)
+                        new_perm = transpose_shape(inverse_perm, target_perm)
+                        insert_transpose_node(graph, input1, op, new_perm)
+                    if input2_perm != target_perm:
+                        inverse_perm = get_inverse_transpose(input2_perm)
+                        new_perm = transpose_shape(inverse_perm, target_perm)
+                        insert_transpose_node(graph, input2, op, new_perm)
+                    info.add_var_permute(output.name, target_perm)
+            elif input2.is_parameter:
+                # output inherits non-parameter input's perm; parameter is layout-agnostic
+                info.add_var_permute(output.name, input1_perm)
+            elif input1.is_parameter:
+                info.add_var_permute(output.name, input2_perm)
 
         return op
 
@@ -160,8 +205,11 @@ class AxisTransformPattern(OperationExporter):
         var_perm = info.get_var_permute(input.name)
         if var_perm and var_perm != get_default_perm(input):
             # There is already a permute, change axis accordingly
-            if op.type in SOFTMAX_LIKE_OP_SET:
-                axis = (int(op.attributes["axis"]) + len(var_perm)) % len(var_perm)
+            if op.type in SOFTMAX_LIKE_OP_SET or op.type in LP_NORM_OP_SET:
+                # Softmax, LogSoftmax, and LpNormalization default axis to -1;
+                # ONNX Split defaults to 0.
+                default_axis = 0 if op.type == 'Split' else -1
+                axis = (int(op.attributes.get("axis", default_axis)) + len(var_perm)) % len(var_perm)
                 new_axis = var_perm.index(axis)
                 op.attributes["axis"] = new_axis
             elif op.type in REDUCE_OP_SET:
@@ -379,6 +427,58 @@ class ResetResizePattern(OperationExporter):
         return op
 
 
+class FuseTransposeActivationPattern(OperationExporter):
+    """
+    Fuse Transpose -> Activation -> Transpose pattern.
+    Remove the first Transpose, fuse its perm into the second Transpose.
+    If the fused perm is identity, remove the second Transpose as well.
+    """
+
+    def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.name not in graph.operations:
+            return op
+
+        if op.type != "Transpose":
+            return op
+
+        downstream_ops = graph.get_downstream_operations(op)
+        if len(downstream_ops) != 1:
+            return op
+
+        activation_op = downstream_ops[0]
+        if activation_op.type not in ACTIVATION_OP_SET or activation_op.type == 'PRelu':
+            return op
+
+        activation_downstream = graph.get_downstream_operations(activation_op)
+        if len(activation_downstream) != 1 or activation_downstream[0].type != "Transpose":
+            return op
+
+        transpose2_op = activation_downstream[0]
+        if transpose2_op.name not in graph.operations:
+            return op
+
+        perm1 = op.attributes["perm"]
+        perm2 = transpose2_op.attributes["perm"]
+        fused_perm = transpose_shape(perm1, perm2)
+
+        # Remove the first Transpose, connecting its input to the Activation.
+        # Use remove_operation (not fuse_downstream_operation) to avoid
+        # destroying the input variable when it has other consumers.
+        graph.remove_operation(op, keep_coherence=True)
+
+        # Activation is element-wise; its output shape must match its (new) input shape.
+        for out_var in activation_op.outputs:
+            out_var.shape = activation_op.inputs[0].shape
+
+        transpose2_op.attributes["perm"] = fused_perm
+
+        if fused_perm == [i for i in range(len(fused_perm))]:
+            # Fused to identity, remove the second Transpose as well
+            graph.remove_operation(transpose2_op, keep_coherence=True)
+
+        return op
+
+
 class FuseTransposePattern(OperationExporter):
     """
     Fuse Transpose Pattern
@@ -451,6 +551,11 @@ def reset_graph_layout(graph: BaseGraph):
                 break
         if flag:
             logger.error(f"Can not reset {op.type}:{op.name} layout")
+
+    # fuse Transpose -> Activation -> Transpose
+    pattern = FuseTransposeActivationPattern()
+    for op in graph.topological_sort():
+        pattern.export(op, graph)
 
     # fuse transpose op
     pattern = FuseTransposePattern()

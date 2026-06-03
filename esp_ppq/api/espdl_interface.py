@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 import esp_ppq.lib as PFL
 from esp_ppq.api.interface import load_onnx_graph, quantize_onnx_model
 from esp_ppq.api.setting import QuantizationSetting, QuantizationSettingFactory
-from esp_ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache
+from esp_ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache, ppq_warning
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
@@ -217,9 +217,15 @@ def espdl_quantize_onnx(
     """
 
     model = onnx.load(onnx_import_file)
-    model_sim, check = simplify(model)
-    if check:
-        onnx.save(model_sim, onnx_import_file)
+    try:
+        model_sim, check = simplify(model)
+        if check:
+            onnx.save(model_sim, onnx_import_file)
+    except RuntimeError as e:
+        if 'No Op registered for' in str(e):
+            ppq_warning(f'ONNX simplifier skipped due to custom operator: {e}')
+        else:
+            raise
 
     export_path = os.path.dirname(os.path.abspath(espdl_export_file))
     os.makedirs(export_path, exist_ok=True)
