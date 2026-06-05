@@ -185,10 +185,19 @@ class BypassAddLikePattern(OperationExporter):
                         insert_transpose_node(graph, input2, op, new_perm)
                     info.add_var_permute(output.name, target_perm)
             elif input2.is_parameter:
-                # output inherits non-parameter input's perm; parameter is layout-agnostic
-                info.add_var_permute(output.name, input1_perm)
+                # Output inherits the non-parameter input's perm; the parameter is
+                # layout-agnostic. But when the parameter broadcasts the result to a
+                # higher rank than the activation input, the activation's perm no longer
+                # describes the output, so fall back to the original layout.
+                if input1_perm is not None and len(input1_perm) == len(output.shape):
+                    info.add_var_permute(output.name, input1_perm)
+                else:
+                    return restore_origin_shape(op, graph)
             elif input1.is_parameter:
-                info.add_var_permute(output.name, input2_perm)
+                if input2_perm is not None and len(input2_perm) == len(output.shape):
+                    info.add_var_permute(output.name, input2_perm)
+                else:
+                    return restore_origin_shape(op, graph)
 
         return op
 
