@@ -302,21 +302,23 @@ def test_grouped_convtranspose():
 
     # (in_channels, out_channels, groups): a non-trivial grouped case + a pure depthwise case.
     configs = [
-        (4, 8, 2),    # grouped (C_out / group = 4)
-        (8, 8, 8),    # depthwise (C_out / group = 1) -- the case that used to crash
-        (6, 6, 3),    # grouped depth-like
+        (4, 8, 2),  # grouped (C_out / group = 4)
+        (8, 8, 8),  # depthwise (C_out / group = 1) -- the case that used to crash
+        (6, 6, 3),  # grouped depth-like
     ]
     all_success = True
     for in_ch, out_ch, groups in configs:
-        model = nn.ConvTranspose2d(in_ch, out_ch, kernel_size=3, stride=2, padding=1,
-                                   output_padding=1, groups=groups, bias=True).eval()
+        model = nn.ConvTranspose2d(
+            in_ch, out_ch, kernel_size=3, stride=2, padding=1, output_padding=1, groups=groups, bias=True
+        ).eval()
         sample_input = torch.randn(1, in_ch, 16, 16)
         with torch.no_grad():
             reference_output = model(sample_input)
 
         onnx_path = Path(f'test_grouped_convtranspose_{in_ch}_{out_ch}_g{groups}.onnx')
-        torch.onnx.export(model, sample_input, onnx_path, input_names=['input'],
-                          output_names=['output'], opset_version=11)
+        torch.onnx.export(
+            model, sample_input, onnx_path, input_names=['input'], output_names=['output'], opset_version=11
+        )
         graph = load_onnx_graph(str(onnx_path))
         GraphDecomposer(graph).decompose_convtranspose()
 
@@ -325,8 +327,7 @@ def test_grouped_convtranspose():
 
         max_diff = torch.max(torch.abs(reference_output - decomposed_output)).item()
         ok = max_diff < 1e-5
-        print(f"  in={in_ch} out={out_ch} groups={groups}: max diff {max_diff:.2e} "
-              f"{'✓' if ok else '✗'}")
+        print(f"  in={in_ch} out={out_ch} groups={groups}: max diff {max_diff:.2e} {'✓' if ok else '✗'}")
         all_success = all_success and ok
         onnx_path.unlink(missing_ok=True)
 
