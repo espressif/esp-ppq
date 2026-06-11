@@ -19,7 +19,12 @@ from torch.utils.data import DataLoader
 import esp_ppq.lib as PFL
 from esp_ppq.api.interface import load_onnx_graph, quantize_onnx_model
 from esp_ppq.api.setting import QuantizationSetting, QuantizationSettingFactory
-from esp_ppq.core import QuantizationVisibility, TargetPlatform, empty_ppq_cache, ppq_warning
+from esp_ppq.core import (
+    QuantizationVisibility,
+    TargetPlatform,
+    empty_ppq_cache,
+    ppq_warning,
+)
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
@@ -27,7 +32,7 @@ from esp_ppq.quantization.analyse import graphwise_error_analyse
 from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
 from esp_ppq.quantization.optim import *
 
-logger = NaiveLogger.get_logger('ESPDL')
+logger = NaiveLogger.get_logger("ESPDL")
 
 
 _PIE_V1_TARGETS = {"esp32s3"}
@@ -51,7 +56,7 @@ def get_target_platform(
 
     platform = None
     target = target.lower()
-    hi_precision = kwargs.get('hi_precision', False)
+    hi_precision = kwargs.get("hi_precision", False)
 
     if float:
         platform = TargetPlatform.FP32
@@ -95,14 +100,14 @@ def insert_streaming_cache_on_var(
         Dict[str, Any]: Dictionary containing streaming attributes.
     """
     attributes = {
-        'window_size': window_size,
-        'op_name': op_name,
-        'frame_axis': frame_axis,
+        "window_size": window_size,
+        "op_name": op_name,
+        "frame_axis": frame_axis,
     }
     return {var_name: attributes}
 
 
-def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device='cpu') -> List[Any]:
+def get_random_inputs(input_shape: List[Any], dtype=torch.float32, device="cpu") -> List[Any]:
     if not isinstance(input_shape[0], list):
         input_shape = [input_shape]
 
@@ -148,7 +153,7 @@ def generate_test_value(
     return {"inputs": test_inputs_value, "outputs": test_outputs_value}
 
 
-def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=torch.float32, device='cpu'):
+def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=torch.float32, device="cpu"):
     if isinstance(batch, list) and isinstance(batch[0], torch.Tensor):
         return [x.type(dtype).to(device) for x in batch]
     elif isinstance(batch, torch.Tensor):
@@ -180,6 +185,7 @@ def espdl_quantize_onnx(
     auto_streaming: bool = False,
     streaming_table: Dict[str, Dict[str, Any]] = None,
     streaming_input_shape: List[Any] = None,
+    streaming_custom_passes: Any = None,
     verbose: int = 0,
     **kwargs: Any,
 ) -> BaseGraph:
@@ -222,8 +228,8 @@ def espdl_quantize_onnx(
         if check:
             onnx.save(model_sim, onnx_import_file)
     except RuntimeError as e:
-        if 'No Op registered for' in str(e):
-            ppq_warning(f'ONNX simplifier skipped due to custom operator: {e}')
+        if "No Op registered for" in str(e):
+            ppq_warning(f"ONNX simplifier skipped due to custom operator: {e}")
         else:
             raise
 
@@ -324,6 +330,7 @@ def espdl_quantize_onnx(
             auto_streaming=auto_streaming,
             streaming_table=streaming_table,
             streaming_input_shape=streaming_input_shape,
+            streaming_custom_passes=streaming_custom_passes,
             **kwargs,
         )
     return ppq_graph
@@ -353,6 +360,7 @@ def espdl_quantize_torch(
     auto_streaming: bool = False,
     streaming_table: Dict[str, Dict[str, Any]] = None,
     streaming_input_shape: Dict[str, List[int]] = None,
+    streaming_custom_passes: Any = None,
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
@@ -457,6 +465,7 @@ def espdl_quantize_torch(
         auto_streaming=auto_streaming,
         streaming_table=streaming_table,
         streaming_input_shape=streaming_input_shape,
+        streaming_custom_passes=streaming_custom_passes,
         verbose=verbose,
         **kwargs,
     )

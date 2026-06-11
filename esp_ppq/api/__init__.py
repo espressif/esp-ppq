@@ -10,6 +10,10 @@ from esp_ppq.lib import (
     register_network_quantizer,
     register_operation_handler,
 )
+from esp_ppq.parser.espdl.espdl_streaming import (
+    StreamingGraphPass,
+    StreamingTable,
+)
 
 from .espdl_interface import (
     espdl_quantize_onnx,
