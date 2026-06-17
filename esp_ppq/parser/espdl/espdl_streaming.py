@@ -247,6 +247,13 @@ def set_conv_new_padding(op: Operation) -> None:
             new_padding = [0, 0]
         elif len(padding) == 4:
             new_padding = [0, padding[1], 0, padding[3]]
+        else:
+            logger.error(
+                f"Unsupported padding length {len(padding)} in streaming node "
+                f"'{op.name}' (type={op.type}). Only 2- and 4-element pads "
+                f"are supported; the operation's pads will not be modified."
+            )
+            return
         op.attributes["pads"] = new_padding
 
 
@@ -284,6 +291,13 @@ def get_conv_cache_window_size(op: Operation) -> int:
             pad_bottom = padding[1]
         elif len(padding) == 4:
             pad_bottom = padding[2]
+        else:
+            logger.error(
+                f"Unsupported padding length {len(padding)} in streaming node "
+                f"'{op.name}' (type={op.type}). Only 2- and 4-element pads "
+                f"are supported."
+            )
+            return window_size
     else:
         pad_bottom = 0
 

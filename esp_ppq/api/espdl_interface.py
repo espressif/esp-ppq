@@ -34,7 +34,7 @@ from esp_ppq.quantization.optim import *
 
 logger = NaiveLogger.get_logger("ESPDL")
 
-
+_PIE_NONE_TARGETS = {"esp32", "esp32s2", "esp32c2", "esp32c3", "esp32c5", "esp32c6", "c"}
 _PIE_V1_TARGETS = {"esp32s3"}
 _PIE_V2_TARGETS = {"esp32p4", "esp32s31"}
 
@@ -73,11 +73,11 @@ def get_target_platform(
             platform = TargetPlatform.ESPDL_H_PRE_INT16
         elif num_of_bits == 16 and target in _PIE_V1_TARGETS and hi_precision:
             platform = TargetPlatform.ESPDL_S3_H_PRE_INT16
-        elif num_of_bits == 8 and target == "c":
+        elif num_of_bits == 8 and target in _PIE_NONE_TARGETS:
             platform = TargetPlatform.ESPDL_C_INT8
-        elif num_of_bits == 16 and target == "c" and not hi_precision:
+        elif num_of_bits == 16 and target in _PIE_NONE_TARGETS and not hi_precision:
             platform = TargetPlatform.ESPDL_C_INT16
-        elif num_of_bits == 16 and target == "c" and hi_precision:
+        elif num_of_bits == 16 and target in _PIE_NONE_TARGETS and hi_precision:
             platform = TargetPlatform.ESPDL_C_H_PRE_INT16
         else:
             platform = TargetPlatform.FP32
