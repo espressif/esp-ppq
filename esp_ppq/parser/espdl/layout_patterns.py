@@ -523,8 +523,14 @@ class FuseTransposePattern(OperationExporter):
 
             perm = op.attributes["perm"]
             if perm == [i for i in range(len(perm))]:
-                # Removed redundant transpose
-                graph.remove_operation(op, keep_coherence=True)
+                # Check if this op's output is a graph output.
+                # If so, fuse with the previous operator to keep the output
+                # variable (graph output) unchanged.
+                if any(var.name in graph.outputs for var in op.outputs):
+                    graph = fuse_downstream_operation(graph, op, keep_coherence=True)
+                else:
+                    # Removed redundant transpose
+                    graph.remove_operation(op, keep_coherence=True)
         return op
 
 
