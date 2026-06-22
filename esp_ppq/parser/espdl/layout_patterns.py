@@ -523,8 +523,32 @@ class FuseTransposePattern(OperationExporter):
 
             perm = op.attributes["perm"]
             if perm == [i for i in range(len(perm))]:
-                # Removed redundant transpose
-                graph.remove_operation(op, keep_coherence=True)
+                # Check if this op's output is a graph output.
+                # If so, fuse with the previous operator to keep the output
+                # variable (graph output) unchanged.
+                if any(var.name in graph.outputs for var in op.outputs):
+                    # Use remove_operation (not fuse_downstream_operation) when the
+                    # input variable has other consumers (e.g., skip connections),
+                    # to avoid destroying those connections.
+                    if len(op.inputs[0].dest_ops) > 1:
+                        # Save the graph-output names before remove_operation
+                        # clears op.outputs.
+                        output_names_in_graph = [var.name for var in op.outputs if var.name in graph.outputs]
+                        input_var = op.inputs[0]
+                        graph.remove_operation(op, keep_coherence=True)
+                        # remove_operation handles graph-output update for
+                        # outputs[0] via remove_variable + mark_variable_as_graph_output.
+                        # Explicitly clean up any remaining stale output entries and
+                        # ensure the input variable is registered as a graph output.
+                        for name in output_names_in_graph:
+                            graph.outputs.pop(name, None)
+                        if input_var.name not in graph.outputs:
+                            graph.outputs[input_var.name] = input_var
+                    else:
+                        graph = fuse_downstream_operation(graph, op, keep_coherence=True)
+                else:
+                    # Removed redundant transpose
+                    graph.remove_operation(op, keep_coherence=True)
         return op
 
 

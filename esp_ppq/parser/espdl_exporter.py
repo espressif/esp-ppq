@@ -20,7 +20,12 @@ from esp_ppq.log import NaiveLogger
 from esp_ppq.quantization.qfunction.linear import PPQLinearQuant_toInt
 
 from .espdl import helper
-from .espdl.espdl_streaming import AutoStreamingPattern, StreamingTable, insert_streaming_nodes
+from .espdl.espdl_streaming import (
+    AutoStreamingPattern,
+    StreamingTable,
+    insert_streaming_nodes,
+    run_streaming_custom_passes,
+)
 from .espdl.espdl_typedef import REDUCE_OP_SET, ExporterPatternInfo, LayoutAnnotation
 from .espdl.export_patterns import (
     AddLUTPattern,
@@ -96,6 +101,7 @@ class EspdlExporter(GraphExporter):
         streaming_table: Dict[str, Dict[str, Any]] = None,
         auto_streaming: bool = False,
         streaming_input_shape: List[Any] = None,
+        streaming_custom_passes: Any = None,
         **kwargs: Any,
     ):
         """Export model to flatbuffers file
@@ -121,6 +127,13 @@ class EspdlExporter(GraphExporter):
                 }
             int16_lut_step (int): -1: do not add lut for int16, otherwise add lut for int16 with given step
             metadata_props (Dict[str, str]): metadata properties
+            streaming_custom_passes: a single pass or a list of passes used to customize the
+                graph during streaming conversion. Each pass is either a
+                ``StreamingGraphPass`` instance or a callable with the signature
+                ``(graph: BaseGraph) -> Optional[BaseGraph]``. Passes run after the
+                streaming input shape is applied and before ``StreamingCache`` nodes are
+                inserted, so the user can modify op attributes (e.g. a ``Slice``), remove
+                ops, or register extra ``StreamingTable`` entries.
         """
 
         # during export we will remove all boundary operations from graph.
@@ -147,7 +160,13 @@ class EspdlExporter(GraphExporter):
         }
 
         graph = self.prepare_graph(
-            graph, exporter_patterns, int16_lut_step, streaming_table, auto_streaming, streaming_input_shape
+            graph,
+            exporter_patterns,
+            int16_lut_step,
+            streaming_table,
+            auto_streaming,
+            streaming_input_shape,
+            streaming_custom_passes,
         )
         file_base_name, _ = os.path.splitext(file_path)
 
@@ -196,6 +215,7 @@ class EspdlExporter(GraphExporter):
         streaming_table: Dict[str, Dict[str, Any]] = None,
         auto_streaming: bool = False,
         streaming_input_shape: List[Any] = None,
+        streaming_custom_passes: Any = None,
     ) -> BaseGraph:
         """Prepare your graph for exporting.
 
@@ -238,7 +258,7 @@ class EspdlExporter(GraphExporter):
                 exporter.export(op=op, graph=graph)
 
         info = ExporterPatternInfo()
-        if auto_streaming or streaming_table is not None:
+        if auto_streaming or streaming_table is not None or streaming_custom_passes:
             logger.info("Inserting streaming nodes into graph...")
             StreamingTable().append(streaming_table)
             if streaming_input_shape != None:
@@ -248,20 +268,31 @@ class EspdlExporter(GraphExporter):
                         shape = streaming_input_shape[var_name]
                         if var_name in graph.inputs:
                             set_streaming_input_shape(
-                                graph.inputs[var_name].shape, shape, info.get_var_permute(var_name)
+                                graph.inputs[var_name].shape,
+                                shape,
+                                info.get_var_permute(var_name),
                             )
                             graph.inputs[var_name].shape = shape
                         else:
                             logger.warning(f"Input variable {var_name} not found in graph inputs.")
                 elif isinstance(streaming_input_shape, list) and len(graph.inputs) == 1:
                     for var in graph.inputs.values():
-                        set_streaming_input_shape(var.shape, streaming_input_shape, info.get_var_permute(var.name))
+                        set_streaming_input_shape(
+                            var.shape,
+                            streaming_input_shape,
+                            info.get_var_permute(var.name),
+                        )
                         var.shape = streaming_input_shape
                     # graph.inputs[graph.inputs.keys[0]].shape = streaming_input_shape
                 else:
                     raise ValueError("Invalid streaming_input_shape provided.")
-            else:
+            elif auto_streaming:
                 raise ValueError("streaming_input_shape must be provided when auto_streaming is enabled.")
+
+            # Run user-defined custom passes to customize the graph before the
+            # StreamingCache nodes are inserted (e.g. modify Slice attributes,
+            # remove ops, or register extra StreamingTable entries).
+            graph = run_streaming_custom_passes(graph, streaming_custom_passes)
 
             # insert streaming node pattern
             if auto_streaming:
