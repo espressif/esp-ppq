@@ -211,6 +211,7 @@ def quant_model(
     collate_fn: Callable = None,
     calib_steps: int = 32,
     verbose: int = 0,
+    **kwargs: Any,
 ) -> BaseGraph:
     """Run one ESP-DL quantization candidate and export its native graph."""
     simplified_onnx_path = simplify_onnx(onnx_import_file)
@@ -232,6 +233,7 @@ def quant_model(
         export_test_values=False,
         verbose=verbose,
         inputs=None,
+        **kwargs,
     )
 
     native_path = os.path.splitext(espdl_export_file)[0] + ".native"
@@ -249,6 +251,7 @@ def compute_layerwise_error(
     device: str,
     collate_fn: Callable = None,
     calib_steps: int = 32,
+    **kwargs: Any,
 ) -> Dict[str, float]:
     """Run baseline INT8 quantization and return the layerwise error report."""
     quant_setting = QuantizationSettingFactory.espdl_setting()
@@ -264,6 +267,7 @@ def compute_layerwise_error(
         collate_fn=collate_fn,
         calib_steps=calib_steps,
         verbose=0,
+        **kwargs,
     )
 
     collate = collate_fn or _default_collate(device)
