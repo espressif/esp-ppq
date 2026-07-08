@@ -536,7 +536,7 @@ class QuantizationSettingFactory:
         return default_setting
 
     @staticmethod
-    def espdl_setting() -> QuantizationSetting:
+    def espdl_setting(num_of_bits: int = 8) -> QuantizationSetting:
         default_setting = QuantizationSetting()
         default_setting.quantize_parameter_setting.clip_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
         default_setting.quantize_parameter_setting.pad_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
@@ -546,6 +546,9 @@ class QuantizationSettingFactory:
         default_setting.fusion_setting.force_alignment_overlap = False
         default_setting.dispatcher = "allin"
         default_setting.quant_config_modify = False
+        if num_of_bits == 16:
+            default_setting.quantize_parameter_setting.calib_algorithm = "minmax"
+            default_setting.quantize_activation_setting.calib_algorithm = "minmax"
         return default_setting
 
     @staticmethod
