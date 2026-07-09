@@ -94,6 +94,8 @@ class BaseEspdlQuantizer(BaseQuantizer):
         quant_max: int,
         bias_bits: int,
     ) -> OperationQuantizationConfig:
+        # int16 uses minmax by default, int8 uses percentile.
+        default_observer = "minmax" if num_of_bits == 16 else "percentile"
         base_quant_config = self.create_default_quant_config(
             policy=self.quantize_policy,
             rounding=self.rounding_policy,
@@ -102,7 +104,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             exponent_bits=0,
             quant_max=quant_max,
             quant_min=quant_min,
-            observer_algorithm="percentile",
+            observer_algorithm=default_observer,
         )
 
         kl_bins = _kl_hist_bins(num_of_bits)

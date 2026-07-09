@@ -1,6 +1,6 @@
 import copy
 import json
-from typing import Union
+from typing import Dict, Union
 
 from esp_ppq.core import *
 
@@ -214,6 +214,11 @@ class ActivationQuantizationSetting:
         # activation calibration method
         self.calib_algorithm = None
 
+        # 针对特定层单独指定激活校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer activation calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
+
 
 class QuantConfigModifySetting:
     def __init__(self) -> None:
@@ -225,6 +230,11 @@ class ParameterQuantizationSetting:
         # 参数校准算法，不区分大小写，可以选择 minmax, percentile, kl, MSE, None
         # parameter calibration method
         self.calib_algorithm = None
+
+        # 针对特定层单独指定参数校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer parameter calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
 
         # 是否处理被动量化参数
         # whether to process passive parameters
