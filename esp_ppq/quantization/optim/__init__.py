@@ -7,6 +7,7 @@ from .calibration import (
     RuntimeCalibrationPass,
 )
 from .equalization import ActivationEqualizationPass, ChannelwiseSplitPass, LayerwiseEqualizationPass
+from .espdl_lut import EspdlLUTFusionPass
 from .extension import ExtensionPass
 from .legacy import AdaroundPass
 from .morph import (

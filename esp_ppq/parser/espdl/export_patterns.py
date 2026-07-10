@@ -650,15 +650,21 @@ class AddLUTPattern(OperationExporter):
         min: int,
         step: int = 1,
     ) -> torch.Tensor:
+        # If this op was rewritten to a "LUT" op during quantization
+        # (EspdlLUTFusionPass), recover the original activation type so the
+        # table is built from the true math (e.g. "Swish") instead of the
+        # placeholder "LUT" type.
+        forward_type = op.attributes.get("original_op_type", op.type)
+
         # Get forward function
         platform_dispatching_table = OPERATION_FORWARD_TABLE[op.platform]
-        if op.type not in platform_dispatching_table:
+        if forward_type not in platform_dispatching_table:
             raise NotImplementedError(
-                f"Graph op: {op.name}({op.type}) "
+                f"Graph op: {op.name}({forward_type}) "
                 f"has no backend implementation on target platform {op.platform}. "
                 "Register this op to esp_ppq.executor.base.py and esp_ppq.executor.op first"
             )
-        operation_forward_func = platform_dispatching_table[op.type]
+        operation_forward_func = platform_dispatching_table[forward_type]
 
         # Calculate output and lut
         input = torch.arange(min, max + step, step=step, dtype=torch.float)
@@ -676,7 +682,17 @@ class AddLUTPattern(OperationExporter):
                     inputs.append(None)
                 else:
                     inputs.append(op_input.value * self.get_scale(op_input, info))
-        output = operation_forward_func(op, inputs)
+
+        # Temporarily restore the original op type while running the forward, so
+        # forwards that dispatch on ``op.type`` (e.g. UnaryEltwise_forward for
+        # Sigmoid/Relu) compute the correct activation.
+        saved_type = op.type
+        op.type = forward_type
+        try:
+            output = operation_forward_func(op, inputs)
+        finally:
+            op.type = saved_type
+
         device = op.output_quant_config[0].scale.device
         lut = PPQLinearQuant_toInt(output.to(device), op.output_quant_config[0])
 
@@ -717,8 +733,13 @@ class AddLUTPattern(OperationExporter):
             lut = None
             if quant_type == EspQuantType.S8:
                 lut = self.calculate_lut(op, info, 127, -128, 1)
-            elif quant_type == EspQuantType.S16 and self.int16_step > 0:
-                lut = self.calculate_lut(op, info, 2**15 - 1, -(2**15), self.int16_step)
+            else:
+                # Prefer the per-op step stamped by EspdlLUTFusionPass so the
+                # exported table matches the step used during bit-exact
+                # simulation (and the step esp-dl derives from the table size).
+                int16_step = int(op.attributes.get("int16_lut_step", self.int16_step))
+                if quant_type == EspQuantType.S16 and int16_step > 0:
+                    lut = self.calculate_lut(op, info, 2**15 - 1, -(2**15), int16_step)
 
             if lut != None:
                 lut_name = self.get_lut_name(op, info)

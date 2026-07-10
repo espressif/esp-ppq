@@ -281,6 +281,46 @@ class QuantizationFusionSetting:
         self.force_alignment_overlap = True
 
 
+class LUTOptimizationSetting:
+    """ESP-DL INT16 LUT activation fusion settings.
+
+    Only effective on ESP-DL INT16 platforms (ESPDL_INT16 / ESPDL_S3_INT16).
+    When enabled, calibrated unary ``y = f(x)`` activations (Swish/SiLU, Sigmoid,
+    Tanh, ...) are rewritten into bit-exact ``LUT`` ops so that the Python
+    simulation matches what the device computes with its step-sub-sampled LUT.
+    """
+
+    def __init__(self) -> None:
+        # LUT 子采样步长，必须是 2 的幂 (例如 32)。
+        # 它同时用于仿真和导出 (导出时会自动写入每个算子，保证与仿真一致)。
+        # LUT sub-sampling step (must be a power of two, e.g. 32). Used for both
+        # simulation and export; the fusion pass stamps it on every fused op so
+        # the exported table step always matches the simulated step.
+        self.step = 32
+
+        # 需要融合的算子类型列表；None 表示自动检测所有满足 y=f(x) 的算子。
+        # List of op types to fuse; None means auto-detect every eligible y=f(x) op.
+        self.target_ops = [
+            "Swish", 
+            "SiLU", 
+            "Sigmoid", 
+            "Tanh", 
+            "HardSwish", 
+            "HardSigmoid", 
+            "Elu", 
+            "Erf", 
+            "Gelu", 
+            "LeakyRelu", 
+            "Softplus",
+            "Exp",
+            "Log",
+            "Sqrt",
+            "Cos",
+            "Sin",
+            "Tan",
+        ]
+
+
 class LSQSetting:
     def __init__(self) -> None:
         # should only contain computing ops, if given, ops in interested_layers will be checked and
@@ -444,6 +484,11 @@ class QuantizationSetting:
         # 量化融合相关配置
         self.fusion = True
         self.fusion_setting = QuantizationFusionSetting()
+
+        # ESP-DL INT16 LUT 激活融合 (仅在 ESP-DL INT16 平台生效)。
+        # ESP-DL INT16 LUT activation fusion (only effective on ESP-DL INT16 platforms).
+        self.lut_optimization = True
+        self.lut_optimization_setting = LUTOptimizationSetting()
 
         # extension setting 只是一个空白的占位符，用来向你展示如何创建一个自定义的 setting 并传递参数。
         # extension setting shows you how to create a setting and pass parameter to passes.

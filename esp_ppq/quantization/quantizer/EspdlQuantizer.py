@@ -16,7 +16,7 @@ from esp_ppq.core import (
     ppq_warning,
 )
 from esp_ppq.IR import BaseGraph, Operation
-from esp_ppq.quantization.optim import QuantizationOptimizationPipeline
+from esp_ppq.quantization.optim import EspdlLUTFusionPass, QuantizationOptimizationPipeline
 
 from .base import BaseQuantizer
 
@@ -191,6 +191,26 @@ class BaseEspdlQuantizer(BaseQuantizer):
             tqc.num_of_bits = bits
             tqc.quant_min, tqc.quant_max = _quant_range(bits)
             tqc.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = _kl_hist_bins(bits)
+
+    def build_quant_pipeline(self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
+        """Build the standard quant pipeline and, on ESP-DL INT16 platforms,
+        append the bit-exact LUT activation fusion pass by default.
+
+        The pass is controlled by ``setting.lut_optimization`` (default on) and
+        ``setting.lut_optimization_setting`` (exposes ``step`` / ``target_ops``).
+        On non-INT16-LUT platforms it is simply not added.
+        """
+        pipeline = super().build_quant_pipeline(setting)
+
+        if self._num_of_bits == 16 and getattr(setting, "lut_optimization", False):
+            lut_setting = getattr(setting, "lut_optimization_setting", None)
+            step = getattr(lut_setting, "step", 32) if lut_setting is not None else 32
+            target_ops = getattr(lut_setting, "target_ops", None) if lut_setting is not None else None
+            pipeline.append_optimization_to_pipeline(
+                EspdlLUTFusionPass(target_ops=target_ops, lut_step=step)
+            )
+
+        return pipeline
 
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
         if operation.platform == self.target_platform:

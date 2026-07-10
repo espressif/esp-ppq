@@ -20,6 +20,9 @@ ACTIVATION_OP_SET = {
     "Softplus",
     "Identity",
     "Swish",
+    # Rewritten activation node used for bit-exact INT16 LUT deployment.
+    # See esp_ppq.quantization.optim.EspdlLUTFusionPass.
+    "LUT",
 }
 
 MATH_OP_SET = {
@@ -78,7 +81,6 @@ OTHER_OP_SET = {
     "Squeeze",
     "Unsqueeze",
     "Transpose",
-    "Slice",
     "Pad",
     "Concat",
     "Constant",
