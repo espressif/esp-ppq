@@ -1,6 +1,7 @@
 from esp_ppq.autoquant import (
     AutoQuantSearchSetting,
     espdl_auto_quantize_onnx,
+    load_best_setting,
     low_latency_candidate_filter,
 )
 from esp_ppq.lib import (

@@ -280,6 +280,7 @@ def espdl_auto_quantize_onnx(
     setting: AutoQuantSearchSetting = None,
     device: str = "cpu",
     verbose: int = 0,
+    **kwargs: Any,
 ) -> List[Dict[str, Any]]:
     """Search ESP-DL quantization strategies and return Top-K candidates.
 
@@ -465,6 +466,7 @@ def espdl_auto_quantize_onnx(
             device=device,
             collate_fn=collate_fn,
             calib_steps=calib_steps,
+            **kwargs,
         )
     else:
         layerwise_error = {}
@@ -505,6 +507,7 @@ def espdl_auto_quantize_onnx(
             collate_fn=collate_fn,
             calib_steps=calib_steps,
             verbose=verbose,
+            **kwargs,
         )
 
         result = evaluate_fn(quant_graph)
@@ -598,3 +601,112 @@ def espdl_auto_quantize_onnx(
     tried = state["exp_index"] - next_index
     logger.info(f"AutoQuant done. Experiments tried this run: {tried}")
     return load_candidates(candidates_path)
+
+
+def _read_candidate_records(candidates_file: str) -> List[Dict[str, Any]]:
+    """Load and validate the non-empty candidate list from ``candidates.json``."""
+    if not os.path.isfile(candidates_file):
+        raise FileNotFoundError(f"candidates file not found: {candidates_file}")
+    with open(candidates_file) as f:
+        candidates = json.load(f)
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError(f"{candidates_file} is empty or not a JSON list of candidate records.")
+    return candidates
+
+
+def load_best_setting(
+    candidates_file: str,
+    run_dir: Optional[str] = None,
+    resume: bool = False,
+    score_direction: str = "maximize",
+    candidate_index: int = 0,
+) -> AutoQuantSearchSetting:
+    """Build an :class:`AutoQuantSearchSetting` pinned to a searched winner.
+
+    Loads the ``candidates.json`` produced by a previous
+    :func:`auto_quantize` run and returns a setting whose
+    ``strategy_space`` / ``param_space`` are collapsed to the single
+    best-scoring candidate. Feeding this setting back into
+    ``espdl_auto_quantize_onnx`` (in ``"exhaustive"`` mode) re-runs
+    exactly one experiment — the winning strategy — instead of sweeping
+    the full search grid, so it can replace the default
+    :class:`AutoQuantSearchSetting` at the search call site.
+
+    Each candidate record persists its ``strategy`` (per-module on/off
+    switches) and ``params`` (per-module parameter sample). Pinning
+    ``strategy_space[module] = [value]`` and
+    ``param_space[module] = {knob: [value]}`` makes both the strategy and
+    the parameter grids singletons, which the search compiler expands to
+    a single (strategy, params) pair.
+
+    Args:
+        candidates_file:
+            Path to a ``candidates.json`` written by AutoQuant (holds the
+            Top-K records, each with ``strategy`` / ``params`` / ``score``).
+        run_dir:
+            Bookkeeping directory for the *re-run* driven by the returned
+            setting. Defaults to ``<candidates_file dir>/best`` so it does
+            not clobber the original search's ``run_dir`` (whose
+            ``candidates.json`` we are reading).
+        resume:
+            Forwarded to :class:`AutoQuantSearchSetting` (skip experiments
+            already recorded under ``run_dir``).
+        score_direction:
+            Ranking direction used to pick the winner among the records
+            (``"maximize"`` for recall-style metrics, ``"minimize"`` for
+            loss/error metrics). Also stored on the returned setting.
+        candidate_index:
+            Which record to load after sorting best-first (``0`` = best).
+            Use a larger index to pin the 2nd/3rd-best strategy instead.
+
+    Returns:
+        :class:`AutoQuantSearchSetting` in ``"exhaustive"`` mode collapsed
+        to the selected candidate.
+
+    Raises:
+        FileNotFoundError: ``candidates_file`` does not exist.
+        ValueError: the file is empty / malformed, or no record carries a
+            numeric ``score`` / a usable ``strategy``.
+        IndexError: ``candidate_index`` is out of range.
+    """
+    if score_direction not in ("maximize", "minimize"):
+        raise ValueError(f"score_direction must be 'maximize' or 'minimize', got {score_direction!r}")
+
+    candidates = _read_candidate_records(candidates_file)
+
+    # candidates.json is persisted best-first, so index directly.
+    if not (0 <= candidate_index < len(candidates)):
+        raise IndexError(f"candidate_index={candidate_index} out of range [0, {len(candidates)})")
+    best = candidates[candidate_index]
+
+    strategy = best.get("strategy")
+    if not isinstance(strategy, dict) or not strategy:
+        raise ValueError(
+            f"Selected candidate (index={best.get('index', '?')}) has no usable 'strategy' dict in {candidates_file}."
+        )
+
+    if run_dir is None:
+        run_dir = os.path.join(os.path.dirname(os.path.abspath(candidates_file)), "best")
+
+    setting = AutoQuantSearchSetting(
+        num_of_candidates=1,
+        search_mode="exhaustive",
+        score_direction=score_direction,
+        run_dir=run_dir,
+        resume=resume,
+    )
+    # Collapse each module's on/off switch to the winning strategy.
+    setting.strategy_space = {module: [bool(val)] for module, val in strategy.items()}
+    # Collapse each enabled module's parameter grid to the winning sample.
+    # Disabled modules keep their default grid but are never expanded
+    # (their strategy value is False), so they contribute nothing.
+    for module, params in (best.get("params") or {}).items():
+        if isinstance(params, dict):
+            setting.param_space[module] = {k: [v] for k, v in params.items()}
+
+    score = best.get("score", float("nan"))
+    logger.info(
+        f"[load-best-setting] pinned candidate index={best.get('index', '?')} "
+        f"score={float(score):.4f} folder={best.get('folder', '?')} from {candidates_file}"
+    )
+    return setting
