@@ -309,11 +309,21 @@ class BaseQuantizer(metaclass=ABCMeta):
 
         if setting.quantize_parameter:
             param_setting = setting.quantize_parameter_setting
-            list_of_passes.append(ParameterQuantizePass(method=param_setting.calib_algorithm))
+            list_of_passes.append(
+                ParameterQuantizePass(
+                    method=param_setting.calib_algorithm,
+                    method_per_layer=getattr(param_setting, 'calib_algorithm_per_layer', None),
+                )
+            )
 
         if setting.quantize_activation:
             act_setting = setting.quantize_activation_setting
-            list_of_passes.append(RuntimeCalibrationPass(method=act_setting.calib_algorithm))
+            list_of_passes.append(
+                RuntimeCalibrationPass(
+                    method=act_setting.calib_algorithm,
+                    method_per_layer=getattr(act_setting, 'calib_algorithm_per_layer', None),
+                )
+            )
 
             if setting.quant_config_modify:
                 quant_config_modify_setting = setting.quant_config_modify_setting

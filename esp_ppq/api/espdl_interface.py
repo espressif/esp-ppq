@@ -262,7 +262,7 @@ def espdl_quantize_onnx(
             )
 
         if setting is None:
-            setting = QuantizationSettingFactory.espdl_setting()
+            setting = QuantizationSettingFactory.espdl_setting(num_of_bits=num_of_bits)
 
         if dispatching_method != "allin":
             setting.dispatcher = dispatching_method

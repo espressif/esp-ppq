@@ -126,6 +126,9 @@ def build_quant_setting(
                     mp_layers.append(nxt)
         for name in mp_layers:
             quant_setting.dispatching_table.append(name, get_target_platform(target, 16))
+            # int16 layers are calibrated with minmax, consistent with the int16 default setting.
+            quant_setting.quantize_activation_setting.calib_algorithm_per_layer[name] = "minmax"
+            quant_setting.quantize_parameter_setting.calib_algorithm_per_layer[name] = "minmax"
         logger.info(f"Mixed precision int16 layers: {mp_layers}")
 
     if strategy["bias_correction"]["value"]:

@@ -1,7 +1,7 @@
 import copy
 import json
 from enum import Enum
-from typing import Union
+from typing import Dict, Union
 
 from esp_ppq.core import *
 
@@ -215,6 +215,11 @@ class ActivationQuantizationSetting:
         # activation calibration method
         self.calib_algorithm = None
 
+        # 针对特定层单独指定激活校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer activation calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
+
 
 class QuantConfigModifySetting:
     def __init__(self) -> None:
@@ -226,6 +231,11 @@ class ParameterQuantizationSetting:
         # 参数校准算法，不区分大小写，可以选择 minmax, percentile, kl, MSE, None
         # parameter calibration method
         self.calib_algorithm = None
+
+        # 针对特定层单独指定参数校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer parameter calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
 
         # 是否处理被动量化参数
         # whether to process passive parameters
@@ -592,7 +602,7 @@ class QuantizationSettingFactory:
         return default_setting
 
     @staticmethod
-    def espdl_setting() -> QuantizationSetting:
+    def espdl_setting(num_of_bits: int = 8) -> QuantizationSetting:
         default_setting = QuantizationSetting()
         default_setting.quantize_parameter_setting.clip_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
         default_setting.quantize_parameter_setting.pad_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
@@ -602,6 +612,9 @@ class QuantizationSettingFactory:
         default_setting.fusion_setting.force_alignment_overlap = False
         default_setting.dispatcher = "allin"
         default_setting.quant_config_modify = False
+        if num_of_bits == 16:
+            default_setting.quantize_parameter_setting.calib_algorithm = "minmax"
+            default_setting.quantize_activation_setting.calib_algorithm = "minmax"
         return default_setting
 
     @staticmethod

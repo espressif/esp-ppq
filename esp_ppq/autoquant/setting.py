@@ -103,7 +103,7 @@ class AutoQuantSearchSetting:
                 "topk": [-1, 1, 2, 3],
             },
             "mixed_precision": {
-                "topk": [1],
+                "topk": [3],
             },
             "tqt": {
                 "lr": [1e-5, 5e-5],
