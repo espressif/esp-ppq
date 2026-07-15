@@ -145,7 +145,7 @@ def build_evaluate_fn():
 def main() -> None:
     prepare_onnx_model()
 
-    setting = AutoQuantSearchSetting(
+    auto_setting = AutoQuantSearchSetting(
         search_mode="exhaustive",
         num_of_candidates=NUM_OF_CANDIDATES,
         run_dir=RUN_DIR,
@@ -160,7 +160,7 @@ def main() -> None:
         input_shape=INPUT_SHAPE,
         evaluate_fn=build_evaluate_fn(),
         target=TARGET,
-        setting=setting,
+        auto_setting=auto_setting,
         device=DEVICE,
         verbose=0,
     )

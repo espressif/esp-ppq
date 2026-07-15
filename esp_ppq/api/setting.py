@@ -1,5 +1,6 @@
 import copy
 import json
+from enum import Enum
 from typing import Union
 
 from esp_ppq.core import *
@@ -508,7 +509,17 @@ class QuantizationSetting:
         self.dispatching_table = DispatchingTable()
 
     def to_json(self) -> str:
-        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4, ensure_ascii=False)
+        def encode(obj):
+            if isinstance(obj, Enum):
+                return {
+                    "__ppq_enum__": obj.__class__.__name__,
+                    "name": obj.name,
+                }
+            if hasattr(obj, "__dict__"):
+                return obj.__dict__
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+        return json.dumps(self, default=encode, sort_keys=True, indent=4, ensure_ascii=False)
 
 
 class QuantizationSettingFactory:
@@ -619,10 +630,36 @@ class QuantizationSettingFactory:
                 f'however {type(setting_dict)} was given.'
             )
 
+        def decode(value):
+            if isinstance(value, list):
+                return [decode(item) for item in value]
+            if isinstance(value, dict):
+                if set(value) == {"__ppq_enum__", "name"}:
+                    enum_type = globals().get(value["__ppq_enum__"])
+                    if not isinstance(enum_type, type) or not issubclass(enum_type, Enum):
+                        raise ValueError(f"Unknown PPQ enum type: {value['__ppq_enum__']!r}")
+                    try:
+                        return enum_type[value["name"]]
+                    except KeyError as e:
+                        raise ValueError(
+                            f"Unknown {value['__ppq_enum__']} member: {value['name']!r}"
+                        ) from e
+                return {key: decode(item) for key, item in value.items()}
+            return value
+
+        setting_dict = decode(setting_dict)
+
         def assign(obj_setting: dict, obj: object):
             for key, value in obj_setting.items():
                 if key in obj.__dict__:
-                    if 'builtin' in obj.__dict__[key].__class__.__module__:
+                    if isinstance(obj.__dict__[key], Enum):
+                        if not isinstance(value, obj.__dict__[key].__class__):
+                            raise TypeError(
+                                f'Can not assign {type(value).__name__} to enum setting '
+                                f'{obj.__class__.__name__}.{key}.'
+                            )
+                        obj.__dict__[key] = value
+                    elif 'builtin' in obj.__dict__[key].__class__.__module__:
                         obj.__dict__[key] = copy.deepcopy(value)
                     else:
                         assert isinstance(value, dict)

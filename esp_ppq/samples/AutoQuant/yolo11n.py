@@ -163,17 +163,17 @@ def main() -> None:
     prepare_onnx_model()
     prepare_eval_code()
 
-    setting = AutoQuantSearchSetting(
+    auto_setting = AutoQuantSearchSetting(
         search_mode="fast",
         num_of_candidates=NUM_OF_CANDIDATES,
         run_dir=RUN_DIR,
         resume=False,
     )
     # fast-only knobs (honored only when search_mode == "fast").
-    setting.top_strategy = 10
-    setting.early_stop_patience = 5
+    auto_setting.top_strategy = 10
+    auto_setting.early_stop_patience = 5
     # Search space is initialized inside __init__; adjust entries as needed.
-    setting.strategy_space["mixed_precision"] = [True, False]
+    auto_setting.strategy_space["mixed_precision"] = [True, False]
 
     topk = espdl_auto_quantize_onnx(
         onnx_import_file=ONNX_PATH,
@@ -183,7 +183,7 @@ def main() -> None:
         input_shape=INPUT_SHAPE,
         evaluate_fn=build_evaluate_fn(),
         target=TARGET,
-        setting=setting,
+        auto_setting=auto_setting,
         device=DEVICE,
         verbose=0,
     )
