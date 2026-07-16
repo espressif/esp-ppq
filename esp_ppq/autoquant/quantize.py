@@ -94,9 +94,7 @@ def build_quant_setting(
     calib_algorithm = sampled_param["calib_algorithm"]["method"]
 
     quant_setting = (
-        copy.deepcopy(base_setting)
-        if base_setting is not None
-        else QuantizationSettingFactory.espdl_setting()
+        copy.deepcopy(base_setting) if base_setting is not None else QuantizationSettingFactory.espdl_setting()
     )
     quant_setting.quantize_activation_setting.calib_algorithm = calib_algorithm
     quant_setting.equalization = strategy["weight_equalization"]["value"]
@@ -265,9 +263,7 @@ def compute_layerwise_error(
 ) -> Dict[str, float]:
     """Run baseline INT8 quantization and return the layerwise error report."""
     quant_setting = (
-        copy.deepcopy(quant_setting)
-        if quant_setting is not None
-        else QuantizationSettingFactory.espdl_setting()
+        copy.deepcopy(quant_setting) if quant_setting is not None else QuantizationSettingFactory.espdl_setting()
     )
     quant_graph = quant_model(
         onnx_import_file=onnx_import_file,

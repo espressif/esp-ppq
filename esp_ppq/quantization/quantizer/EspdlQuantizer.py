@@ -208,9 +208,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             lut_setting = getattr(setting, "lut_optimization_setting", None)
             step = getattr(lut_setting, "step", 32) if lut_setting is not None else 32
             target_ops = getattr(lut_setting, "target_ops", None) if lut_setting is not None else None
-            pipeline.append_optimization_to_pipeline(
-                EspdlLUTFusionPass(target_ops=target_ops, lut_step=step)
-            )
+            pipeline.append_optimization_to_pipeline(EspdlLUTFusionPass(target_ops=target_ops, lut_step=step))
 
         return pipeline
 

@@ -301,6 +301,23 @@ class LUTOptimizationSetting:
     simulation matches what the device computes with its step-sub-sampled LUT.
     """
 
+    def __setattr__(self, name: str, value) -> None:
+        if name == "step":
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError("LUT optimization step must be a positive integer.")
+
+            if value & (value - 1):
+                lower = 1 << (value.bit_length() - 1)
+                upper = lower << 1
+                nearest = lower if value - lower < upper - value else upper
+                ppq_warning(
+                    f"LUT optimization step {value} is not a power of two; "
+                    f"it has been adjusted to the nearest power of two: {nearest}."
+                )
+                value = nearest
+
+        super().__setattr__(name, value)
+
     def __init__(self) -> None:
         # LUT 子采样步长，必须是 2 的幂 (例如 32)。
         # 它同时用于仿真和导出 (导出时会自动写入每个算子，保证与仿真一致)。
@@ -312,16 +329,16 @@ class LUTOptimizationSetting:
         # 需要融合的算子类型列表；None 表示自动检测所有满足 y=f(x) 的算子。
         # List of op types to fuse; None means auto-detect every eligible y=f(x) op.
         self.target_ops = [
-            "Swish", 
-            "SiLU", 
-            "Sigmoid", 
-            "Tanh", 
-            "HardSwish", 
-            "HardSigmoid", 
-            "Elu", 
-            "Erf", 
-            "Gelu", 
-            "LeakyRelu", 
+            "Swish",
+            "SiLU",
+            "Sigmoid",
+            "Tanh",
+            "HardSwish",
+            "HardSigmoid",
+            "Elu",
+            "Erf",
+            "Gelu",
+            "LeakyRelu",
             "Softplus",
             "Exp",
             "Log",
@@ -654,9 +671,7 @@ class QuantizationSettingFactory:
                     try:
                         return enum_type[value["name"]]
                     except KeyError as e:
-                        raise ValueError(
-                            f"Unknown {value['__ppq_enum__']} member: {value['name']!r}"
-                        ) from e
+                        raise ValueError(f"Unknown {value['__ppq_enum__']} member: {value['name']!r}") from e
                 return {key: decode(item) for key, item in value.items()}
             return value
 
@@ -668,12 +683,11 @@ class QuantizationSettingFactory:
                     if isinstance(obj.__dict__[key], Enum):
                         if not isinstance(value, obj.__dict__[key].__class__):
                             raise TypeError(
-                                f'Can not assign {type(value).__name__} to enum setting '
-                                f'{obj.__class__.__name__}.{key}.'
+                                f'Can not assign {type(value).__name__} to enum setting {obj.__class__.__name__}.{key}.'
                             )
                         obj.__dict__[key] = value
                     elif 'builtin' in obj.__dict__[key].__class__.__module__:
-                        obj.__dict__[key] = copy.deepcopy(value)
+                        setattr(obj, key, copy.deepcopy(value))
                     else:
                         assert isinstance(value, dict)
                         assign(value, obj.__dict__[key])

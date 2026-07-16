@@ -140,9 +140,9 @@ class HardwareEmulator(torch.autograd.Function):
 
         Mirrors ``AddLUTPattern.calculate_lut``::
 
-            input  = arange(min, max + step, step) * in_scale
+            input = arange(min, max + step, step) * in_scale
             output = forward(op, [input])
-            lut    = round(output / out_scale).clamp(-32768, 32767).to(int16)
+            lut = round(output / out_scale).clamp(-32768, 32767).to(int16)
         """
         n_entries = 65536 // step + 1
 

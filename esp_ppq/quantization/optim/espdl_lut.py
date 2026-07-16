@@ -38,6 +38,9 @@ from esp_ppq.IR import BaseGraph, Operation
 
 from .base import QuantizationOptimizationPass
 
+_NON_FUSABLE_TYPES = {"PRelu", "Clip", "Cast", "Identity", "LUT"}
+
+
 class EspdlLUTFusionPass(QuantizationOptimizationPass):
     """Rewrite unary ``y = f(x)`` ops into bit-exact INT16 ``LUT`` ops for ESP-DL."""
 
@@ -64,20 +67,11 @@ class EspdlLUTFusionPass(QuantizationOptimizationPass):
         self.lut_count = 0
 
     @staticmethod
-    def _pointwise_op_universe() -> set:
-        """Op types esp-ppq treats as point-wise ``y = f(x)`` math."""
-        # Imported lazily to avoid import cycles at package init time.
-        from esp_ppq.parser.espdl.espdl_typedef import ACTIVATION_OP_SET, MATH_OP_SET
-
-        return (set(ACTIVATION_OP_SET) | set(MATH_OP_SET)) - _NON_FUSABLE_TYPES
-
-    @staticmethod
     def _has_math_impl(op_type: str) -> bool:
         """True if esp-ppq can evaluate ``op_type`` (needed to build the LUT)."""
         from esp_ppq.executor.op.torch.default import DEFAULT_BACKEND_TABLE
 
         return DEFAULT_BACKEND_TABLE.get(op_type) is not None
-
 
     def verify_compatibility(self, op: Operation) -> bool:
         """Return True if ``op`` may be fused into an INT16 LUT.
@@ -103,6 +97,10 @@ class EspdlLUTFusionPass(QuantizationOptimizationPass):
     def _should_fuse(self, op: Operation) -> bool:
         # Op-type filter: the point-wise universe (plus any user-provided extras).
         if op.type not in self.target_ops:
+            return False
+
+        # LUT only supports unary element-wise operations.
+        if len(op.inputs) != 1 or len(op.outputs) != 1:
             return False
 
         # Safety: the exporter must be able to build the LUT table from f.

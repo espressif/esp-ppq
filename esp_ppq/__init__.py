@@ -22,6 +22,31 @@ from esp_ppq.api.setting import (
 )
 from esp_ppq.core import *
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor, TorchQuantizeDelegator
+
+# ---------------------------------------------------------------------------
+# ESP-DL bit-exact INT16 LUT activation support.
+#
+# Registering the ``LUT`` operation handler makes esp-ppq's simulation match the
+# on-device step-interpolated / nearest-neighbour LUT computed by esp-dl, which
+# solves the "activation exported as LUT cannot be aligned with hardware" issue.
+# Registration is deferred to here so that both the executor and parser packages
+# are fully initialized (avoids import cycles).
+# ---------------------------------------------------------------------------
+from esp_ppq.executor.op.torch.espdl_lut import (  # noqa: E402
+    GlobalMode as LUTGlobalMode,
+)
+from esp_ppq.executor.op.torch.espdl_lut import (
+    HardwareEmulator as LUTHardwareEmulator,
+)
+from esp_ppq.executor.op.torch.espdl_lut import (
+    SimulationMode as LUTSimulationMode,
+)
+from esp_ppq.executor.op.torch.espdl_lut import (
+    register_lut_op_handler,
+)
+from esp_ppq.executor.op.torch.espdl_lut import (
+    set_simulation_mode as set_lut_simulation_mode,
+)
 from esp_ppq.IR import (
     BaseGraph,
     GraphBuilder,
@@ -91,22 +116,5 @@ from esp_ppq.quantization.quantizer import (
 from esp_ppq.scheduler import AggresiveDispatcher, ConservativeDispatcher, GraphDispatcher, PPLNNDispatcher
 from esp_ppq.scheduler.perseus import Perseus
 from esp_ppq.utils.round import ppq_numerical_round, ppq_round_to_power_of_2, ppq_tensor_round
-
-# ---------------------------------------------------------------------------
-# ESP-DL bit-exact INT16 LUT activation support.
-#
-# Registering the ``LUT`` operation handler makes esp-ppq's simulation match the
-# on-device step-interpolated / nearest-neighbour LUT computed by esp-dl, which
-# solves the "activation exported as LUT cannot be aligned with hardware" issue.
-# Registration is deferred to here so that both the executor and parser packages
-# are fully initialized (avoids import cycles).
-# ---------------------------------------------------------------------------
-from esp_ppq.executor.op.torch.espdl_lut import (  # noqa: E402
-    GlobalMode as LUTGlobalMode,
-    HardwareEmulator as LUTHardwareEmulator,
-    SimulationMode as LUTSimulationMode,
-    register_lut_op_handler,
-    set_simulation_mode as set_lut_simulation_mode,
-)
 
 register_lut_op_handler()

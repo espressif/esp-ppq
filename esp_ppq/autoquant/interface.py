@@ -16,8 +16,8 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set,
 
 from torch.utils.data import DataLoader
 
-from esp_ppq.IR import BaseGraph
 from esp_ppq.api.setting import QuantizationSetting
+from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
 from esp_ppq.quantization.analyse import graphwise_error_analyse
 
@@ -170,8 +170,7 @@ def _validate_resume_artifacts(run_dir: str, candidates_path: str) -> None:
         candidates = load_candidates(candidates_path)
     except json.JSONDecodeError as e:
         raise ValueError(
-            "Resume files are malformed JSON. Please fix them or rerun with "
-            "auto_setting.resume=False."
+            "Resume files are malformed JSON. Please fix them or rerun with auto_setting.resume=False."
         ) from e
 
     if not isinstance(summary, list) or not isinstance(candidates, list):
@@ -370,19 +369,12 @@ def espdl_auto_quantize_onnx(
         auto_setting = AutoQuantSearchSetting()
 
     if auto_setting.search_mode not in ("exhaustive", "fast"):
-        raise ValueError(
-            f"auto_setting.search_mode must be 'exhaustive' or 'fast', "
-            f"got {auto_setting.search_mode!r}"
-        )
+        raise ValueError(f"auto_setting.search_mode must be 'exhaustive' or 'fast', got {auto_setting.search_mode!r}")
     if auto_setting.num_of_candidates < 1:
-        raise ValueError(
-            f"auto_setting.num_of_candidates must be >= 1, "
-            f"got {auto_setting.num_of_candidates}"
-        )
+        raise ValueError(f"auto_setting.num_of_candidates must be >= 1, got {auto_setting.num_of_candidates}")
     if auto_setting.score_direction not in ("maximize", "minimize"):
         raise ValueError(
-            f"auto_setting.score_direction must be 'maximize' or 'minimize', "
-            f"got {auto_setting.score_direction!r}"
+            f"auto_setting.score_direction must be 'maximize' or 'minimize', got {auto_setting.score_direction!r}"
         )
 
     # Default evaluator: when the caller does not supply `evaluate_fn`, score
@@ -492,9 +484,7 @@ def espdl_auto_quantize_onnx(
     else:
         layerwise_error = {}
 
-    searcher, _rules = build_search_pipeline(
-        auto_setting.strategy_space, auto_setting.param_space
-    )
+    searcher, _rules = build_search_pipeline(auto_setting.strategy_space, auto_setting.param_space)
     strategies = list(searcher.search())
 
     state = {"exp_index": next_index}

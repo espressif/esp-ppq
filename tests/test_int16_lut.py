@@ -275,12 +275,16 @@ def test_lut_table_uses_original_op_type():
     in_scale = 2.0**in_exp
     out_scale = 2.0**out_exp
     pivots = (torch.arange(0, 65536 // step + 1, dtype=torch.float32) * step - 32768) * in_scale
-    ref = ppq_tensor_round(
-        torch.sigmoid(pivots) / out_scale, sigmoid_lut.output_quant_config[0].rounding
-    ).clamp(-32768, 32767).to(torch.int32)
-    identity = ppq_tensor_round(
-        pivots / out_scale, sigmoid_lut.output_quant_config[0].rounding
-    ).clamp(-32768, 32767).to(torch.int32)
+    ref = (
+        ppq_tensor_round(torch.sigmoid(pivots) / out_scale, sigmoid_lut.output_quant_config[0].rounding)
+        .clamp(-32768, 32767)
+        .to(torch.int32)
+    )
+    identity = (
+        ppq_tensor_round(pivots / out_scale, sigmoid_lut.output_quant_config[0].rounding)
+        .clamp(-32768, 32767)
+        .to(torch.int32)
+    )
 
     assert torch.equal(lut.cpu().to(torch.int32), ref), "LUT table does not match sigmoid math"
     assert not torch.equal(lut.cpu().to(torch.int32), identity), "LUT table is identity (op.type dispatch bug)"

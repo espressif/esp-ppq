@@ -1,9 +1,36 @@
 import inspect
+import json
 
-from esp_ppq.api.setting import QuantizationSettingFactory
+from esp_ppq.api.setting import LUTOptimizationSetting, QuantizationSettingFactory
 from esp_ppq.autoquant.interface import espdl_auto_quantize_onnx
 from esp_ppq.autoquant.quantize import build_quant_setting
 from esp_ppq.autoquant.save import save_experiment
+
+
+def test_lut_step_is_adjusted_to_nearest_power_of_two(monkeypatch):
+    warnings = []
+    monkeypatch.setattr("esp_ppq.api.setting.ppq_warning", warnings.append)
+    setting = LUTOptimizationSetting()
+
+    setting.step = 48
+
+    assert setting.step == 64
+    assert warnings == [
+        "LUT optimization step 48 is not a power of two; it has been adjusted to the nearest power of two: 64."
+    ]
+
+
+def test_lut_step_loaded_from_json_is_adjusted(monkeypatch):
+    warnings = []
+    monkeypatch.setattr("esp_ppq.api.setting.ppq_warning", warnings.append)
+    setting = QuantizationSettingFactory.espdl_setting()
+    setting_dict = json.loads(setting.to_json())
+    setting_dict["lut_optimization_setting"]["step"] = 24
+
+    loaded = QuantizationSettingFactory.from_json(setting_dict)
+
+    assert loaded.lut_optimization_setting.step == 32
+    assert any("step 24 is not a power of two" in warning for warning in warnings)
 
 
 def test_autoquant_has_separate_quantization_and_search_settings():
@@ -72,7 +99,4 @@ def test_save_experiment_persists_loadable_quantization_setting(tmp_path):
     assert loaded.lsq_optimization is True
     assert loaded.lsq_optimization_setting.steps == 321
     assert loaded.quantize_activation_setting.calib_algorithm == "mse"
-    assert (
-        loaded.quantize_parameter_setting.clip_visiblity
-        == quant_setting.quantize_parameter_setting.clip_visiblity
-    )
+    assert loaded.quantize_parameter_setting.clip_visiblity == quant_setting.quantize_parameter_setting.clip_visiblity
