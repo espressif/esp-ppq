@@ -5,6 +5,7 @@ from esp_ppq.api.setting import LUTOptimizationSetting, QuantizationSettingFacto
 from esp_ppq.autoquant.interface import espdl_auto_quantize_onnx
 from esp_ppq.autoquant.quantize import build_quant_setting
 from esp_ppq.autoquant.save import save_experiment
+from esp_ppq.autoquant.setting import AutoQuantSearchSetting
 
 
 def test_lut_step_is_adjusted_to_nearest_power_of_two(monkeypatch):
@@ -33,11 +34,21 @@ def test_lut_step_loaded_from_json_is_adjusted(monkeypatch):
     assert any("step 24 is not a power of two" in warning for warning in warnings)
 
 
-def test_autoquant_has_separate_quantization_and_search_settings():
+def test_autoquant_keeps_single_compatible_setting_parameter():
     parameters = inspect.signature(espdl_auto_quantize_onnx).parameters
 
     assert "setting" in parameters
-    assert "auto_setting" in parameters
+    assert "auto_setting" not in parameters
+    assert parameters["setting"].annotation is AutoQuantSearchSetting
+
+
+def test_autoquant_search_setting_accepts_base_quantization_setting():
+    setting = AutoQuantSearchSetting()
+    base_setting = QuantizationSettingFactory.espdl_setting()
+
+    setting.quant_setting = base_setting
+
+    assert setting.quant_setting is base_setting
 
 
 def test_autoquant_candidate_copies_base_quantization_setting():

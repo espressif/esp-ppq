@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, List, Optional
 
+from esp_ppq.api.setting import QuantizationSetting
+
 from .candidates import CandidateFilter, low_latency_candidate_filter
 
 
@@ -149,6 +151,10 @@ class AutoQuantSearchSetting:
         # `summary.json` so that interrupted searches can continue.
         self.run_dir: str = run_dir
         self.resume: bool = resume
+
+        # Optional base ESP-DL quantization setting. AutoQuant deep-copies it
+        # for every candidate before applying the searched values.
+        self.quant_setting: Optional[QuantizationSetting] = None
 
         # ------------------------------------------------------------------
         # fast-only knobs (only used when `search_mode == "fast"`).

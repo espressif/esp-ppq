@@ -988,30 +988,35 @@ class GraphMerger(GraphCommandProcessor):
     def fuse_swish(self):
         """
         Fuse Pattern like Sigmoid + Mul to Swish.
-        Accepts a layout-passthrough op (Transpose, Reshape, etc.) between
-        the computing op and the Swish subgraph.
+
+        Match the Swish subgraph from its variables instead of requiring an
+        upstream operation. Graph inputs have no ``source_op``, but
+        ``x * sigmoid(x)`` is still a valid Swish pattern.
         """
-        search_engine = SearchableGraph(graph=self.graph)
-        patterns = search_engine.pattern_matching(
-            patterns=[lambda x: x.is_computing_op or x.type in PASSIVE_OPERATIONS, 'Sigmoid', 'Mul'],
-            edges=[[0, 1], [1, 2], [0, 2]],
-            exclusive=True,
-        )
+        for sigmoid in list(self.graph.operations.values()):
+            if sigmoid.type != 'Sigmoid' or sigmoid.num_of_input != 1 or sigmoid.num_of_output != 1:
+                continue
 
-        for pattern in patterns:
-            src, sigmoid, mul = pattern
-
-            # The single variable connecting src → sigmoid → mul.
-            # Capture it before any graph mutation so we are robust
-            # against src having multiple outputs (e.g. Split, MaxPool
-            # with indices).
             sigmoid_in = sigmoid.inputs[0]
-            mul_outs = mul.outputs.copy()
-            if sigmoid_in not in src.outputs or sigmoid_in not in mul.inputs:
-                continue  # edge constraint violated — skip
+            sigmoid_out = sigmoid.outputs[0]
 
-            for var in sigmoid.outputs:
-                self.graph.remove_variable(var)
+            # The Sigmoid output must be exclusively consumed by one binary
+            # Mul whose other input is the original Sigmoid input.
+            if len(sigmoid_out.dest_ops) != 1:
+                continue
+            mul = sigmoid_out.dest_ops[0]
+            if mul.type != 'Mul' or mul.num_of_input != 2 or mul.num_of_output != 1:
+                continue
+            if sigmoid_out not in mul.inputs or sigmoid_in not in mul.inputs:
+                continue
+
+            mul_outs = mul.outputs.copy()
+            source_name = sigmoid_in.source_op.name if sigmoid_in.source_op is not None else sigmoid.name
+            swish_name = f'{source_name}/Swish'
+            if swish_name in self.graph.operations:
+                swish_name = f'{sigmoid.name}/Swish'
+
+            self.graph.remove_variable(sigmoid_out)
             self.graph.remove_operation(sigmoid)
             self.graph.remove_operation(mul)
 
@@ -1019,7 +1024,7 @@ class GraphMerger(GraphCommandProcessor):
                 op_type='Swish',
                 inputs=[sigmoid_in],
                 outputs=mul_outs,
-                name=f'{src.name}/Swish',
+                name=swish_name,
             )
 
     def fuse_bias_add(self):

@@ -26,7 +26,7 @@ def evaluate_fn(graph):
     return top1, {"top1": top1, "top5": top5}
 
 
-auto_setting = AutoQuantSearchSetting(
+setting = AutoQuantSearchSetting(
     search_mode="fast",
     num_of_candidates=5,
     score_direction="maximize",
@@ -41,7 +41,7 @@ espdl_auto_quantize_onnx(
     input_shape=[3, 224, 224],
     evaluate_fn=evaluate_fn,
     target="esp32p4",
-    auto_setting=auto_setting,
+    setting=setting,
     device="cuda",
 )
 ```
@@ -56,10 +56,10 @@ espdl_auto_quantize_onnx(
 | `input_shape` | 模型输入 shape，不包含 batch 维度。例如 `[3, 224, 224]` |
 | `evaluate_fn` | 可选的评测函数 |
 | `target` | 部署平台 |
-| `auto_setting` | AutoQuant 的搜索设置 |
+| `setting` | AutoQuant 的搜索设置 |
 | `device` | 运行设备，例如 `"cpu"` 或 `"cuda"` |
 
-其中，我们重点关注 `evaluate_fn` 和 `auto_setting`，其他参数的使用方法和 `espdl_quantize_onnx` 基本一致。`setting` 保留为普通的 `QuantizationSetting`，可复用已有量化配置。
+其中，我们重点关注 `evaluate_fn` 和 `setting`，其他参数的使用方法和 `espdl_quantize_onnx` 基本一致。如需复用已有的 `QuantizationSetting`，可将其赋给 `setting.quant_setting`。
 
 ### `evaluate_fn`
 
@@ -77,8 +77,8 @@ espdl_auto_quantize_onnx(
 - `extras` 必须是字典
 - `extras` 不能使用 AutoQuant 保留字段：`score`、`hash`、`index`、`folder`、`files`、`strategy`、`params`
 
-### `auto_setting`
-`auto_setting` 用来控制 AutoQuant 的搜索行为。例如搜索模式、保留多少个候选结果、实验结果保存路径，以及是否从已有结果继续搜索等，都由 `AutoQuantSearchSetting` 配置。
+### `setting`
+`setting` 用来控制 AutoQuant 的搜索行为。例如搜索模式、保留多少个候选结果、实验结果保存路径，以及是否从已有结果继续搜索等，都由 `AutoQuantSearchSetting` 配置。
 
 `AutoQuantSearchSetting` 的常用构造参数如下：
 
@@ -94,8 +94,8 @@ espdl_auto_quantize_onnx(
 如果使用 `"fast"` 搜索模式，还可以进一步设置：
 
 ```python
-auto_setting.top_strategy = 10
-auto_setting.early_stop_patience = 3
+setting.top_strategy = 10
+setting.early_stop_patience = 3
 ```
 
 对应属性如下：
@@ -106,7 +106,7 @@ auto_setting.early_stop_patience = 3
 | `early_stop_patience` | `3` | 当前策略连续多少次没有提升后停止搜索 |
 
 
-真正决定“要尝试哪些量化策略和参数”的，是 `auto_setting.strategy_space` 和 `auto_setting.param_space`：
+真正决定“要尝试哪些量化策略和参数”的，是 `setting.strategy_space` 和 `setting.param_space`：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -116,8 +116,8 @@ auto_setting.early_stop_patience = 3
 通常不需要调整这两个字段，如果你有需要，可以修改需要调整的部分：
 
 ```python
-auto_setting.strategy_space["mixed_precision"] = [True, False]
-auto_setting.param_space["calib_algorithm"]["method"] = ["kl", "mse"]
+setting.strategy_space["mixed_precision"] = [True, False]
+setting.param_space["calib_algorithm"]["method"] = ["kl", "mse"]
 ```
 
 完整默认值可以查看 `esp_ppq/autoquant/setting.py`。

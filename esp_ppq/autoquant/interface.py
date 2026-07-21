@@ -16,7 +16,6 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Set,
 
 from torch.utils.data import DataLoader
 
-from esp_ppq.api.setting import QuantizationSetting
 from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
 from esp_ppq.quantization.analyse import graphwise_error_analyse
@@ -163,15 +162,13 @@ def _validate_resume_artifacts(run_dir: str, candidates_path: str) -> None:
     if not os.path.isfile(candidates_path):
         missing.append(candidates_path)
     if missing:
-        raise ValueError(f"auto_setting.resume=True requires both resume files to exist: {', '.join(missing)}")
+        raise ValueError(f"setting.resume=True requires both resume files to exist: {', '.join(missing)}")
 
     try:
         summary = load_summary(run_dir)
         candidates = load_candidates(candidates_path)
     except json.JSONDecodeError as e:
-        raise ValueError(
-            "Resume files are malformed JSON. Please fix them or rerun with auto_setting.resume=False."
-        ) from e
+        raise ValueError("Resume files are malformed JSON. Please fix them or rerun with setting.resume=False.") from e
 
     if not isinstance(summary, list) or not isinstance(candidates, list):
         raise ValueError("Resume files are invalid: summary.json and candidates.json must both be JSON lists.")
@@ -185,7 +182,7 @@ def _validate_resume_artifacts(run_dir: str, candidates_path: str) -> None:
         raise ValueError(
             "Resume files are inconsistent: summary.json and candidates.json "
             "must be both empty or both non-empty. "
-            "Please rerun with auto_setting.resume=False to rebuild artifacts."
+            "Please rerun with setting.resume=False to rebuild artifacts."
         )
 
 
@@ -280,16 +277,16 @@ def espdl_auto_quantize_onnx(
     evaluate_fn: Optional[Callable[[BaseGraph], Tuple[float, Dict[str, float]]]] = None,
     target: str = "esp32p4",
     collate_fn: Callable = None,
-    setting: QuantizationSetting = None,
-    auto_setting: AutoQuantSearchSetting = None,
+    setting: AutoQuantSearchSetting = None,
     device: str = "cpu",
     verbose: int = 0,
     **kwargs: Any,
 ) -> List[Dict[str, Any]]:
     """Search ESP-DL quantization strategies and return Top-K candidates.
 
-    ``setting`` has the same meaning as in :func:`espdl_quantize_onnx`;
-    AutoQuant copies it for every candidate before applying searched values.
+    ``setting.quant_setting`` has the same meaning as ``setting`` in
+    :func:`espdl_quantize_onnx`; AutoQuant copies it for every candidate
+    before applying searched values.
 
     Args:
         onnx_import_file: Input ONNX model path.
@@ -316,20 +313,20 @@ def espdl_auto_quantize_onnx(
             graphwise noise/signal-power ratios computed via
             :func:`graphwise_error_analyse` on ``calib_dataloader``;
             since lower is better, the run uses ``"minimize"`` as the
-            sort direction regardless of ``auto_setting.score_direction``
+            sort direction regardless of ``setting.score_direction``
             (an info log is emitted when the two disagree, and
-            ``auto_setting.score_direction`` itself is left untouched so a
+            ``setting.score_direction`` itself is left untouched so a
             reused search setting still reflects the user's original value).
         target: Target chip, such as ``"esp32p4"``, ``"esp32s3"``, or ``"c"``.
         collate_fn: Optional calibration batch collate function.
-        setting: Base ESP-DL quantization setting, compatible with the
-            parameter of the same name in :func:`espdl_quantize_onnx`.
+        setting: Search-space and search-behavior setting. Defaults to
+            ``AutoQuantSearchSetting()``. Its optional ``quant_setting``
+            field is the base ESP-DL quantization setting, compatible with
+            the parameter of the same name in :func:`espdl_quantize_onnx`.
             It is deep-copied for every candidate, so custom dispatching and
             optimization options are preserved without mutating the caller's
             object. AutoQuant-controlled fields are then overwritten by the
-            sampled strategy. Defaults to the standard ESP-DL setting.
-        auto_setting: Search-space and search-behavior setting. Defaults to
-            ``AutoQuantSearchSetting()``. Universal fields:
+            sampled strategy. Universal search fields:
             ``search_mode``, ``num_of_candidates``, ``candidate_filter``,
             ``score_direction`` (Optuna-style ``"maximize"`` /
             ``"minimize"``), ``run_dir`` and ``resume`` control the search
@@ -346,9 +343,9 @@ def espdl_auto_quantize_onnx(
 
     Returns:
         Top-K candidate records ranked by ``score``. The sort direction
-        is ``auto_setting.score_direction`` when ``evaluate_fn`` is supplied,
+        is ``setting.score_direction`` when ``evaluate_fn`` is supplied,
         and ``"minimize"`` when the built-in default evaluator is used
-        (``auto_setting.score_direction`` itself is left untouched). The
+        (``setting.score_direction`` itself is left untouched). The
         actually-used direction is also recorded in each experiment's
         ``config.json`` (``runtime.score_direction``).
 
@@ -365,23 +362,21 @@ def espdl_auto_quantize_onnx(
     if calib_steps < 1:
         raise ValueError(f"calib_steps must be >= 1, got {calib_steps}")
 
-    if auto_setting is None:
-        auto_setting = AutoQuantSearchSetting()
+    if setting is None:
+        setting = AutoQuantSearchSetting()
 
-    if auto_setting.search_mode not in ("exhaustive", "fast"):
-        raise ValueError(f"auto_setting.search_mode must be 'exhaustive' or 'fast', got {auto_setting.search_mode!r}")
-    if auto_setting.num_of_candidates < 1:
-        raise ValueError(f"auto_setting.num_of_candidates must be >= 1, got {auto_setting.num_of_candidates}")
-    if auto_setting.score_direction not in ("maximize", "minimize"):
-        raise ValueError(
-            f"auto_setting.score_direction must be 'maximize' or 'minimize', got {auto_setting.score_direction!r}"
-        )
+    if setting.search_mode not in ("exhaustive", "fast"):
+        raise ValueError(f"setting.search_mode must be 'exhaustive' or 'fast', got {setting.search_mode!r}")
+    if setting.num_of_candidates < 1:
+        raise ValueError(f"setting.num_of_candidates must be >= 1, got {setting.num_of_candidates}")
+    if setting.score_direction not in ("maximize", "minimize"):
+        raise ValueError(f"setting.score_direction must be 'maximize' or 'minimize', got {setting.score_direction!r}")
 
     # Default evaluator: when the caller does not supply `evaluate_fn`, score
     # each candidate by the mean of the top-3 highest graphwise noise/signal
     # power ratios on `calib_dataloader`. SNR is a loss (lower is better), so
     # this run sorts under "minimize" regardless of
-    # `auto_setting.score_direction`; keep that as a local override so the
+    # `setting.score_direction`; keep that as a local override so the
     # user's search setting is not
     # mutated across calls.
     if evaluate_fn is None:
@@ -420,30 +415,30 @@ def espdl_auto_quantize_onnx(
             }
 
         effective_score_direction = "minimize"
-        if auto_setting.score_direction != "minimize":
+        if setting.score_direction != "minimize":
             logger.info(
                 f"Using built-in graphwise top-{_default_top_n} SNR evaluator; "
                 f"this run sorts under 'minimize' (lower is better) instead of "
-                f"auto_setting.score_direction={auto_setting.score_direction!r}. "
-                f"auto_setting.score_direction itself is left untouched."
+                f"setting.score_direction={setting.score_direction!r}. "
+                f"setting.score_direction itself is left untouched."
             )
     else:
-        effective_score_direction = auto_setting.score_direction
+        effective_score_direction = setting.score_direction
 
     # `device` is the single knob: overwrite tqt / blockwise_reconstruction
     # `collecting_device` so it always matches the execution device.
     for _module in ("tqt", "blockwise_reconstruction"):
-        if _module in auto_setting.param_space:
-            auto_setting.param_space[_module]["collecting_device"] = [device]
+        if _module in setting.param_space:
+            setting.param_space[_module]["collecting_device"] = [device]
 
-    candidates_path = os.path.join(auto_setting.run_dir, "candidates.json")
-    if auto_setting.resume:
+    candidates_path = os.path.join(setting.run_dir, "candidates.json")
+    if setting.resume:
         # Validate before creating `run_dir` so a failed resume does not
         # leave an empty directory on disk.
-        _validate_resume_artifacts(auto_setting.run_dir, candidates_path)
-    run_dir = create_run_dir(auto_setting.run_dir)
-    done_hashes, done_metrics, next_index = _load_resume(auto_setting.resume, run_dir, "score")
-    if not auto_setting.resume:
+        _validate_resume_artifacts(setting.run_dir, candidates_path)
+    run_dir = create_run_dir(setting.run_dir)
+    done_hashes, done_metrics, next_index = _load_resume(setting.resume, run_dir, "score")
+    if not setting.resume:
         reset_run_dir(run_dir)
 
     runtime_snapshot = {
@@ -452,23 +447,23 @@ def espdl_auto_quantize_onnx(
         "input_shape": list(input_shape),
         "target": target,
         "device": device,
-        "num_of_candidates": auto_setting.num_of_candidates,
-        "search_mode": auto_setting.search_mode,
+        "num_of_candidates": setting.num_of_candidates,
+        "search_mode": setting.search_mode,
         # Record the direction this run actually sorted under, not the
-        # user's raw `auto_setting.score_direction`: the default evaluator
+        # user's raw `setting.score_direction`: the default evaluator
         # forces "minimize" locally without mutating the search setting, so
         # logging the raw value here would mislead post-hoc analysis.
         "score_direction": effective_score_direction,
         "calib_steps": calib_steps,
     }
-    if auto_setting.search_mode == "fast":
+    if setting.search_mode == "fast":
         # Persist fast-only knobs so a saved config can be reproduced exactly.
-        runtime_snapshot["top_strategy"] = auto_setting.top_strategy
-        runtime_snapshot["early_stop_patience"] = auto_setting.early_stop_patience
+        runtime_snapshot["top_strategy"] = setting.top_strategy
+        runtime_snapshot["early_stop_patience"] = setting.early_stop_patience
 
     simplified_onnx_path = simplify_onnx(onnx_import_file)
 
-    if _needs_layerwise_error(auto_setting):
+    if _needs_layerwise_error(setting):
         layerwise_error = compute_layerwise_error(
             onnx_import_file=onnx_import_file,
             espdl_export_file=espdl_export_file,
@@ -478,13 +473,13 @@ def espdl_auto_quantize_onnx(
             device=device,
             collate_fn=collate_fn,
             calib_steps=calib_steps,
-            quant_setting=setting,
+            quant_setting=setting.quant_setting,
             **kwargs,
         )
     else:
         layerwise_error = {}
 
-    searcher, _rules = build_search_pipeline(auto_setting.strategy_space, auto_setting.param_space)
+    searcher, _rules = build_search_pipeline(setting.strategy_space, setting.param_space)
     strategies = list(searcher.search())
 
     state = {"exp_index": next_index}
@@ -496,7 +491,7 @@ def espdl_auto_quantize_onnx(
                 raise ValueError(
                     f"Hash {h[:8]} exists in summary but missing 'score' field. "
                     "The summary is not compatible with the current AutoQuant format; "
-                    "rerun with auto_setting.resume=False to rebuild it."
+                    "rerun with setting.resume=False to rebuild it."
                 )
             logger.info(f"[skip] already done: {h[:8]}")
             return done_metrics[h]
@@ -507,7 +502,7 @@ def espdl_auto_quantize_onnx(
             target=target,
             layerwise_error=layerwise_error,
             simplified_onnx_path=simplified_onnx_path,
-            base_setting=setting,
+            base_setting=setting.quant_setting,
         )
         quant_graph = quant_model(
             onnx_import_file=onnx_import_file,
@@ -590,9 +585,9 @@ def espdl_auto_quantize_onnx(
         update_topk_candidates(
             candidates_path,
             record,
-            auto_setting.num_of_candidates,
+            setting.num_of_candidates,
             key="score",
-            candidate_filter=auto_setting.candidate_filter,
+            candidate_filter=setting.candidate_filter,
             score_direction=effective_score_direction,
         )
 
@@ -601,15 +596,15 @@ def espdl_auto_quantize_onnx(
         state["exp_index"] += 1
         return score
 
-    if auto_setting.search_mode == "exhaustive":
+    if setting.search_mode == "exhaustive":
         _run_exhaustive(strategies, _eval_once)
     else:
         _run_fast(
             strategies,
             _eval_once,
-            top=auto_setting.top_strategy,
-            t_max=auto_setting.early_stop_patience,
-            structural_knobs=auto_setting.structural_knobs,
+            top=setting.top_strategy,
+            t_max=setting.early_stop_patience,
+            structural_knobs=setting.structural_knobs,
             score_direction=effective_score_direction,
         )
 
