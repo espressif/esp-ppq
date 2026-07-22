@@ -96,7 +96,7 @@ def _lut_ops(graph):
 # ---------------------------------------------------------------------------
 # Reference reimplementation of dl::module::LUT::forward (QUANT_TYPE_SYMM_16BIT)
 # ---------------------------------------------------------------------------
-def _c_reference(q_int16: np.ndarray, table: np.ndarray, step: int) -> np.ndarray:
+def _c_reference(q_int16: np.ndarray, table: np.ndarray, step: int, rounding: RoundingPolicy) -> np.ndarray:
     tsz = table.shape[0]
     is_pow2 = step > 1 and (step & (step - 1)) == 0
     idx = q_int16.astype(np.int64) + 32768  # signed -> unsigned
@@ -104,8 +104,14 @@ def _c_reference(q_int16: np.ndarray, table: np.ndarray, step: int) -> np.ndarra
     if step == 1:
         out = table[np.clip(idx, 0, tsz - 1)]
     elif is_pow2:
-        # PIE8 SIMD nearest-neighbour, half-even rounding.
-        nn_idx = np.clip(np.round(idx / step).astype(np.int64), 0, tsz - 1)
+        scaled_idx = idx / step
+        if rounding == RoundingPolicy.ROUND_HALF_EVEN:
+            nn_idx = np.round(scaled_idx)
+        elif rounding == RoundingPolicy.ROUND_HALF_UP:
+            nn_idx = np.floor(scaled_idx + 0.5)
+        else:
+            raise ValueError(f"Unsupported LUT reference rounding: {rounding}")
+        nn_idx = np.clip(nn_idx.astype(np.int64), 0, tsz - 1)
         out = table[nn_idx]
     else:
         base = np.clip(idx // step, 0, tsz - 2)
@@ -175,7 +181,6 @@ def test_lut_step_setting():
 # ===================================================================
 def test_lut_emulator_bit_exact():
     in_scale, out_scale = 2.0**-9, 2.0**-15
-    rounding = RoundingPolicy.ROUND_HALF_EVEN
 
     def math_fn(op, values):
         return torch.nn.functional.silu(values[0])
@@ -189,15 +194,16 @@ def test_lut_emulator_bit_exact():
     q = np.arange(-32768, 32768, dtype=np.int64)
     x = torch.tensor(q.astype(np.float64) * in_scale)
 
-    for step in (1, 32, 64, 256, 100):
-        HardwareEmulator._table_cache.clear()
-        y = HardwareEmulator.apply(
-            x, math_fn, object(), torch.tensor(in_scale), torch.tensor(out_scale), step, rounding
-        )
-        y_int = torch.round(y.double() / out_scale).to(torch.int64).numpy()
-        ref = _c_reference(q, build_table(step), step)
-        mism = int((y_int != ref).sum())
-        assert mism == 0, f"step={step}: {mism} mismatches vs C reference"
+    for rounding in (RoundingPolicy.ROUND_HALF_EVEN, RoundingPolicy.ROUND_HALF_UP):
+        for step in (1, 32, 64, 256, 100):
+            HardwareEmulator._table_cache.clear()
+            y = HardwareEmulator.apply(
+                x, math_fn, object(), torch.tensor(in_scale), torch.tensor(out_scale), step, rounding
+            )
+            y_int = torch.round(y.double() / out_scale).to(torch.int64).numpy()
+            ref = _c_reference(q, build_table(step), step, rounding)
+            mism = int((y_int != ref).sum())
+            assert mism == 0, f"rounding={rounding}, step={step}: {mism} mismatches vs C reference"
     print("PASS: test_lut_emulator_bit_exact")
 
 

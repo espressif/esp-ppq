@@ -12,7 +12,7 @@ in esp-dl). For a quantized input value ``q`` the hardware does::
 
     idx = q + 32768                      // shift signed -> unsigned
     if   step == 1:            out = table[idx]
-    elif step is power-of-two: out = table[round_half_even(idx / step)]   // PIE8 SIMD
+    elif step is power-of-two: out = table[target_round(idx / step)]      // PIE8 SIMD
     else:                      x = table[idx / step]; y = table[idx/step + 1]
                               out = x + (idx % step) * (y - x) / step     // interp
 
@@ -190,9 +190,10 @@ class HardwareEmulator(torch.autograd.Function):
             lookup = torch.clamp(idx, 0, table.shape[0] - 1)
             output_int = table[lookup.flatten().long()].view(orig_shape).to(torch.int32)
         elif is_power_of_two:
-            # PIE8 SIMD: nearest-neighbour with HALF_EVEN rounding. step is a
-            # power of two so idx/step is exact in float32 (no rounding error).
-            nn_idx = torch.round(idx.float() / step).to(torch.int32)
+            # PIE8 SIMD uses the target's rounding mode: HALF_UP on ESP32-S3
+            # and HALF_EVEN on ESP32-P4/S31. The quantizer stores that target
+            # choice in the input quantization config and passes it here.
+            nn_idx = ppq_tensor_round(idx.float() / step, rounding).to(torch.int32)
             nn_idx = torch.clamp(nn_idx, 0, table.shape[0] - 1)
             output_int = table[nn_idx.flatten().long()].view(orig_shape).to(torch.int32)
         else:
