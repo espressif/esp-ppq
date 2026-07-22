@@ -284,9 +284,9 @@ def espdl_auto_quantize_onnx(
 ) -> List[Dict[str, Any]]:
     """Search ESP-DL quantization strategies and return Top-K candidates.
 
-    The first five positional arguments and the relative ordering of
-    ``target`` / ``collate_fn`` / ``setting`` / ``device`` / ``verbose``
-    match :func:`espdl_quantize_onnx`.
+    ``setting.quant_setting`` has the same meaning as ``setting`` in
+    :func:`espdl_quantize_onnx`; AutoQuant copies it for every candidate
+    before applying searched values.
 
     Args:
         onnx_import_file: Input ONNX model path.
@@ -316,11 +316,17 @@ def espdl_auto_quantize_onnx(
             sort direction regardless of ``setting.score_direction``
             (an info log is emitted when the two disagree, and
             ``setting.score_direction`` itself is left untouched so a
-            reused setting still reflects the user's original value).
+            reused search setting still reflects the user's original value).
         target: Target chip, such as ``"esp32p4"``, ``"esp32s3"``, or ``"c"``.
         collate_fn: Optional calibration batch collate function.
         setting: Search-space and search-behavior setting. Defaults to
-            ``AutoQuantSearchSetting()``. Universal fields:
+            ``AutoQuantSearchSetting()``. Its optional ``quant_setting``
+            field is the base ESP-DL quantization setting, compatible with
+            the parameter of the same name in :func:`espdl_quantize_onnx`.
+            It is deep-copied for every candidate, so custom dispatching and
+            optimization options are preserved without mutating the caller's
+            object. AutoQuant-controlled fields are then overwritten by the
+            sampled strategy. Universal search fields:
             ``search_mode``, ``num_of_candidates``, ``candidate_filter``,
             ``score_direction`` (Optuna-style ``"maximize"`` /
             ``"minimize"``), ``run_dir`` and ``resume`` control the search
@@ -369,8 +375,9 @@ def espdl_auto_quantize_onnx(
     # Default evaluator: when the caller does not supply `evaluate_fn`, score
     # each candidate by the mean of the top-3 highest graphwise noise/signal
     # power ratios on `calib_dataloader`. SNR is a loss (lower is better), so
-    # this run sorts under "minimize" regardless of `setting.score_direction`;
-    # we keep that as a *local* override so the user's setting is not
+    # this run sorts under "minimize" regardless of
+    # `setting.score_direction`; keep that as a local override so the
+    # user's search setting is not
     # mutated across calls.
     if evaluate_fn is None:
         _default_top_n = 3
@@ -444,7 +451,7 @@ def espdl_auto_quantize_onnx(
         "search_mode": setting.search_mode,
         # Record the direction this run actually sorted under, not the
         # user's raw `setting.score_direction`: the default evaluator
-        # forces "minimize" locally without mutating the setting, so
+        # forces "minimize" locally without mutating the search setting, so
         # logging the raw value here would mislead post-hoc analysis.
         "score_direction": effective_score_direction,
         "calib_steps": calib_steps,
@@ -466,6 +473,7 @@ def espdl_auto_quantize_onnx(
             device=device,
             collate_fn=collate_fn,
             calib_steps=calib_steps,
+            quant_setting=setting.quant_setting,
             **kwargs,
         )
     else:
@@ -494,6 +502,7 @@ def espdl_auto_quantize_onnx(
             target=target,
             layerwise_error=layerwise_error,
             simplified_onnx_path=simplified_onnx_path,
+            base_setting=setting.quant_setting,
         )
         quant_graph = quant_model(
             onnx_import_file=onnx_import_file,
@@ -557,6 +566,7 @@ def espdl_auto_quantize_onnx(
             sampled_param=sampled_param,
             export_path=espdl_export_file,
             runtime_snapshot=runtime_snapshot,
+            quant_setting=quant_setting,
         )
         record["score"] = score
         record.update(extras)

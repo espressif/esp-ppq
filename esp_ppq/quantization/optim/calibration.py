@@ -108,13 +108,20 @@ class RuntimeCalibrationPass(QuantizationOptimizationPass):
 
     """
 
-    def __init__(self, method: str = None, override: bool = False, calib_steps: int = 32) -> None:
+    def __init__(
+        self,
+        method: str = None,
+        override: bool = False,
+        calib_steps: int = 32,
+        method_per_layer: Dict[str, str] = None,
+    ) -> None:
         super().__init__(name='PPQ Runtime Calibration Pass')
         self._method = method
         self._observers = {}
         self._collate_fn = None
         self._calib_steps = calib_steps
         self._override = override
+        self._method_per_layer = method_per_layer or {}
 
     def calibrate(
         self,
@@ -186,9 +193,11 @@ class RuntimeCalibrationPass(QuantizationOptimizationPass):
                 continue
 
             # override algorithm setting if necessary
+            # per-layer method takes precedence over the global method.
+            layer_method = self._method_per_layer.get(op_name, self._method)
             for config, var in operation.config_with_variable:
-                if not var.is_parameter and self._method is not None:
-                    config.observer_algorithm = self._method
+                if not var.is_parameter and layer_method is not None:
+                    config.observer_algorithm = layer_method
 
             observer = OperationObserver(operation=executor._graph.operations[op_name], monitor_parameter=False)
             self._observers[op_name] = observer

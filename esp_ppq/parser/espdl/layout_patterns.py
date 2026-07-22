@@ -436,6 +436,49 @@ class ResetResizePattern(OperationExporter):
         return op
 
 
+class ResetSlicePattern(OperationExporter):
+    """
+    Slice Layout Pattern
+
+    Slice's `starts`/`ends`/`steps` only depend on `axes`, so a permuted
+    (e.g. NHWC) input layout can be kept as-is by remapping `axes` to the
+    permuted axis instead of unconditionally restoring the original layout
+    with `restore_origin_shape` (which would insert an extra Transpose before
+    and, if downstream also needs the permuted layout, after Slice as well).
+
+    This remap is only safe when `axes` is a constant (parameter) tensor. If
+    `axes` is omitted (implicit default `[0, ..., rank-1]`) or produced at
+    runtime, fall back to restoring the original layout.
+    """
+
+    def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        if op.type != "Slice":
+            return op
+
+        info = ExporterPatternInfo()
+        input_var = op.inputs[0]
+        var_perm = info.get_var_permute(input_var.name)
+
+        if not var_perm or var_perm == get_default_perm(input_var):
+            # Input is still in its canonical layout, nothing to remap.
+            info.add_var_permute(input_var.name, get_default_perm(input_var))
+            info.add_var_permute(op.outputs[0].name, get_default_perm(op.outputs[0]))
+            return op
+
+        axes_var = op.inputs[3] if op.num_of_input > 3 else None
+        if axes_var is None or not axes_var.is_parameter or axes_var.value is None:
+            # axes is implicit or computed at runtime, can not safely remap it.
+            return restore_origin_shape(op, graph)
+
+        rank = len(input_var.shape)
+        new_axes = [var_perm.index((int(axis) + rank) % rank) for axis in axes_var.value.tolist()]
+        axes_var.value = torch.tensor(new_axes, dtype=axes_var.value.dtype)
+
+        # Slice does not reorder dimensions, output keeps the input's layout.
+        info.add_var_permute(op.outputs[0].name, var_perm)
+        return op
+
+
 class FuseTransposeActivationPattern(OperationExporter):
     """
     Fuse Transpose -> Activation -> Transpose pattern.
@@ -572,6 +615,7 @@ def reset_graph_layout(graph: BaseGraph):
         [AXIS_TRANSFORM_OP_SET, AxisTransformPattern],
         [["Concat"], ResetConcatPattern],
         [["Resize"], ResetResizePattern],
+        [["Slice"], ResetSlicePattern],
         [OTHER_OP_SET, RestoreOriginLayoutPattern],
     ]
 

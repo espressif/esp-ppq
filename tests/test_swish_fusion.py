@@ -18,7 +18,7 @@ Tested variants:
   3. Reshape-through:   Conv → Reshape → Sigmoid → Mul
   4. Squeeze-through:   Conv → Squeeze → Sigmoid → Mul
   5. Multi-passthrough: Conv → Transpose → Reshape → Sigmoid → Mul
-  6. No computing op:   GraphInput → Sigmoid → Mul  (should NOT fuse)
+  6. Graph input:       GraphInput → Sigmoid → Mul
   7. End-to-end:        espdl_quantize_torch pipeline
 """
 
@@ -353,9 +353,9 @@ def test_multi_passthrough_swish():
 
 
 # ===================================================================
-# Test 6: No computing op upstream — GraphInput → Sigmoid → Mul
+# Test 6: Graph-input Swish — GraphInput → Sigmoid → Mul
 # ===================================================================
-def test_no_computing_op_swish():
+def test_graph_input_swish():
     nodes = [
         helper.make_node('Sigmoid', ['input'], ['sig_out']),
         helper.make_node('Mul', ['input', 'sig_out'], ['output']),
@@ -369,13 +369,16 @@ def test_no_computing_op_swish():
     model = helper.make_model(graph_def, opset_imports=[helper.make_opsetid('', 18)])
     graph = _save_and_load(model)
 
-    # Should NOT fuse — no computing/passthrough op upstream of Sigmoid
-    assert not _has_swish_op(graph), (
-        f'Should NOT fuse Swish with graph input. Ops: {[op.type for op in graph.operations.values()]}'
+    assert _has_swish_op(graph), (
+        f'Expected graph-input Swish to be fused. Ops: {[op.type for op in graph.operations.values()]}'
     )
-    assert any(op.type == 'Sigmoid' for op in graph.operations.values())
+    assert not any(op.type == 'Sigmoid' for op in graph.operations.values())
+    assert not any(op.type == 'Mul' for op in graph.operations.values())
 
-    print('PASS: test_no_computing_op_swish')
+    swish = next(op for op in graph.operations.values() if op.type == 'Swish')
+    assert swish.inputs[0] is graph.inputs['input']
+
+    print('PASS: test_graph_input_swish')
 
 
 # ===================================================================
@@ -455,6 +458,6 @@ if __name__ == '__main__':
     test_reshape_swish()
     test_squeeze_swish()
     test_multi_passthrough_swish()
-    test_no_computing_op_swish()
+    test_graph_input_swish()
     test_espdl_pipeline_swish()
     print('\nAll Swish fusion tests passed.')

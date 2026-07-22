@@ -1,6 +1,7 @@
 import copy
 import json
-from typing import Union
+from enum import Enum
+from typing import Dict, Union
 
 from esp_ppq.core import *
 
@@ -214,6 +215,11 @@ class ActivationQuantizationSetting:
         # activation calibration method
         self.calib_algorithm = None
 
+        # 针对特定层单独指定激活校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer activation calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
+
 
 class QuantConfigModifySetting:
     def __init__(self) -> None:
@@ -225,6 +231,11 @@ class ParameterQuantizationSetting:
         # 参数校准算法，不区分大小写，可以选择 minmax, percentile, kl, MSE, None
         # parameter calibration method
         self.calib_algorithm = None
+
+        # 针对特定层单独指定参数校准算法，key 为算子名，value 为校准算法。
+        # 该设置优先级高于全局 calib_algorithm，用于对个别层使用不同的校准方法。
+        # per-layer parameter calibration method, overrides the global calib_algorithm for listed ops.
+        self.calib_algorithm_per_layer: Dict[str, str] = {}
 
         # 是否处理被动量化参数
         # whether to process passive parameters
@@ -279,6 +290,63 @@ class QuantizationFusionSetting:
         self.align_concat_to = 'Align to Output'
         self.align_resize_to = 'Align to Output'
         self.force_alignment_overlap = True
+
+
+class LUTOptimizationSetting:
+    """ESP-DL INT16 LUT activation fusion settings.
+
+    Only effective on ESP-DL INT16 platforms (ESPDL_INT16 / ESPDL_S3_INT16).
+    When enabled, calibrated unary ``y = f(x)`` activations (Swish/SiLU, Sigmoid,
+    Tanh, ...) are rewritten into bit-exact ``LUT`` ops so that the Python
+    simulation matches what the device computes with its step-sub-sampled LUT.
+    """
+
+    def __setattr__(self, name: str, value) -> None:
+        if name == "step":
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError("LUT optimization step must be a positive integer.")
+
+            if value & (value - 1):
+                lower = 1 << (value.bit_length() - 1)
+                upper = lower << 1
+                nearest = lower if value - lower < upper - value else upper
+                ppq_warning(
+                    f"LUT optimization step {value} is not a power of two; "
+                    f"it has been adjusted to the nearest power of two: {nearest}."
+                )
+                value = nearest
+
+        super().__setattr__(name, value)
+
+    def __init__(self) -> None:
+        # LUT 子采样步长，必须是 2 的幂 (例如 32)。
+        # 它同时用于仿真和导出 (导出时会自动写入每个算子，保证与仿真一致)。
+        # LUT sub-sampling step (must be a power of two, e.g. 32). Used for both
+        # simulation and export; the fusion pass stamps it on every fused op so
+        # the exported table step always matches the simulated step.
+        self.step = 32
+
+        # 需要融合的算子类型列表；None 表示自动检测所有满足 y=f(x) 的算子。
+        # List of op types to fuse; None means auto-detect every eligible y=f(x) op.
+        self.target_ops = [
+            "Swish",
+            "SiLU",
+            "Sigmoid",
+            "Tanh",
+            "HardSwish",
+            "HardSigmoid",
+            "Elu",
+            "Erf",
+            "Gelu",
+            "LeakyRelu",
+            "Softplus",
+            "Exp",
+            "Log",
+            "Sqrt",
+            "Cos",
+            "Sin",
+            "Tan",
+        ]
 
 
 class LSQSetting:
@@ -445,6 +513,11 @@ class QuantizationSetting:
         self.fusion = True
         self.fusion_setting = QuantizationFusionSetting()
 
+        # ESP-DL INT16 LUT 激活融合 (仅在 ESP-DL INT16 平台生效)。
+        # ESP-DL INT16 LUT activation fusion (only effective on ESP-DL INT16 platforms).
+        self.lut_optimization = True
+        self.lut_optimization_setting = LUTOptimizationSetting()
+
         # extension setting 只是一个空白的占位符，用来向你展示如何创建一个自定义的 setting 并传递参数。
         # extension setting shows you how to create a setting and pass parameter to passes.
         # see esp_ppq.quantization.quantizer.base.py
@@ -463,7 +536,17 @@ class QuantizationSetting:
         self.dispatching_table = DispatchingTable()
 
     def to_json(self) -> str:
-        return json.dumps(self, default=lambda o: o.__dict__, sort_keys=True, indent=4, ensure_ascii=False)
+        def encode(obj):
+            if isinstance(obj, Enum):
+                return {
+                    "__ppq_enum__": obj.__class__.__name__,
+                    "name": obj.name,
+                }
+            if hasattr(obj, "__dict__"):
+                return obj.__dict__
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+        return json.dumps(self, default=encode, sort_keys=True, indent=4, ensure_ascii=False)
 
 
 class QuantizationSettingFactory:
@@ -536,7 +619,7 @@ class QuantizationSettingFactory:
         return default_setting
 
     @staticmethod
-    def espdl_setting() -> QuantizationSetting:
+    def espdl_setting(num_of_bits: int = 8) -> QuantizationSetting:
         default_setting = QuantizationSetting()
         default_setting.quantize_parameter_setting.clip_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
         default_setting.quantize_parameter_setting.pad_visiblity = QuantizationVisibility.EXPORT_WHEN_ACTIVE
@@ -546,6 +629,9 @@ class QuantizationSettingFactory:
         default_setting.fusion_setting.force_alignment_overlap = False
         default_setting.dispatcher = "allin"
         default_setting.quant_config_modify = False
+        if num_of_bits == 16:
+            default_setting.quantize_parameter_setting.calib_algorithm = "minmax"
+            default_setting.quantize_activation_setting.calib_algorithm = "minmax"
         return default_setting
 
     @staticmethod
@@ -574,11 +660,34 @@ class QuantizationSettingFactory:
                 f'however {type(setting_dict)} was given.'
             )
 
+        def decode(value):
+            if isinstance(value, list):
+                return [decode(item) for item in value]
+            if isinstance(value, dict):
+                if set(value) == {"__ppq_enum__", "name"}:
+                    enum_type = globals().get(value["__ppq_enum__"])
+                    if not isinstance(enum_type, type) or not issubclass(enum_type, Enum):
+                        raise ValueError(f"Unknown PPQ enum type: {value['__ppq_enum__']!r}")
+                    try:
+                        return enum_type[value["name"]]
+                    except KeyError as e:
+                        raise ValueError(f"Unknown {value['__ppq_enum__']} member: {value['name']!r}") from e
+                return {key: decode(item) for key, item in value.items()}
+            return value
+
+        setting_dict = decode(setting_dict)
+
         def assign(obj_setting: dict, obj: object):
             for key, value in obj_setting.items():
                 if key in obj.__dict__:
-                    if 'builtin' in obj.__dict__[key].__class__.__module__:
-                        obj.__dict__[key] = copy.deepcopy(value)
+                    if isinstance(obj.__dict__[key], Enum):
+                        if not isinstance(value, obj.__dict__[key].__class__):
+                            raise TypeError(
+                                f'Can not assign {type(value).__name__} to enum setting {obj.__class__.__name__}.{key}.'
+                            )
+                        obj.__dict__[key] = value
+                    elif 'builtin' in obj.__dict__[key].__class__.__module__:
+                        setattr(obj, key, copy.deepcopy(value))
                     else:
                         assert isinstance(value, dict)
                         assign(value, obj.__dict__[key])

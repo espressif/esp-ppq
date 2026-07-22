@@ -5,6 +5,8 @@ import os
 import shutil
 from typing import Any, Dict, List
 
+from esp_ppq.api.setting import QuantizationSetting
+
 
 def create_run_dir(run_dir: str) -> str:
     """Create ``run_dir`` if needed. Existing contents are preserved."""
@@ -66,8 +68,9 @@ def save_experiment(
     sampled_param: Dict[str, dict],
     export_path: str,
     runtime_snapshot: Dict[str, Any],
+    quant_setting: QuantizationSetting,
 ) -> Dict[str, Any]:
-    """Move quantization artifacts into one experiment directory."""
+    """Save the exact quantization setting and move experiment artifacts."""
     folder = os.path.join(run_dir, f"{index:04d}")
     os.makedirs(folder, exist_ok=True)
 
@@ -79,13 +82,17 @@ def save_experiment(
     with open(os.path.join(folder, "config.json"), "w") as f:
         json.dump(config, f, indent=4)
 
+    quant_setting_file = "quant_setting.json"
+    with open(os.path.join(folder, quant_setting_file), "w") as f:
+        f.write(quant_setting.to_json())
+
     dir_name = os.path.dirname(export_path)
     file_name = os.path.basename(export_path)
     base_name = os.path.splitext(file_name)[0]
     base_path = os.path.join(dir_name, base_name) if dir_name else base_name
 
     suffixes = [".espdl", ".info", ".json", ".native"]
-    moved_files: List[str] = []
+    moved_files: List[str] = [quant_setting_file]
     for s in suffixes:
         src = base_path + s
         if not os.path.isfile(src):

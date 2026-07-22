@@ -59,7 +59,7 @@ espdl_auto_quantize_onnx(
 | `setting` | AutoQuant 的搜索设置 |
 | `device` | 运行设备，例如 `"cpu"` 或 `"cuda"` |
 
-其中，我们重点关注 `evaluate_fn` 和 `setting`，其他参数的使用方法和 `espdl_quantize_onnx` 基本一致。
+其中，我们重点关注 `evaluate_fn` 和 `setting`，其他参数的使用方法和 `espdl_quantize_onnx` 基本一致。如需复用已有的 `QuantizationSetting`，可将其赋给 `setting.quant_setting`。
 
 ### `evaluate_fn`
 
@@ -133,6 +133,7 @@ AutoQuant 每完成一个候选配置的搜索，都会将结果写入 `run_dir`
     candidates.json
     0000/
         config.json
+        quant_setting.json
         model.espdl
         model.info
         model.json
@@ -140,7 +141,7 @@ AutoQuant 每完成一个候选配置的搜索，都会将结果写入 `run_dir`
     0001/
         ...
 ```
-其中，`summary.json` 记录所有已经完成的实验。`candidates.json` 记录当前 Top-K 候选。每个编号目录保存一次实验的配置和导出的模型文件。
+其中，`summary.json` 记录所有已经完成的实验。`candidates.json` 记录当前 Top-K 候选。每个编号目录保存一次实验的配置和导出的模型文件。`quant_setting.json` 是该候选实际执行时使用的完整 `QuantizationSetting`，可通过 `QuantizationSettingFactory.from_json(...)` 直接加载并传给 `espdl_quantize_onnx` 复测。
 
 开启 `resume=True` 后，AutoQuant 会读取 `summary.json`，跳过已经完成的 `(strategy, params)` 组合。这个功能主要用于搜索中断后的继续执行，以及细化搜索。
 

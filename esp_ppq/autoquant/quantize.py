@@ -1,8 +1,9 @@
 """Quantization helpers used by AutoQuant."""
 
+import copy
 import os
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import onnx
 from onnxsim import simplify
@@ -86,12 +87,15 @@ def build_quant_setting(
     target: str,
     layerwise_error: Dict[str, float],
     simplified_onnx_path: str,
+    base_setting: Optional[QuantizationSetting] = None,
 ) -> Tuple[QuantizationSetting, int]:
-    """Translate a sampled AutoQuant candidate into an ESP-DL quant setting."""
+    """Translate a sampled candidate into an independent ESP-DL setting."""
     num_of_bits = sampled_param["num_of_bits"]["value"]
     calib_algorithm = sampled_param["calib_algorithm"]["method"]
 
-    quant_setting = QuantizationSettingFactory.espdl_setting()
+    quant_setting = (
+        copy.deepcopy(base_setting) if base_setting is not None else QuantizationSettingFactory.espdl_setting()
+    )
     quant_setting.quantize_activation_setting.calib_algorithm = calib_algorithm
     quant_setting.equalization = strategy["weight_equalization"]["value"]
     quant_setting.weight_split = strategy["horizontal_layer_split"]["value"]
@@ -120,6 +124,9 @@ def build_quant_setting(
                     mp_layers.append(nxt)
         for name in mp_layers:
             quant_setting.dispatching_table.append(name, get_target_platform(target, 16))
+            # int16 layers are calibrated with minmax, consistent with the int16 default setting.
+            quant_setting.quantize_activation_setting.calib_algorithm_per_layer[name] = "minmax"
+            quant_setting.quantize_parameter_setting.calib_algorithm_per_layer[name] = "minmax"
         logger.info(f"Mixed precision int16 layers: {mp_layers}")
 
     if strategy["bias_correction"]["value"]:
@@ -251,10 +258,13 @@ def compute_layerwise_error(
     device: str,
     collate_fn: Callable = None,
     calib_steps: int = 32,
+    quant_setting: Optional[QuantizationSetting] = None,
     **kwargs: Any,
 ) -> Dict[str, float]:
     """Run baseline INT8 quantization and return the layerwise error report."""
-    quant_setting = QuantizationSettingFactory.espdl_setting()
+    quant_setting = (
+        copy.deepcopy(quant_setting) if quant_setting is not None else QuantizationSettingFactory.espdl_setting()
+    )
     quant_graph = quant_model(
         onnx_import_file=onnx_import_file,
         espdl_export_file=espdl_export_file,

@@ -1,4 +1,4 @@
-from typing import Iterable
+from typing import Dict, Iterable
 
 import torch
 
@@ -230,8 +230,9 @@ class ParameterQuantizePass(QuantizationOptimizationPass):
     see also: TorchExecutor.dummy_forward function
     """
 
-    def __init__(self, method: str = None):
+    def __init__(self, method: str = None, method_per_layer: Dict[str, str] = None):
         self._method = method
+        self._method_per_layer = method_per_layer or {}
         super().__init__(name='PPQ Parameter Quantization Pass')
 
     def optimize(self, graph: BaseGraph, dataloader: Iterable, executor: TorchExecutor, **kwargs) -> None:
@@ -241,14 +242,16 @@ class ParameterQuantizePass(QuantizationOptimizationPass):
             if not isinstance(operation, QuantableOperation):
                 continue
 
+            # per-layer method takes precedence over the global method.
+            layer_method = self._method_per_layer.get(op_name, self._method)
             for config, var in operation.config_with_variable:
                 # deactivate non-parameter variable quantization just for now
                 if not var.is_parameter:
                     state_records[config] = config.state
                     config.state = QuantizationStates.FP32
-                elif self._method is not None:
+                elif layer_method is not None:
                     # override quantizer's setting if necessary
-                    config.observer_algorithm = self._method
+                    config.observer_algorithm = layer_method
 
             observer = OperationObserver(
                 operation=executor._graph.operations[op_name], monitor_outputs=False, monitor_inputs=False
