@@ -273,6 +273,12 @@ class ResetConcatPattern(OperationExporter):
             perm_dict = {}
             info = ExporterPatternInfo()
 
+            rank = len(op.inputs[0].shape)
+            axis = int(op.attributes["axis"])
+            if axis < 0:
+                axis += rank
+            op.attributes["axis"] = axis
+
             for var in op.inputs:
                 var_perm = info.get_var_permute(var.name)
                 perm_str = str(var_perm)
