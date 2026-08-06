@@ -3496,7 +3496,7 @@ def GRU_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
     linear_before_reset = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='linear_before_reset', default=0)
     if linear_before_reset == 0:
         # torch.GRU only support linear_before_reset != 0
-        raise NotImplementedError('PPQ do not support GRU with linear_before_reset == 1.')
+        raise NotImplementedError('PPQ do not support GRU with linear_before_reset == 0.')
     if activation_alpha is not None:
         raise NotImplementedError('PPQ do not support GRU with cutimized activation.')
     if activation_beta is not None:
