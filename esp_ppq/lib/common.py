@@ -22,12 +22,15 @@ from esp_ppq.quantization.quantizer import (
     EspdlCHPreInt16Quantizer,
     EspdlCInt16Quantizer,
     EspdlCQuantizer,
+    EspdlCW8A16Quantizer,
     EspdlHPreInt16Quantizer,
     EspdlInt16Quantizer,
     EspdlQuantizer,
     EspdlS3HPreInt16Quantizer,
     EspdlS3Int16Quantizer,
     EspdlS3Quantizer,
+    EspdlS3W8A16Quantizer,
+    EspdlW8A16Quantizer,
     ExtQuantizer,
     FPGAQuantizer,
     GraphCoreQuantizer,
@@ -77,6 +80,9 @@ __QUANTIZER_COLLECTION__ = {
     TargetPlatform.ESPDL_C_INT8: EspdlCQuantizer,
     TargetPlatform.ESPDL_C_INT16: EspdlCInt16Quantizer,
     TargetPlatform.ESPDL_C_H_PRE_INT16: EspdlCHPreInt16Quantizer,
+    TargetPlatform.ESPDL_W8A16: EspdlW8A16Quantizer,
+    TargetPlatform.ESPDL_S3_W8A16: EspdlS3W8A16Quantizer,
+    TargetPlatform.ESPDL_C_W8A16: EspdlCW8A16Quantizer,
 }
 
 
@@ -114,6 +120,9 @@ __EXPORTERS__ = {
     TargetPlatform.ESPDL_C_INT8: EspdlExporter,
     TargetPlatform.ESPDL_C_INT16: EspdlExporter,
     TargetPlatform.ESPDL_C_H_PRE_INT16: EspdlExporter,
+    TargetPlatform.ESPDL_W8A16: EspdlExporter,
+    TargetPlatform.ESPDL_S3_W8A16: EspdlExporter,
+    TargetPlatform.ESPDL_C_W8A16: EspdlExporter,
 }
 
 

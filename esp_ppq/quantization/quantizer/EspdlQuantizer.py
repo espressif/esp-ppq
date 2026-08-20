@@ -61,13 +61,23 @@ _PLATFORM_CONFIGS: dict[TargetPlatform, _PlatformQuantConfig] = {
     TargetPlatform.ESPDL_C_INT8: _PlatformQuantConfig(8, 32, RoundingPolicy.ROUND_HALF_UP),
     TargetPlatform.ESPDL_C_INT16: _PlatformQuantConfig(16, 64, RoundingPolicy.ROUND_HALF_UP),
     TargetPlatform.ESPDL_C_H_PRE_INT16: _PlatformQuantConfig(16, 64, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_W8A16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_EVEN),
+    TargetPlatform.ESPDL_S3_W8A16: _PlatformQuantConfig(16, 40, RoundingPolicy.ROUND_HALF_UP),
+    TargetPlatform.ESPDL_C_W8A16: _PlatformQuantConfig(16, 64, RoundingPolicy.ROUND_HALF_UP),
 }
 
+
+_W8A16_PLATFORMS = {
+    TargetPlatform.ESPDL_W8A16,
+    TargetPlatform.ESPDL_S3_W8A16,
+    TargetPlatform.ESPDL_C_W8A16,
+}
 
 _P4_PLATFORMS = {
     TargetPlatform.ESPDL_INT8,
     TargetPlatform.ESPDL_INT16,
     TargetPlatform.ESPDL_H_PRE_INT16,
+    TargetPlatform.ESPDL_W8A16,
 }
 
 _PER_CHANNEL_POLICY = QuantizationPolicy(
@@ -157,6 +167,20 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 base_quant_config.input_quantization_config[1].state = QuantizationStates.FP32
         elif operation.type in {"Softmax", "LogSoftmax"}:
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
+
+        if (
+            operation.platform in _W8A16_PLATFORMS
+            and operation.type in {"Conv", "Gemm", "MatMul"}
+            and operation.num_of_input > 1
+            # Depthwise convolution stores its filter in a dedicated layout that ESP-DL has no
+            # W8A16 kernel for, so those weights stay at the activation bit width.
+            and operation.attributes.get("group", 1) == 1
+        ):
+            weight_var = operation.inputs[1]
+            if weight_var.is_parameter:
+                weight_config = base_quant_config.input_quantization_config[1]
+                weight_observer = "minmax" if operation.platform == TargetPlatform.ESPDL_W8A16 else "percentile"
+                _apply_bit_width(weight_config, 8, state=weight_config.state, observer=weight_observer)
 
         if operation.type in PASSIVE_OPERATIONS:
             base_quant_config.is_active_quant_op = False
@@ -378,6 +402,12 @@ class EspdlHPreInt16Quantizer(EspdlInt16Quantizer):
         return TargetPlatform.ESPDL_H_PRE_INT16
 
 
+class EspdlW8A16Quantizer(EspdlInt16Quantizer):
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_W8A16
+
+
 class EspdlS3Quantizer(BaseEspdlQuantizer):
     @property
     def target_platform(self) -> TargetPlatform:
@@ -409,6 +439,12 @@ class EspdlS3HPreInt16Quantizer(EspdlS3Int16Quantizer):
         return TargetPlatform.ESPDL_S3_H_PRE_INT16
 
 
+class EspdlS3W8A16Quantizer(EspdlS3Int16Quantizer):
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_S3_W8A16
+
+
 class EspdlCQuantizer(BaseEspdlQuantizer):
     @property
     def target_platform(self) -> TargetPlatform:
@@ -438,3 +474,9 @@ class EspdlCHPreInt16Quantizer(EspdlCInt16Quantizer):
     @property
     def target_platform(self) -> TargetPlatform:
         return TargetPlatform.ESPDL_C_H_PRE_INT16
+
+
+class EspdlCW8A16Quantizer(EspdlCInt16Quantizer):
+    @property
+    def target_platform(self) -> TargetPlatform:
+        return TargetPlatform.ESPDL_C_W8A16

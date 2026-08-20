@@ -79,6 +79,25 @@ class EspdlQuantHelper:
         return True
 
 
+_W8A16_PLATFORMS = {
+    TargetPlatform.ESPDL_W8A16,
+    TargetPlatform.ESPDL_S3_W8A16,
+    TargetPlatform.ESPDL_C_W8A16,
+}
+_W8A16_OPS = {"Conv", "Gemm", "MatMul"}
+
+
+def _is_w8a16_mixed_precision_op(op: Operation) -> bool:
+    if op.platform not in _W8A16_PLATFORMS or op.type not in _W8A16_OPS:
+        return False
+    # Depthwise stores the filter in a dedicated layout; ESP-DL has no W8A16 kernel for it.
+    if op.type == "Conv" and op.attributes.get("group", 1) != 1:
+        return False
+    if not isinstance(op, QuantableOperation) or op.num_of_input < 2:
+        return False
+    return op.input_quant_config[1].num_of_bits == 8
+
+
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         if op.platform in [TargetPlatform.ESPDL_INT8, TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8]:
@@ -90,8 +109,14 @@ class InsertQuantTypePattern(OperationExporter):
             TargetPlatform.ESPDL_S3_H_PRE_INT16,
             TargetPlatform.ESPDL_C_INT16,
             TargetPlatform.ESPDL_C_H_PRE_INT16,
+            TargetPlatform.ESPDL_W8A16,
+            TargetPlatform.ESPDL_S3_W8A16,
+            TargetPlatform.ESPDL_C_W8A16,
         ]:
-            op.attributes["quant_type"] = EspQuantType.S16
+            if _is_w8a16_mixed_precision_op(op):
+                op.attributes["quant_type"] = EspQuantType.W8A16
+            else:
+                op.attributes["quant_type"] = EspQuantType.S16
         else:
             op.attributes["quant_type"] = EspQuantType.F32
 
@@ -460,6 +485,7 @@ class ResetParamLayoutPattern(OperationExporter):
                 TargetPlatform.ESPDL_C_INT8,
                 TargetPlatform.ESPDL_C_INT16,
                 TargetPlatform.ESPDL_C_H_PRE_INT16,
+                TargetPlatform.ESPDL_C_W8A16,
             ]:
                 layout = LayoutAnnotation.NWC
                 if group > 1:
@@ -507,16 +533,22 @@ class ResetParamLayoutPattern(OperationExporter):
             n, c, h, w = tensor.shape  # n denotes output channels, c denotes input channels,
             tensor = tensor.permute(0, 2, 3, 1)  # NCHW -> NHWC
 
+            # Only the "C" (CPU) targets keep the plain NHWC filter layout. ESP32-S3
+            # (ESPDL_S3_W8A16) and ESP32-P4 (ESPDL_W8A16) W8A16 convolutions share the
+            # same (N/8)HWC8 packed layout below, so both chips export identical layouts.
             if platform in [
                 TargetPlatform.ESPDL_C_INT8,
                 TargetPlatform.ESPDL_C_INT16,
                 TargetPlatform.ESPDL_C_H_PRE_INT16,
+                TargetPlatform.ESPDL_C_W8A16,
             ]:
                 layout = LayoutAnnotation.NHWC
                 if group is not None and group > 1:
                     tensor = tensor.permute(1, 2, 3, 0)  # depthwise: NHWC -> HWCN
                     layout = LayoutAnnotation.HWCN
             else:
+                # ESP32-P4/S3 W8A16 accumulate int8 weights in 8-wide QACC lanes,
+                # so the packed block size is 8 regardless of the weight width.
                 align = 16 if quant_type == EspQuantType.S8 else 8
                 aligned_len = n // align * align
                 aligned_tensor = tensor[0:aligned_len, ...]

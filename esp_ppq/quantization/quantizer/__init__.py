@@ -5,12 +5,15 @@ from .EspdlQuantizer import (
     EspdlCHPreInt16Quantizer,
     EspdlCInt16Quantizer,
     EspdlCQuantizer,
+    EspdlCW8A16Quantizer,
     EspdlHPreInt16Quantizer,
     EspdlInt16Quantizer,
     EspdlQuantizer,
     EspdlS3HPreInt16Quantizer,
     EspdlS3Int16Quantizer,
     EspdlS3Quantizer,
+    EspdlS3W8A16Quantizer,
+    EspdlW8A16Quantizer,
 )
 from .FP8Quantizer import GraphCoreQuantizer, TensorRTQuantizer_FP8
 

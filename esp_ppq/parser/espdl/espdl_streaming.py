@@ -93,7 +93,7 @@ class StreamingTable(metaclass=SingletonMeta):
                 self._table.update(item)
         return self._table
 
-    def add(self, var_name: str, op_name: str, window_size: int, frame_axis: int = None) -> None:
+    def add(self, var_name: str, op_name: Optional[str], window_size: int, frame_axis: int = None) -> None:
         self._table[var_name] = {
             "op_name": op_name,
             "window_size": window_size,
@@ -350,11 +350,14 @@ class AutoStreamingPattern(OperationExporter):
         if op.type in CONV_STREAMING_OP_SET:
             input_var = op.inputs[0]
             if input_var.name in streaming_table:
-                logger.info(f"Bypass streaming node for op {op.name} as it is already in streaming table.")
+                logger.info(f"Reuse the shared streaming node on variable {input_var.name} for op {op.name}.")
             else:
                 window_size = get_conv_cache_window_size(op)
                 if window_size > 1:
-                    streaming_table.add(input_var.name, op.name, window_size)
+                    # Automatic cache entries belong to the input variable, not
+                    # only to the first consumer that happens to be exported.
+                    # insert_op_on_var then lets all consumers share one cache.
+                    streaming_table.add(input_var.name, None, window_size)
                     logger.info(
                         f"Insert streaming node for op {op.name} with window size {window_size} on variable {input_var.name}."
                     )

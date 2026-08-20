@@ -6,7 +6,7 @@ from typing import (
     Callable,
     Dict,
     List,
-    Tuple,
+    Optional,
     Union,
 )
 
@@ -38,51 +38,135 @@ _PIE_NONE_TARGETS = {"esp32", "esp32s2", "esp32c2", "esp32c3", "esp32c5", "esp32
 _PIE_V1_TARGETS = {"esp32s3"}
 _PIE_V2_TARGETS = {"esp32p4", "esp32s31"}
 
+_VALID_QUANT_TYPES = {"w8a8", "w8a16", "w16a16", "none"}
+_PLATFORM_BY_QUANT = {
+    "w8a8": {
+        "v2": TargetPlatform.ESPDL_INT8,
+        "v1": TargetPlatform.ESPDL_S3_INT8,
+        "c": TargetPlatform.ESPDL_C_INT8,
+    },
+    "w8a16": {
+        "v2": TargetPlatform.ESPDL_W8A16,
+        "v1": TargetPlatform.ESPDL_S3_W8A16,
+        "c": TargetPlatform.ESPDL_C_W8A16,
+    },
+    "w16a16": {
+        "v2": TargetPlatform.ESPDL_INT16,
+        "v1": TargetPlatform.ESPDL_S3_INT16,
+        "c": TargetPlatform.ESPDL_C_INT16,
+    },
+    "w16a16_debug": {
+        "v2": TargetPlatform.ESPDL_H_PRE_INT16,
+        "v1": TargetPlatform.ESPDL_S3_H_PRE_INT16,
+        "c": TargetPlatform.ESPDL_C_H_PRE_INT16,
+    },
+}
+
+
+def _target_group(target: str) -> Optional[str]:
+    if target in _PIE_V2_TARGETS:
+        return "v2"
+    if target in _PIE_V1_TARGETS:
+        return "v1"
+    if target in _PIE_NONE_TARGETS:
+        return "c"
+    return None
+
+
+_QUANT_TYPE_ACT_BITS = {"w8a8": 8, "w8a16": 16, "w16a16": 16, "none": 8}
+
+
+def _quant_type_from_bits(num_of_bits: int) -> Optional[str]:
+    if num_of_bits == 8:
+        return "w8a8"
+    if num_of_bits == 16:
+        return "w16a16"
+    return None
+
+
+def _resolve_quant_type_and_bits(
+    quant_type: Optional[str],
+    num_of_bits: int,
+):
+    """Resolve platform quant_type and activation bits for settings.
+
+    ``quant_type`` wins when given; otherwise fall back to ``num_of_bits``.
+    """
+    if quant_type is None:
+        return num_of_bits, num_of_bits
+
+    resolved = quant_type.lower()
+    if resolved not in _VALID_QUANT_TYPES:
+        raise ValueError(f"Unsupported quant_type '{quant_type}'. Expected one of {sorted(_VALID_QUANT_TYPES)}.")
+    return resolved, _QUANT_TYPE_ACT_BITS[resolved]
+
 
 def get_target_platform(
     target: str,
-    num_of_bits: int = 8,
-    float: bool = False,
+    quant_type: Union[str, int] = "w8a8",
+    debug: bool = False,
     **kwargs: Any,
 ):
-    """Quantize onnx model and return quantized ppq graph and executor .
+    """Return the ESP-DL ``TargetPlatform`` for a chip and quantization scheme.
+
+    New API::
+
+        get_target_platform(target, quant_type="w8a8", debug=False)
+
+    Legacy API (still supported)::
+
+        get_target_platform(target, num_of_bits=8, float=False, hi_precision=False)
+        get_target_platform(target, 16)
 
     Args:
-        hi_precision (bool, optional): When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
-                                    which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
-                                    Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
-                                    with double precision during 16-bit operations.
+        target: Chip name, e.g. ``esp32p4``, ``esp32s3``, ``esp32c3``, ``c``.
+        quant_type: Quantization scheme: ``w8a8``, ``w8a16``, ``w16a16``, or ``none`` (FP32).
+            An ``int`` is accepted as the legacy ``num_of_bits`` positional argument.
+        debug: Use high-precision INT16 simulation (PPQ double-precision forward).
+            Only affects ``w16a16``. Alias of the legacy ``hi_precision`` argument.
+        num_of_bits (int, optional): Legacy activation bit width, 8 or 16.
+        float (bool, optional): Legacy switch for FP32. Prefer ``quant_type="none"``.
+        hi_precision (bool, optional): Legacy alias of ``debug``. When the operator is
+            quantified at 16-bit, PPQ performs forward calculations with double precision,
+            which, although maintaining high precision at 16-bit, may differ in precision
+            from ESP-DL's operator. Currently, conv2d, gemm, and matmul are consistent
+            in precision with PPQ's quantized results when calculated with double
+            precision during 16-bit operations.
     """
 
-    platform = None
     target = target.lower()
-    hi_precision = kwargs.get("hi_precision", False)
+    use_float = kwargs.get("float", False)
+    hi_precision = bool(debug) or bool(kwargs.get("hi_precision", False))
+    num_of_bits = kwargs.get("num_of_bits", None)
 
-    if float:
-        platform = TargetPlatform.FP32
+    resolved = None
+    if use_float:
+        resolved = "none"
+    elif isinstance(quant_type, int):
+        num_of_bits = quant_type
+        resolved = _quant_type_from_bits(num_of_bits)
+    elif num_of_bits is not None and quant_type == "w8a8":
+        # Legacy keyword call: get_target_platform(target, num_of_bits=16)
+        resolved = _quant_type_from_bits(num_of_bits)
+    elif isinstance(quant_type, str):
+        resolved = quant_type.lower()
+        if resolved not in _VALID_QUANT_TYPES:
+            raise ValueError(f"Unsupported quant_type '{quant_type}'. Expected one of {sorted(_VALID_QUANT_TYPES)}.")
     else:
-        if num_of_bits == 8 and target in _PIE_V2_TARGETS:
-            platform = TargetPlatform.ESPDL_INT8
-        elif num_of_bits == 16 and target in _PIE_V2_TARGETS and not hi_precision:
-            platform = TargetPlatform.ESPDL_INT16
-        elif num_of_bits == 8 and target in _PIE_V1_TARGETS:
-            platform = TargetPlatform.ESPDL_S3_INT8
-        elif num_of_bits == 16 and target in _PIE_V1_TARGETS and not hi_precision:
-            platform = TargetPlatform.ESPDL_S3_INT16
-        elif num_of_bits == 16 and target in _PIE_V2_TARGETS and hi_precision:
-            platform = TargetPlatform.ESPDL_H_PRE_INT16
-        elif num_of_bits == 16 and target in _PIE_V1_TARGETS and hi_precision:
-            platform = TargetPlatform.ESPDL_S3_H_PRE_INT16
-        elif num_of_bits == 8 and target in _PIE_NONE_TARGETS:
-            platform = TargetPlatform.ESPDL_C_INT8
-        elif num_of_bits == 16 and target in _PIE_NONE_TARGETS and not hi_precision:
-            platform = TargetPlatform.ESPDL_C_INT16
-        elif num_of_bits == 16 and target in _PIE_NONE_TARGETS and hi_precision:
-            platform = TargetPlatform.ESPDL_C_H_PRE_INT16
-        else:
-            platform = TargetPlatform.FP32
-            logger.warning(f"num_of_bits:{num_of_bits} and target:{target} will return TargetPlatform.FP32")
+        raise TypeError(f"quant_type must be str or int, got {type(quant_type).__name__}.")
 
+    if resolved == "none":
+        return TargetPlatform.FP32
+
+    group = _target_group(target)
+    table_key = "w16a16_debug" if resolved == "w16a16" and hi_precision else resolved
+    platform = _PLATFORM_BY_QUANT.get(table_key, {}).get(group)
+    if platform is None:
+        platform = TargetPlatform.FP32
+        logger.warning(
+            f"quant_type:{resolved}, num_of_bits:{num_of_bits}, target:{target}, "
+            f"and debug/hi_precision:{hi_precision} will return TargetPlatform.FP32"
+        )
     return platform
 
 
@@ -187,6 +271,8 @@ def espdl_quantize_onnx(
     streaming_input_shape: List[Any] = None,
     streaming_custom_passes: Any = None,
     verbose: int = 0,
+    quant_type: Optional[str] = None,
+    debug: bool = False,
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize onnx model and return quantized ppq graph and executor .
@@ -198,7 +284,11 @@ def espdl_quantize_onnx(
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
         target: target chip, support "esp32p4", "esp32s31", "esp32s3" or "c"
-        num_of_bits: the number of quantizer bits, 8 or 16
+        num_of_bits: legacy quantizer bit width, 8 or 16. Prefer ``quant_type``.
+        quant_type: quantization scheme: ``w8a8``, ``w8a16``, ``w16a16``, or ``none`` (FP32).
+                    When set, it overrides ``num_of_bits``.
+        debug: use high-precision INT16 simulation. Only affects ``w16a16``.
+               Alias of the legacy ``hi_precision`` argument.
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.
                                            It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
@@ -212,10 +302,7 @@ def espdl_quantize_onnx(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
-        hi_precision (bool, optional): It's in kwargs. When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
-                                       which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
-                                       Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
-                                       with double precision during 16-bit operations.
+        hi_precision (bool, optional): It's in kwargs. Legacy alias of ``debug``.
         metadata_props (Dict[str, str], optional): It's in kwargs. You can add custom key-value pairs to the model.
 
     Returns:
@@ -243,7 +330,8 @@ def espdl_quantize_onnx(
     #  ------------------------------------------------------------
     if calib_dataloader is None or calib_steps is None:
         raise TypeError("Quantization needs a valid calib_dataloader and calib_steps setting.")
-    target_platform = get_target_platform(target, num_of_bits, **kwargs)
+    quant_type, num_of_bits = _resolve_quant_type_and_bits(quant_type, num_of_bits)
+    target_platform = get_target_platform(target, quant_type, debug=debug, **kwargs)
     input_dtype = torch.float32
 
     if not collate_fn:
@@ -361,6 +449,8 @@ def espdl_quantize_torch(
     streaming_table: Dict[str, Dict[str, Any]] = None,
     streaming_input_shape: Dict[str, List[int]] = None,
     streaming_custom_passes: Any = None,
+    quant_type: Optional[str] = None,
+    debug: bool = False,
     **kwargs: Any,
 ) -> BaseGraph:
     """Quantize torch model and return quantized ppq graph and executor .
@@ -372,7 +462,11 @@ def espdl_quantize_torch(
         input_shape (List[int]):a list of ints indicating size of inputs and batch size must be 1
         inputs (List[str]): a list of Tensor and batch size must be 1
         target: target chip, support "esp32p4", "esp32s31", "esp32s3" or "c"
-        num_of_bits: the number of quantizer bits, 8 or 16
+        num_of_bits: legacy quantizer bit width, 8 or 16. Prefer ``quant_type``.
+        quant_type: quantization scheme: ``w8a8``, ``w8a16``, ``w16a16``, or ``none`` (FP32).
+                    When set, it overrides ``num_of_bits``.
+        debug: use high-precision INT16 simulation. Only affects ``w16a16``.
+               Alias of the legacy ``hi_precision`` argument.
         collate_fn (Callable): batch collate func for preprocessing
         dispatching_override (deprecated): override dispatching result.
                                         It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
@@ -386,10 +480,7 @@ def espdl_quantize_torch(
         export_test_values (bool, optional): whether to export the test values, defaults to False.
         test_output_names (List[str], optional): tensor names of the model want to test, defaults to None.
         verbose (int, optional): whether to print details, defaults to 0.
-        hi_precision (bool, optional): It's in kwargs. When the operator is quantified at 16-bit, does PPQ perform forward calculations with double precision,
-                                       which, although maintaining high precision at 16-bit, may differ in precision from ESP-DL's operator.
-                                       Currently, conv2d, gemm, and matmal are consistent in precision with PPQ's quantized results when calculated
-                                       with double precision during 16-bit operations.
+        hi_precision (bool, optional): It's in kwargs. Legacy alias of ``debug``.
         metadata_props (Dict[str, str], optional): It's in kwargs. You can add custom key-value pairs to the model.
 
     Returns:
@@ -452,6 +543,8 @@ def espdl_quantize_torch(
         inputs=inputs,
         target=target,
         num_of_bits=num_of_bits,
+        quant_type=quant_type,
+        debug=debug,
         collate_fn=collate_fn,
         dispatching_override=dispatching_override,
         dispatching_method=dispatching_method,

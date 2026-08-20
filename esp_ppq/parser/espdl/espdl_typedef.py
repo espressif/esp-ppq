@@ -130,6 +130,7 @@ class EspQuantType:
     F32 = "F32"
     S16 = "S16"
     S8 = "S8"
+    W8A16 = "W8A16"
 
 
 class LayoutAnnotation:
