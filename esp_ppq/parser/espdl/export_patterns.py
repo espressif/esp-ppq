@@ -732,7 +732,8 @@ class AddLUTPattern(OperationExporter):
 
     def get_lut_name(self, op: Operation, info: ExporterPatternInfo):
         index = len(info.luts)
-        name = f"{op.type}_lut_{index}"
+        forward_type = op.attributes.get("original_op_type", op.type)
+        name = f"{forward_type}_lut_{index}"
         return name
 
     def check_op(self, op: Operation):
@@ -775,8 +776,12 @@ class AddLUTPattern(OperationExporter):
 
             if lut != None:
                 lut_name = self.get_lut_name(op, info)
+                lut_name = info.add_lut(
+                    lut_name,
+                    lut,
+                    info.get_var_exponents(op.outputs[0].name),
+                )
                 op.attributes["lut"] = lut_name
-                info.add_lut(lut_name, lut, info.get_var_exponents(op.outputs[0].name))
 
         return op
 
