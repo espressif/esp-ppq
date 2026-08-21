@@ -412,9 +412,10 @@ class EspdlExporter(GraphExporter):
         Convert torch.Tensor to flatbuffer.Tensor and add them to graph.
         """
         _lut = []
+        exported_lut_names = set()
         for op in graph.topological_sort():
             lut_name = op.attributes.get("lut", None)
-            if lut_name:
+            if lut_name and lut_name not in exported_lut_names:
                 lut = info.get_lut(lut_name)
                 onnx_dtype = DataType.convert_from_torch(lut.dtype).value
                 lut_value = convert_any_to_numpy(lut).flatten()
@@ -428,6 +429,7 @@ class EspdlExporter(GraphExporter):
                 )
 
                 _lut.append(lut_proto)
+                exported_lut_names.add(lut_name)
         return _lut
 
     def build_test_value_proto(

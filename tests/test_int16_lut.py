@@ -33,6 +33,7 @@ from esp_ppq.executor import TorchExecutor
 from esp_ppq.executor.op.torch.espdl_lut import HardwareEmulator
 from esp_ppq.parser.espdl.espdl_typedef import ExporterPatternInfo
 from esp_ppq.parser.espdl.export_patterns import AddLUTPattern
+from esp_ppq.parser.espdl_exporter import EspdlExporter
 from esp_ppq.utils.round import ppq_tensor_round
 
 
@@ -295,6 +296,51 @@ def test_lut_table_uses_original_op_type():
     assert torch.equal(lut.cpu().to(torch.int32), ref), "LUT table does not match sigmoid math"
     assert not torch.equal(lut.cpu().to(torch.int32), identity), "LUT table is identity (op.type dispatch bug)"
     print("PASS: test_lut_table_uses_original_op_type")
+
+
+def test_lut_interning_uses_exact_table_and_exponent():
+    info = ExporterPatternInfo()
+    info.reset()
+    table = torch.tensor([-2, -1, 0, 1, 2], dtype=torch.int16)
+
+    first_name = info.add_lut("LUT_lut_0", table, [-8])
+    shared_name = info.add_lut("LUT_lut_1", table.clone(), -8)
+    different_exponent_name = info.add_lut("LUT_lut_1", table.clone(), [-7])
+    different_table_name = info.add_lut("LUT_lut_2", table + 1, [-8])
+
+    assert first_name == "LUT_lut_0"
+    assert shared_name == first_name
+    assert different_exponent_name == "LUT_lut_1"
+    assert different_table_name == "LUT_lut_2"
+    assert list(info.luts) == ["LUT_lut_0", "LUT_lut_1", "LUT_lut_2"]
+    info.reset()
+
+
+def test_build_lut_proto_serializes_shared_table_once(monkeypatch):
+    class FakeOperation:
+        def __init__(self, lut_name):
+            self.attributes = {"lut": lut_name}
+
+    class FakeGraph:
+        def topological_sort(self):
+            return [FakeOperation("LUT_lut_0"), FakeOperation("LUT_lut_0")]
+
+    info = ExporterPatternInfo()
+    info.reset()
+    info.add_lut("LUT_lut_0", torch.tensor([-1, 0, 1], dtype=torch.int16), [-8])
+
+    serialized_names = []
+
+    def fake_make_tensor(**kwargs):
+        serialized_names.append(kwargs["name"])
+        return kwargs["name"]
+
+    monkeypatch.setattr("esp_ppq.parser.espdl_exporter.helper.make_tensor", fake_make_tensor)
+    lut_protos = EspdlExporter().build_lut_proto(FakeGraph(), info)
+
+    assert serialized_names == ["LUT_lut_0"]
+    assert lut_protos == ["LUT_lut_0"]
+    info.reset()
 
 
 if __name__ == "__main__":

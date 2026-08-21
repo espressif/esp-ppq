@@ -1,4 +1,5 @@
-from typing import List, Union
+import hashlib
+from typing import List, Tuple, Union
 
 import torch
 
@@ -130,6 +131,7 @@ class EspQuantType:
     F32 = "F32"
     S16 = "S16"
     S8 = "S8"
+    W8A16 = "W8A16"
 
 
 class LayoutAnnotation:
@@ -156,6 +158,7 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
     var_permute = {}
     var_config = {}
     luts = {}
+    lut_fingerprints = {}
 
     def reset(self):
         self.var_exponents = {}
@@ -163,6 +166,7 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
         self.var_permute = {}
         self.var_config = {}
         self.luts = {}
+        self.lut_fingerprints = {}
 
     def get_var_exponents(self, var_name: str, default: List[int] = None) -> Union[int, List[int]]:
         return self.var_exponents.get(var_name, default)
@@ -193,11 +197,36 @@ class ExporterPatternInfo(metaclass=SingletonMeta):
     def add_var_config(self, var_name: str, config: OperationQuantizationConfig):
         self.var_config[var_name] = config
 
-    def add_lut(self, lut_name: str, lut: torch.Tensor, exponent: Union[int, List[int]]):
+    @staticmethod
+    def _normalize_exponent(exponent: Union[int, List[int], None]) -> Tuple[int, ...]:
+        if exponent is None:
+            return ()
+        if isinstance(exponent, (list, tuple)):
+            return tuple(int(value) for value in exponent)
+        return (int(exponent),)
+
+    def _get_lut_fingerprint(self, lut: torch.Tensor, exponent: Union[int, List[int], None]) -> str:
+        lut_cpu = lut.detach().cpu().contiguous()
+        digest = hashlib.sha256()
+        digest.update(str(lut_cpu.dtype).encode("utf-8"))
+        digest.update(str(tuple(lut_cpu.shape)).encode("utf-8"))
+        digest.update(str(self._normalize_exponent(exponent)).encode("utf-8"))
+        digest.update(lut_cpu.numpy().tobytes())
+        return digest.hexdigest()
+
+    def add_lut(self, lut_name: str, lut: torch.Tensor, exponent: Union[int, List[int]]) -> str:
+        exponent = self._normalize_exponent(exponent)
+        fingerprint = self._get_lut_fingerprint(lut, exponent)
+
+        for existing_name in self.lut_fingerprints.get(fingerprint, []):
+            existing_exponent = self._normalize_exponent(self.get_var_exponents(existing_name))
+            if existing_exponent == exponent and torch.equal(self.luts[existing_name].cpu(), lut.detach().cpu()):
+                return existing_name
+
         self.luts[lut_name] = lut
-        if isinstance(exponent, int):
-            exponent = [exponent]
-        self.var_exponents[lut_name] = exponent
+        self.var_exponents[lut_name] = list(exponent)
+        self.lut_fingerprints.setdefault(fingerprint, []).append(lut_name)
+        return lut_name
 
     def print(self):
         print(self.var_exponents)
