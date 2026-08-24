@@ -119,6 +119,11 @@ def _broadcast_scale(scale, input_tensor):
     return scale
 
 
+#: Name of the per-operation table slot. Deliberately *not* stored in
+#: ``op.attributes``, which is serialized into the exported ``.espdl``.
+_TABLE_SLOT = "_espdl_lut_table"
+
+
 class HardwareEmulator(torch.autograd.Function):
     """Pure-integer digital twin of the ESP-DL INT16 LUT kernel.
 
@@ -129,10 +134,13 @@ class HardwareEmulator(torch.autograd.Function):
 
     ``backward`` uses the smooth ideal activation gradient so the op stays
     trainable under QAT (straight-through-style estimator).
-    """
 
-    # Cache: maps id(op) -> int16 table tensor (host/CPU int32).
-    _table_cache = {}
+    Each operation owns its own table, stored on the op object itself. There is
+    no process-wide table cache: one keyed on ``id(op)`` silently served a
+    freed op's table to whichever op was later allocated at the same address,
+    which corrupted the exported test values of every model quantized after the
+    first one in a batch run.
+    """
 
     @staticmethod
     def _build_table(math_fn, op_context, in_scale, out_scale, step, rounding):
@@ -156,6 +164,28 @@ class HardwareEmulator(torch.autograd.Function):
         return table_int16.flatten()
 
     @staticmethod
+    def _get_table(math_fn, op_context, in_scale, out_scale, step, rounding):
+        """Return the LUT table owned by ``op_context``.
+
+        The table is stored on the operation itself rather than in a global
+        cache, so it lives and dies with the op and can never be handed to a
+        different one. The fingerprint makes the table follow the scales, which
+        are trainable under QAT. Ops that cannot hold attributes (plain
+        ``object()`` in tests) simply rebuild every call.
+        """
+        fingerprint = (int(step), _as_scalar(in_scale), _as_scalar(out_scale), rounding)
+        cached = getattr(op_context, _TABLE_SLOT, None)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+
+        table = HardwareEmulator._build_table(math_fn, op_context, in_scale, out_scale, step, rounding)
+        try:
+            setattr(op_context, _TABLE_SLOT, (fingerprint, table))
+        except AttributeError:
+            pass
+        return table
+
+    @staticmethod
     def forward(ctx, input_tensor, math_fn, op_context, in_scale, out_scale, step, rounding):
         ctx.math_fn = math_fn
         ctx.op_context = op_context
@@ -173,12 +203,9 @@ class HardwareEmulator(torch.autograd.Function):
         input_int = torch.clamp(input_int, -32768, 32767).to(torch.int32)
 
         # --- Step 2: build / retrieve the LUT table ---
-        cache_key = id(op_context)
-        if cache_key not in HardwareEmulator._table_cache:
-            HardwareEmulator._table_cache[cache_key] = HardwareEmulator._build_table(
-                math_fn, op_context, in_scale, out_scale, step, rounding
-            )
-        table = HardwareEmulator._table_cache[cache_key].to(input_int.device)
+        table = HardwareEmulator._get_table(math_fn, op_context, in_scale, out_scale, step, rounding).to(
+            input_int.device
+        )
 
         # --- Step 3: table lookup (mirrors dl_module_lut.hpp) ---
         idx = input_int + 32768  # signed -> unsigned, matches XOR 0x8000
@@ -230,9 +257,13 @@ class HardwareEmulator(torch.autograd.Function):
 
         return grad_output * grad, None, None, None, None, None, None
 
-    @classmethod
-    def clear_cache(cls):
-        cls._table_cache.clear()
+    @staticmethod
+    def drop_table(op_context):
+        """Forget the table held by ``op_context`` (it is rebuilt on demand)."""
+        try:
+            delattr(op_context, _TABLE_SLOT)
+        except AttributeError:
+            pass
 
 
 def lut_forward_provider(op, values, ctx=None, **kwargs) -> torch.Tensor:

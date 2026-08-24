@@ -197,7 +197,6 @@ def test_lut_emulator_bit_exact():
 
     for rounding in (RoundingPolicy.ROUND_HALF_EVEN, RoundingPolicy.ROUND_HALF_UP):
         for step in (1, 32, 64, 256, 100):
-            HardwareEmulator._table_cache.clear()
             y = HardwareEmulator.apply(
                 x, math_fn, object(), torch.tensor(in_scale), torch.tensor(out_scale), step, rounding
             )
@@ -206,6 +205,66 @@ def test_lut_emulator_bit_exact():
             mism = int((y_int != ref).sum())
             assert mism == 0, f"rounding={rounding}, step={step}: {mism} mismatches vs C reference"
     print("PASS: test_lut_emulator_bit_exact")
+
+
+# ===================================================================
+# Test 5b: each op owns its table (no global id()-keyed cache)
+# ===================================================================
+def test_lut_table_is_per_operation():
+    """A table must never leak from one op to another.
+
+    The emulator used to memoize tables in a class-level dict keyed on
+    ``id(op)``. Once an op was garbage collected, the next op allocated at the
+    same address inherited its table, so e.g. an Exp op silently produced Tanh
+    values in the exported test data.
+    """
+    assert not hasattr(HardwareEmulator, "_table_cache"), "the global id()-keyed table cache must stay gone"
+
+    in_scale = torch.tensor(2.0**-13)
+    x = torch.tensor([1467.0, -6826.0, -9018.0]) * 2.0**-13
+
+    builds = []
+    original_build = HardwareEmulator._build_table
+
+    def counting_build(*args, **kwargs):
+        builds.append(args[1])  # op_context
+        return original_build(*args, **kwargs)
+
+    HardwareEmulator._build_table = staticmethod(counting_build)
+    try:
+
+        def run(op, math, out_scale):
+            y = HardwareEmulator.apply(
+                x,
+                lambda o, v: math(v[0]),
+                op,
+                in_scale,
+                torch.tensor(out_scale),
+                32,
+                RoundingPolicy.ROUND_HALF_EVEN,
+            )
+            return torch.round(y.double() / out_scale).to(torch.int64).tolist()
+
+        tanh_op = LUTNet()  # any object that can hold attributes
+        assert run(tanh_op, torch.tanh, 2.0**-15) == [5825, -22334, -26249]
+        assert len(builds) == 1
+
+        # Same op, same scales: reuse its own table, no rebuild.
+        assert run(tanh_op, torch.tanh, 2.0**-15) == [5825, -22334, -26249]
+        assert len(builds) == 1
+
+        # A different op must build its own table, never inherit tanh_op's.
+        exp_op = LUTNet()
+        assert run(exp_op, torch.exp, 2.0**-11) == [2451, 891, 681]
+        assert len(builds) == 2
+
+        # Rescaling an op invalidates its table (scales are trainable in QAT).
+        assert run(exp_op, torch.exp, 2.0**-12) == [4902, 1782, 1361]
+        assert len(builds) == 3
+    finally:
+        HardwareEmulator._build_table = staticmethod(original_build)
+
+    print("PASS: test_lut_table_is_per_operation")
 
 
 # ===================================================================
@@ -247,9 +306,10 @@ def test_lut_export_tables():
     assert os.path.exists(info_file), "info file was not exported"
 
     info_txt = open(info_file).read()
-    names = sorted(set(__import__("re").findall(r"LUT_lut_\d+", info_txt)))
+    # AddLUTPattern.get_lut_name names tables after original_op_type, not "LUT".
+    names = sorted(set(__import__("re").findall(r"[A-Za-z]+_lut_\d+", info_txt)))
     assert len(names) == 3, f"Expected 3 LUT tables in export, got {names}"
-    assert names == ["LUT_lut_0", "LUT_lut_1", "LUT_lut_2"], f"Naming rule broken: {names}"
+    assert names == ["Sigmoid_lut_1", "Swish_lut_0", "Tanh_lut_2"], f"Naming rule broken: {names}"
 
     for f in (export_file, info_file, export_file.rsplit(".", 1)[0] + ".json"):
         if os.path.exists(f):
@@ -349,6 +409,7 @@ if __name__ == "__main__":
     test_lut_fusion_disabled()
     test_lut_step_setting()
     test_lut_emulator_bit_exact()
+    test_lut_table_is_per_operation()
     test_lut_simulation_changes_output()
     test_lut_export_tables()
     test_lut_table_uses_original_op_type()
