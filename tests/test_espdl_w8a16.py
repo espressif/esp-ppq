@@ -15,7 +15,11 @@ from esp_ppq.parser.espdl.espdl_typedef import (
     ExporterPatternInfo,
     LayoutAnnotation,
 )
-from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern, ResetParamLayoutPattern
+from esp_ppq.parser.espdl.export_patterns import (
+    InsertPreNodeOfMatMulPattern,
+    InsertQuantTypePattern,
+    ResetParamLayoutPattern,
+)
 
 _W8A16_CASES = [
     ("esp32p4", TargetPlatform.ESPDL_W8A16, 40),
@@ -139,6 +143,76 @@ def test_w8a16_keeps_dynamic_operands_and_other_ops_int16(target, platform, _):
     add_config = Quantizer(platform, graph).init_quantize_config(add)
     assert [config.num_of_bits for config in add_config.input_quantization_config] == [16, 16]
     assert add_config.output_quantization_config[0].num_of_bits == 16
+
+
+@pytest.mark.parametrize(
+    "platform",
+    [
+        TargetPlatform.ESPDL_INT8,
+        TargetPlatform.ESPDL_INT16,
+        TargetPlatform.ESPDL_W8A16,
+        TargetPlatform.ESPDL_S3_INT8,
+        TargetPlatform.ESPDL_S3_INT16,
+        TargetPlatform.ESPDL_S3_W8A16,
+        TargetPlatform.ESPDL_C_INT8,
+        TargetPlatform.ESPDL_C_INT16,
+        TargetPlatform.ESPDL_C_W8A16,
+        TargetPlatform.ESPDL_C_H_PRE_INT16,
+    ],
+)
+@pytest.mark.parametrize("activation", ["Linear", "Relu"])
+def test_p4_dynamic_matmul_keeps_native_kn_layout(platform, activation):
+    graph = BaseGraph(name="dynamic_matmul_layout", built_from=NetworkFramework.ONNX)
+    operation = _make_operation(graph, "MatMul", platform, constant_weight=False)
+    operation.attributes["activation"] = activation
+    config = Quantizer(platform, graph).init_quantize_config(operation)
+    quant_operation = QuantableOperation(convert_from=operation, quantize_config=config, platform=platform)
+
+    operation_count = len(graph.operations)
+    InsertPreNodeOfMatMulPattern().export(quant_operation, graph)
+
+    assert quant_operation.attributes["input1_layout"] == "native_kn"
+    assert len(graph.operations) == operation_count
+
+
+@pytest.mark.parametrize(
+    "platform",
+    [
+        TargetPlatform.ESPDL_INT8,
+        TargetPlatform.ESPDL_INT16,
+        TargetPlatform.ESPDL_W8A16,
+        TargetPlatform.ESPDL_S3_INT8,
+        TargetPlatform.ESPDL_S3_INT16,
+        TargetPlatform.ESPDL_S3_W8A16,
+        TargetPlatform.ESPDL_C_INT8,
+        TargetPlatform.ESPDL_C_INT16,
+        TargetPlatform.ESPDL_C_W8A16,
+        TargetPlatform.ESPDL_C_H_PRE_INT16,
+    ],
+)
+def test_p4_static_matmul_marks_packed_layout(platform):
+    graph = BaseGraph(name="static_matmul_layout", built_from=NetworkFramework.ONNX)
+    operation = _make_operation(graph, "MatMul", platform, constant_weight=True)
+    config = Quantizer(platform, graph).init_quantize_config(operation)
+    quant_operation = QuantableOperation(convert_from=operation, quantize_config=config, platform=platform)
+
+    InsertPreNodeOfMatMulPattern().export(quant_operation, graph)
+
+    assert quant_operation.attributes["input1_layout"] == "packed"
+
+
+def test_p4_w8a16_static_matmul_exports_mixed_quant_type():
+    platform = TargetPlatform.ESPDL_W8A16
+    graph = BaseGraph(name="w8a16_static_matmul", built_from=NetworkFramework.ONNX)
+    operation = _make_operation(graph, "MatMul", platform, constant_weight=True)
+    config = Quantizer(platform, graph).init_quantize_config(operation)
+    quant_operation = QuantableOperation(convert_from=operation, quantize_config=config, platform=platform)
+
+    InsertQuantTypePattern().export(quant_operation, graph)
+    InsertPreNodeOfMatMulPattern().export(quant_operation, graph)
+
+    assert quant_operation.attributes["quant_type"] == EspQuantType.W8A16
+    assert quant_operation.attributes["input1_layout"] == "packed"
 
 
 @pytest.mark.parametrize(
