@@ -241,9 +241,39 @@ class InsertDequantNodePattern(OperationExporter):
 
 class InsertPreNodeOfMatMulPattern(OperationExporter):
     def export(self, op: QuantableOperation, graph: BaseGraph, **kwargs) -> Operation:
-        if op.type != "MatMul" or op.inputs[1].is_parameter or not isinstance(op, QuantableOperation):
+        if op.type != "MatMul" or not isinstance(op, QuantableOperation):
             return op
 
+        # Static right-hand operands are packed offline by ResetParamLayoutPattern.
+        # Keep this explicit so the runtime never has to infer a physical layout
+        # from tensor shapes. Models exported before this attribute was added are
+        # treated as packed by ESP-DL for backward compatibility.
+        if op.inputs[1].is_parameter:
+            op.attributes["input1_layout"] = "packed"
+            return op
+
+        # P4/S3 SIMD and the C (ESP32) scalar kernel all accept native KN,
+        # including fused ReLU. Dynamic right-hand operands therefore stay in
+        # their logical row-major layout and avoid the Reshape/Transpose/
+        # Slice/Concat packing graph used by Conv2D.
+        if op.platform in [
+            TargetPlatform.ESPDL_INT8,
+            TargetPlatform.ESPDL_INT16,
+            TargetPlatform.ESPDL_W8A16,
+            TargetPlatform.ESPDL_H_PRE_INT16,
+            TargetPlatform.ESPDL_S3_INT8,
+            TargetPlatform.ESPDL_S3_INT16,
+            TargetPlatform.ESPDL_S3_W8A16,
+            TargetPlatform.ESPDL_S3_H_PRE_INT16,
+            TargetPlatform.ESPDL_C_INT8,
+            TargetPlatform.ESPDL_C_INT16,
+            TargetPlatform.ESPDL_C_W8A16,
+            TargetPlatform.ESPDL_C_H_PRE_INT16,
+        ] and op.attributes.get("activation", "Linear") in ("Linear", "Relu"):
+            op.attributes["input1_layout"] = "native_kn"
+            return op
+
+        op.attributes["input1_layout"] = "packed"
         input0 = op.inputs[0]
         input1 = op.inputs[1]
         input1_config = op.input_quant_config[1]
