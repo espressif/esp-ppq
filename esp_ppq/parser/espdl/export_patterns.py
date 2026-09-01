@@ -663,16 +663,13 @@ class AddLUTPattern(OperationExporter):
         super().__init__()
         self.int16_step = int(int16_step)  # the step of int16 LUT
 
-    def get_scale(self, var: Variable, info: ExporterPatternInfo) -> torch.Tensor:
+    def get_scale(self, var: Variable, info: ExporterPatternInfo) -> float:
         exponent = info.get_var_exponents(var.name)
-        scale = 1.0
-        if exponent:
-            if isinstance(exponent, list):
-                scale = 2 ** exponent[0]
-            else:
-                scale = 2**exponent
-
-        return scale
+        if not exponent:
+            return 1.0
+        if isinstance(exponent, list):
+            exponent = exponent[0]
+        return 2.0 ** int(exponent)
 
     def calculate_lut(
         self,
@@ -713,7 +710,7 @@ class AddLUTPattern(OperationExporter):
                 if op_input.value is None:
                     inputs.append(None)
                 else:
-                    inputs.append(op_input.value * self.get_scale(op_input, info))
+                    inputs.append(op_input.value.float() * self.get_scale(op_input, info))
 
         # Temporarily restore the original op type while running the forward, so
         # forwards that dispatch on ``op.type`` (e.g. UnaryEltwise_forward for
