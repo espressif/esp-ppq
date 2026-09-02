@@ -73,6 +73,32 @@ _W8A16_PLATFORMS = {
     TargetPlatform.ESPDL_C_W8A16,
 }
 
+# W8A16 is weight-8 / activation-16. A MatMul with two runtime operands has no
+# weight, so keep both sides at 16-bit (w16a16) on the matching INT16 platform.
+_W8A16_TO_W16A16 = {
+    TargetPlatform.ESPDL_W8A16: TargetPlatform.ESPDL_INT16,
+    TargetPlatform.ESPDL_S3_W8A16: TargetPlatform.ESPDL_S3_INT16,
+    TargetPlatform.ESPDL_C_W8A16: TargetPlatform.ESPDL_C_INT16,
+}
+_MATMUL_TYPES = {"MatMul", "PPQBiasFusedMatMul"}
+
+
+def _fallback_dynamic_matmul_w8a16_to_w16a16(operation: Operation) -> None:
+    if operation.type not in _MATMUL_TYPES or operation.platform not in _W8A16_TO_W16A16:
+        return
+    if operation.num_of_input < 2:
+        return
+    if operation.inputs[0].is_parameter or operation.inputs[1].is_parameter:
+        return
+
+    w16a16_platform = _W8A16_TO_W16A16[operation.platform]
+    ppq_warning(
+        f"MatMul '{operation.name}' has no weight operand; "
+        f"fallback {operation.platform.name} -> {w16a16_platform.name} (w16a16)."
+    )
+    operation.platform = w16a16_platform
+
+
 _P4_PLATFORMS = {
     TargetPlatform.ESPDL_INT8,
     TargetPlatform.ESPDL_INT16,
@@ -236,7 +262,15 @@ class BaseEspdlQuantizer(BaseQuantizer):
 
         return pipeline
 
+    def quantize_operation(self, op_name: str, platform: TargetPlatform = None):
+        converting_operation = self._graph.operations[op_name]
+        if platform is not None:
+            converting_operation.platform = platform
+        _fallback_dynamic_matmul_w8a16_to_w16a16(converting_operation)
+        return super().quantize_operation(op_name, platform=converting_operation.platform)
+
     def init_quantize_config(self, operation: Operation) -> OperationQuantizationConfig:
+        _fallback_dynamic_matmul_w8a16_to_w16a16(operation)
         if operation.platform == self.target_platform:
             num_of_bits = self._num_of_bits
             quant_min = self._quant_min

@@ -26,6 +26,11 @@ _W8A16_CASES = [
     ("esp32s3", TargetPlatform.ESPDL_S3_W8A16, 40),
     ("esp32c3", TargetPlatform.ESPDL_C_W8A16, 64),
 ]
+_W8A16_TO_W16A16 = {
+    TargetPlatform.ESPDL_W8A16: TargetPlatform.ESPDL_INT16,
+    TargetPlatform.ESPDL_S3_W8A16: TargetPlatform.ESPDL_S3_INT16,
+    TargetPlatform.ESPDL_C_W8A16: TargetPlatform.ESPDL_C_INT16,
+}
 
 
 def _make_operation(
@@ -129,6 +134,10 @@ def test_w8a16_keeps_dynamic_operands_and_other_ops_int16(target, platform, _):
         operation_config = Quantizer(platform, graph).init_quantize_config(operation)
         assert [config.num_of_bits for config in operation_config.input_quantization_config] == [16, 16]
         assert operation_config.output_quantization_config[0].num_of_bits == 16
+        if op_type == "MatMul":
+            assert operation.platform == _W8A16_TO_W16A16[platform]
+        else:
+            assert operation.platform == platform
 
     add = graph.create_operation(
         op_type="Add",
@@ -143,6 +152,37 @@ def test_w8a16_keeps_dynamic_operands_and_other_ops_int16(target, platform, _):
     add_config = Quantizer(platform, graph).init_quantize_config(add)
     assert [config.num_of_bits for config in add_config.input_quantization_config] == [16, 16]
     assert add_config.output_quantization_config[0].num_of_bits == 16
+    assert add.platform == platform
+
+
+@pytest.mark.parametrize(("target", "platform", "_"), _W8A16_CASES)
+def test_dynamic_matmul_w8a16_falls_back_to_w16a16(target, platform, _):
+    w16a16_platform = _W8A16_TO_W16A16[platform]
+
+    dynamic_graph = BaseGraph(name="dynamic_matmul_fallback", built_from=NetworkFramework.ONNX)
+    dynamic = _make_operation(dynamic_graph, "MatMul", platform, constant_weight=False)
+    dynamic_config = Quantizer(platform, dynamic_graph).init_quantize_config(dynamic)
+    assert dynamic.platform == w16a16_platform
+    assert [config.num_of_bits for config in dynamic_config.input_quantization_config] == [16, 16]
+    assert dynamic_config.output_quantization_config[0].num_of_bits == 16
+
+    static_graph = BaseGraph(name="static_matmul_w8a16", built_from=NetworkFramework.ONNX)
+    static = _make_operation(static_graph, "MatMul", platform, constant_weight=True)
+    static_config = Quantizer(platform, static_graph).init_quantize_config(static)
+    assert static.platform == platform
+    assert [config.num_of_bits for config in static_config.input_quantization_config] == [16, 8]
+
+
+@pytest.mark.parametrize(("target", "platform", "_"), _W8A16_CASES)
+def test_dynamic_matmul_quantize_operation_uses_w16a16_platform(target, platform, _):
+    graph = BaseGraph(name="dynamic_matmul_quantize", built_from=NetworkFramework.ONNX)
+    _make_operation(graph, "MatMul", platform, constant_weight=False)
+    quantized = Quantizer(platform, graph).quantize_operation("MatMul_op")
+
+    assert quantized.platform == _W8A16_TO_W16A16[platform]
+    assert [config.num_of_bits for config in quantized.config.input_quantization_config] == [16, 16]
+    InsertQuantTypePattern().export(quantized, graph)
+    assert quantized.attributes["quant_type"] == EspQuantType.S16
 
 
 @pytest.mark.parametrize(
@@ -173,6 +213,44 @@ def test_p4_dynamic_matmul_keeps_native_kn_layout(platform, activation):
 
     assert quant_operation.attributes["input1_layout"] == "native_kn"
     assert len(graph.operations) == operation_count
+
+
+@pytest.mark.parametrize(
+    ("platform", "expect_s3p4_packing"),
+    [
+        (TargetPlatform.ESPDL_C_W8A16, False),
+        (TargetPlatform.ESPDL_C_INT16, False),
+        (TargetPlatform.ESPDL_W8A16, True),
+        (TargetPlatform.ESPDL_S3_W8A16, True),
+    ],
+)
+def test_dynamic_matmul_packed_fallback_layout(platform, expect_s3p4_packing):
+    # Linear/Relu take native_kn. A non-fused activation forces the packed
+    # fallback; C targets must still emit CN->NC, not S3/P4 (N/8)HWC8 packing.
+    graph = BaseGraph(name="dynamic_matmul_packed_fallback", built_from=NetworkFramework.ONNX)
+    operation = _make_operation(graph, "MatMul", platform, constant_weight=False)
+    operation.attributes["activation"] = "PRelu"
+    operation.inputs[0].shape = [1, 16]
+    operation.inputs[1].shape = [16, 17]
+    config = Quantizer(platform, graph).init_quantize_config(operation)
+    quant_operation = QuantableOperation(convert_from=operation, quantize_config=config, platform=platform)
+    graph.operations[operation.name] = quant_operation
+    for var in list(operation.inputs) + list(operation.outputs):
+        if operation in var.dest_ops:
+            var.dest_ops[var.dest_ops.index(operation)] = quant_operation
+        if var.source_op is operation:
+            var.source_op = quant_operation
+
+    InsertPreNodeOfMatMulPattern().export(quant_operation, graph)
+
+    op_types = [op.type for op in graph.operations.values()]
+    assert quant_operation.attributes["input1_layout"] == "packed"
+    if expect_s3p4_packing:
+        assert "Slice" in op_types or op_types.count("Reshape") >= 2
+    else:
+        assert "Slice" not in op_types
+        assert "Concat" not in op_types
+        assert "Transpose" in op_types
 
 
 @pytest.mark.parametrize(
