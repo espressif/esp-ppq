@@ -296,10 +296,12 @@ class InsertPreNodeOfMatMulPattern(OperationExporter):
             TargetPlatform.ESPDL_C_INT8,
             TargetPlatform.ESPDL_C_INT16,
             TargetPlatform.ESPDL_C_H_PRE_INT16,
+            TargetPlatform.ESPDL_C_W8A16,
         ]:
             if input1_dims >= 2:
                 # *CN -> *NC
-                # Because esp-dl's Conv2D implementation in C requires the filter layout to be NHWC.
+                # ESP32 C conv2d (int8 / int16 / w8a16) expects NHWC, not the
+                # (N/align)HWC(align) packing used by S3/P4 SIMD kernels.
                 insert_transpose_node(
                     graph=graph, var=op.inputs[1], op=op, perm=list(range(len(input1.shape) - 2)) + [-1, -2]
                 )
