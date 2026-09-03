@@ -238,9 +238,9 @@ class AxisTransformPattern(OperationExporter):
 
         out_var_perm = var_perm[:]
         if op.type in REDUCE_OP_SET:
-            keepdims = op.attributes["keepdims"]
+            keepdims = bool(op.attributes.get("keepdims", 1))
             # The perm needs to be deleted.
-            if keepdims == 0:
+            if not keepdims:
                 if len(op.inputs) > 1 and len(op.inputs[1].value) > 0:
                     reduce_axes_list = sorted(op.inputs[1].value.tolist(), reverse=True)
                     # After the transformations above, the axes now match the current input.
