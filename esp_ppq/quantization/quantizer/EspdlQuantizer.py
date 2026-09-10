@@ -16,7 +16,15 @@ from esp_ppq.core import (
     ppq_warning,
 )
 from esp_ppq.IR import BaseGraph, Operation
-from esp_ppq.quantization.optim import EspdlLUTFusionPass, QuantizationOptimizationPipeline
+from esp_ppq.quantization.optim import (
+    EspdlAttentionFusionPass,
+    EspdlAttentionLegalizePass,
+    EspdlLUTFusionPass,
+    QuantizationOptimizationPipeline,
+    espdl_attention_platform_unsupported_reason,
+    finalize_espdl_attention_for_export,
+)
+from esp_ppq.quantization.optim.espdl_attention import _attention_prequant_needs_trace
 
 from .base import BaseQuantizer
 
@@ -42,6 +50,7 @@ def _apply_bit_width(config, bits: int, state=QuantizationStates.PASSIVE_INIT, o
 
 _GRU_BIAS_INDICES = (3,)  # bias
 _LSTM_BIAS_INDICES = (3, 6)  # bias, initial_c
+_ATTENTION_MASK_INDEX = 3
 
 
 @dataclass(frozen=True)
@@ -99,6 +108,23 @@ def _fallback_dynamic_matmul_w8a16_to_w16a16(operation: Operation) -> None:
     operation.platform = w16a16_platform
 
 
+def _var_carries_nonfinite_mask(var) -> bool:
+    if var is None:
+        return False
+    from esp_ppq.quantization.optim.espdl_attention import _nonfinite_mask
+
+    if _nonfinite_mask(var):
+        return True
+    source = var.source_op
+    if source is None:
+        return False
+    if source.type == "Where":
+        return any(_var_carries_nonfinite_mask(inp) for inp in source.inputs[1:])
+    if source.type == "Add":
+        return any(_var_carries_nonfinite_mask(inp) for inp in source.inputs)
+    return False
+
+
 _P4_PLATFORMS = {
     TargetPlatform.ESPDL_INT8,
     TargetPlatform.ESPDL_INT16,
@@ -115,6 +141,46 @@ _PER_CHANNEL_POLICY = QuantizationPolicy(
 
 
 class BaseEspdlQuantizer(BaseQuantizer):
+    def build_prequant_pipeline(self, setting, executor):
+        """Fusion, then legalize, then the shared prequant passes.
+
+        Both sit in front of weight split, channel split, and equalization.
+        Appending legalize at the front and then fusion at the front yields
+        that order. Fusion is assembled only when ``setting.espdl_attention_fusion``
+        is on and the platform has an Attention kernel; legalize still expands
+        a native Attention node.
+        """
+        pipeline = super().build_prequant_pipeline(setting, executor)
+        platform = self.target_platform
+        pipeline.append_optimization_to_pipeline(
+            EspdlAttentionLegalizePass(platform=platform, quantized=True),
+            at_front=True,
+        )
+        if getattr(setting, "espdl_attention_fusion", True) and (
+            espdl_attention_platform_unsupported_reason(platform) is None
+        ):
+            pipeline.append_optimization_to_pipeline(EspdlAttentionFusionPass(), at_front=True)
+        return pipeline
+
+    def quantize(self, inputs, calib_dataloader, executor, setting, **kwargs) -> None:
+        # Prequant fusion runs before BaseQuantizer's own trace and does not
+        # receive ``inputs``. Trace the same sample here so fusion and legalize
+        # read those shapes instead of a calibration batch. The base trace
+        # still runs after prequant rewrites the graph.
+        if _attention_prequant_needs_trace(
+            self._graph, self.target_platform, getattr(setting, "espdl_attention_fusion", True)
+        ):
+            executor.tracing_operation_meta(inputs=inputs)
+        super().quantize(
+            inputs=inputs,
+            calib_dataloader=calib_dataloader,
+            executor=executor,
+            setting=setting,
+            **kwargs,
+        )
+        if any(op.type == "Attention" for op in self._graph.operations.values()):
+            finalize_espdl_attention_for_export(self._graph)
+
     def __init__(self, graph: BaseGraph) -> None:
         super().__init__(graph=graph)
         self._num_of_bits = 8
@@ -193,6 +259,9 @@ class BaseEspdlQuantizer(BaseQuantizer):
                 base_quant_config.input_quantization_config[1].state = QuantizationStates.FP32
         elif operation.type in {"Softmax", "LogSoftmax"}:
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
+        elif operation.type == "Attention":
+            if operation.num_of_input > _ATTENTION_MASK_INDEX:
+                base_quant_config.input_quantization_config[_ATTENTION_MASK_INDEX].state = QuantizationStates.FP32
 
         if (
             operation.platform in _W8A16_PLATFORMS
@@ -284,7 +353,16 @@ class BaseEspdlQuantizer(BaseQuantizer):
         else:
             raise KeyError(f"EspdlQuantizer do not support operation platform : {operation.platform}.")
 
-        return self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
+        config = self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
+        # Where or an upstream -inf mask Add can introduce -inf. Quantizing that
+        # tensor drops the mask to a finite value and the histogram observer
+        # rejects a non-finite range. Leave the consumer input in fp32.
+        for index, var in enumerate(operation.inputs):
+            if not _var_carries_nonfinite_mask(var):
+                continue
+            if index < len(config.input_quantization_config):
+                config.input_quantization_config[index].state = QuantizationStates.FP32
+        return config
 
     @property
     def target_platform(self) -> TargetPlatform:

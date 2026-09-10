@@ -18,6 +18,14 @@ from esp_ppq.log import NaiveLogger
 from esp_ppq.utils import process_attribute
 
 from .base import *
+from .espdl_attention import (
+    ESPDL_ATTENTION_LAYOUTS,
+    _decode_layout,
+    compose_causal_into_mask,
+    espdl_attention_eligible,
+    espdl_attention_forward,
+    espdl_attention_head_attrs_ineligible_reason,
+)
 
 # Reference:
 # onnx op: https://github.com/onnx/onnx/blob/master/docs/Operators.md
@@ -95,73 +103,87 @@ def Abs_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
     return x.abs()
 
 
-def Attention_forward(
+def _is_microsoft_attention(op: Operation, values: List[torch.Tensor]) -> bool:
+    """Heuristic: packed-QKV ``com.microsoft.Attention`` vs ``ai.onnx::Attention``."""
+    attrs = op.attributes or {}
+    if 'qkv_hidden_sizes' in attrs:
+        return True
+    if 'q_num_heads' in attrs or 'kv_num_heads' in attrs:
+        return False
+    try:
+        k_var = op.inputs[1] if len(op.inputs) > 1 else None
+        if k_var is not None and getattr(k_var, 'is_parameter', False):
+            w = values[1] if len(values) > 1 else None
+            if w is not None and w.ndim == 2:  # MSFT packs [in_hidden, 3*hidden]
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _microsoft_hidden_size(op: Operation, qkv_hidden_sizes, weight: torch.Tensor) -> int:
+    """Reduce the ``qkv_hidden_sizes`` INTS attribute to one common size."""
+    packed_hidden = int(weight.shape[-1]) // 3
+    if qkv_hidden_sizes is None:
+        return packed_hidden
+    if isinstance(qkv_hidden_sizes, (list, tuple)):
+        sizes = [int(s) for s in qkv_hidden_sizes]
+        if not sizes:
+            return packed_hidden
+        if len(sizes) != 3 or len(set(sizes)) != 1:
+            raise NotImplementedError(
+                f'com.microsoft.Attention {op.name}: asymmetric qkv_hidden_sizes {sizes} is not implemented.'
+            )
+        return sizes[0]
+    size = int(qkv_hidden_sizes)
+    return size if size > 0 else packed_hidden
+
+
+def _microsoft_attention_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
-    """
-    com.microsoft.Attention
-        Multi-Head Self Attention that can be either unidirectional (like GPT-2) or bidirectional (like BERT).
-        The mask_index input is optional. Besides raw attention mask with shape
-        (batch_size, past_sequence_length + sequence_length) or
-        (batch_size, sequence_length, past_sequence_length + sequence_length) with value 0 for masked and 1 otherwise,
-
-        we also support other two formats: When input has right-side padding,
-        mask_index is one dimension with shape (batch_size), where value of each element is the end position,
-        or valid length of actual sequence excluding padding. When input has left-side padding, mask_index has shape (2 * batch_size),
-        where the values are the exclusive end positions followed by the inclusive start positions. When unidirectional is 1,
-        and each token only attend to previous tokens. For GPT-2, both past and present state are optional.
-
-        Present state could appear in output even when past state is not in input.
-
-    Version
-        This version of the operator has been available since version 1 of the 'com.microsoft' operator set.
+    """Packed QKV projection followed by multi-head attention (com.microsoft.Attention).
 
     Attributes
         num_heads : int (required)
-            Number of attention heads
-
+            Number of attention heads.
         qkv_hidden_sizes : list of ints
-            Hidden layer sizes of Q, K, V paths in Attention
-
-        unidirectional : int
-            Whether every token can only attend to previous tokens. Default value is 0.
+            Hidden size of Q, K and V. Only equal sizes are implemented.
+        unidirectional : int (default is 0)
+            Only 0 is implemented.
 
     Inputs (3 - 6)
-        input : T
-            3D input tensor with shape (batch_size, sequence_length, input_hidden_size)
-
-        weight : T
-            2D input tensor with shape (input_hidden_size, 3 * hidden_size), where hidden_size = num_heads * head_size
-
-        bias : T
-            1D input tensor with shape (3 * hidden_size)
-
-        mask_index (optional) : M
-            Attention mask with shape (batch_size, 1, max_sequence_length, max_sequence_length),
-            (batch_size, past_sequence_length + sequence_length)
-            or (batch_size, sequence_length, past_sequence_length + sequence_length),
-            or index with shape (batch_size) or (2 * batch_size).
-
+        input (differentiable) : T
+            Input tensor of shape [batch, sequence, input_hidden].
+        weight (differentiable) : T
+            Packed QKV projection weight.
+        bias (differentiable) : T
+            Packed QKV projection bias.
+        mask_index (optional) : I
+            Not implemented.
         past (optional) : T
-            past state for key and value with shape (2, batch_size, num_heads, past_sequence_length, head_size).
+            Not implemented.
+        extra_add (optional, differentiable) : T
+            Added to the attention scores before softmax.
 
-        extra_add (optional) : T
-            additional add to QxK' with shape (batch_size, num_heads, sequence_length, sequence_length).
+    Outputs
+        output (differentiable) : T
+            Output tensor of shape [batch, sequence, hidden].
 
-    Outputs (1 - 2)
-        output : T
-            3D output tensor with shape (batch_size, sequence_length, hidden_size)
+    Args:
+        op (Operation): [description]
+        values (List[torch.Tensor]): [description]
+        ctx (TorchBackendContext, optional): [description]. Defaults to None.
 
-        present (optional) : T
-            present state for key and value with shape
-            (2, batch_size, num_heads, past_sequence_length + sequence_length, head_size)
+    Returns:
+        torch.Tensor: [description]
     """
     ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=6)
     num_heads = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='num_heads', compulsive=True)
-    qkv_hidden_sizes = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='qkv_hidden_sizes', default=0)
+    qkv_hidden_sizes = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='qkv_hidden_sizes', default=None)
     unidirectional = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='unidirectional', default=0)
     if unidirectional != 0:
-        raise NotImplementedError('Attention Layer with unidirectional != 0 is not implemented.')
+        raise NotImplementedError('com.microsoft.Attention with unidirectional != 0 is not implemented.')
 
     input, weight, bias = values[:3]
     mask_index = values[3] if len(values) >= 4 else None
@@ -169,9 +191,11 @@ def Attention_forward(
     extra_add = values[5] if len(values) >= 6 else None
 
     if mask_index is not None or past is not None:
-        raise NotImplementedError('Attention Layer with mask_index and past != None is not implemented.')
+        raise NotImplementedError('com.microsoft.Attention with mask_index / past is not implemented.')
 
-    BATCHSIZE, NUM_OF_HEADS, HIDDEN_SIZE = input.shape[0], num_heads, qkv_hidden_sizes
+    BATCHSIZE = input.shape[0]
+    NUM_OF_HEADS = num_heads
+    HIDDEN_SIZE = _microsoft_hidden_size(op, qkv_hidden_sizes, weight)
     HEAD_SIZE = HIDDEN_SIZE // NUM_OF_HEADS
 
     qkv = torch.matmul(input, weight) + bias
@@ -183,11 +207,255 @@ def Attention_forward(
     k = k.reshape(BATCHSIZE, -1, NUM_OF_HEADS, HEAD_SIZE).permute(0, 2, 1, 3)
     v = v.reshape(BATCHSIZE, -1, NUM_OF_HEADS, HEAD_SIZE).permute(0, 2, 1, 3)
 
-    attn_score = (q @ k.transpose(-2, -1)) * (HEAD_SIZE**-0.5) + extra_add
+    scale = HEAD_SIZE**-0.5
+    attn_score = q @ k.transpose(-2, -1) * scale
+    if extra_add is not None:
+        attn_score = attn_score + extra_add
     attn_score = torch.softmax(attn_score, dim=-1)
 
     feat = (attn_score @ v).transpose(1, 2).reshape(BATCHSIZE, -1, HIDDEN_SIZE)
     return feat
+
+
+def _onnx23_attention_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    """Scaled dot-product attention for ai.onnx::Attention (opset 23).
+
+    4-D BHND is [batch, heads, sequence, head_dim]. 4-D BNHD is
+    [batch, sequence, heads, head_dim] and is transposed to BHND around SDPA.
+    A 3-D input is [batch, sequence, heads * head_dim] in either layout.
+
+    Attributes
+        is_causal : int (default is 0)
+            When 1, apply an upper-left causal mask (key index j <= query index i)
+            before the additive mask.
+        kv_num_heads : int (default is 0)
+            Number of key and value heads. 0 takes the count from a 4-D shape.
+        q_num_heads : int (default is 0)
+            Number of query heads. 0 takes the count from a 4-D shape.
+        qk_matmul_output_mode : int (default is 0)
+            Only 0 (no extra QK output) is implemented.
+        scale : float
+            Multiplier of QK^T. The default is 1/sqrt(head_dim).
+        softcap : float (default is 0.0)
+            Only 0 is implemented.
+
+    Inputs (3 - 7)
+        Q (differentiable) : T
+            Query.
+        K (differentiable) : T
+            Key.
+        V (differentiable) : T
+            Value. head_dim must match Q and K.
+        attn_mask (optional, differentiable) : T
+            Bool mask (True keeps the score) or a float additive mask.
+        past_key (optional) : T
+            Not implemented.
+        past_value (optional) : T
+            Not implemented.
+        nonpad_kv_seqlen (optional) : T
+            Not implemented.
+
+    Outputs
+        Y (differentiable) : T
+            Same rank as Q.
+
+    Args:
+        op (Operation): [description]
+        values (List[torch.Tensor]): [description]
+        ctx (TorchBackendContext, optional): [description]. Defaults to None.
+
+    Returns:
+        torch.Tensor: [description]
+    """
+    import math as _math
+
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=7)
+
+    q, k, v = values[0], values[1], values[2]
+    attn_mask = values[3] if len(values) >= 4 else None
+    past_key = values[4] if len(values) >= 5 else None
+    past_value = values[5] if len(values) >= 6 else None
+    nonpad_kv_seqlen = values[6] if len(values) >= 7 else None
+
+    if past_key is not None or past_value is not None:
+        raise NotImplementedError(
+            f'ai.onnx::Attention {op.name}: past_key / past_value (KV cache) '
+            'is not supported by esp-ppq. Emit the cache via graph-level '
+            'Concat/Slice instead.'
+        )
+    if nonpad_kv_seqlen is not None:
+        raise NotImplementedError(
+            f'ai.onnx::Attention {op.name}: nonpad_kv_seqlen external cache is not supported yet.'
+        )
+
+    raw_layout = 'BHND'
+    if op.attributes and op.attributes.get('layout') is not None:
+        raw_layout = op.attributes.get('layout')
+    layout = _decode_layout(raw_layout)
+    if layout not in ESPDL_ATTENTION_LAYOUTS:
+        raise ValueError(
+            f'ai.onnx::Attention {op.name}: layout must be one of {sorted(ESPDL_ATTENTION_LAYOUTS)}, got {layout!r}.'
+        )
+
+    head_reason = espdl_attention_head_attrs_ineligible_reason(
+        op.attributes,
+        [tuple(t.shape) for t in (q, k, v)],
+        layout,
+    )
+    if head_reason:
+        raise ValueError(f'ai.onnx::Attention {op.name}: {head_reason}')
+
+    q_num_heads = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='q_num_heads', default=0)
+    kv_num_heads = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='kv_num_heads', default=0)
+    is_causal = int(GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='is_causal', default=0))
+    softcap = float(GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='softcap', default=0.0))
+    attr_scale = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='scale', default=None)
+    qk_mode = int(GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='qk_matmul_output_mode', default=0))
+
+    if softcap != 0.0:
+        raise NotImplementedError(f'ai.onnx::Attention {op.name}: softcap != 0 is not supported yet.')
+    if qk_mode != 0:
+        raise NotImplementedError(f'ai.onnx::Attention {op.name}: qk_matmul_output_mode != 0 is not supported.')
+
+    def _to_4d(t: torch.Tensor, num_heads: int, name: str) -> torch.Tensor:
+        if t.ndim == 4:
+            return t
+        if t.ndim != 3:
+            raise ValueError(f'ai.onnx::Attention {op.name}: {name} must be 3-D or 4-D, got {tuple(t.shape)}')
+        if num_heads <= 0:
+            raise ValueError(f'ai.onnx::Attention {op.name}: 3-D {name} needs num_heads attribute')
+        B, L, hidden = t.shape
+        if hidden % num_heads != 0:
+            raise ValueError(
+                f'ai.onnx::Attention {op.name}: {name} hidden={hidden} not divisible by num_heads={num_heads}'
+            )
+        head_size = hidden // num_heads
+        return t.reshape(B, L, num_heads, head_size).permute(0, 2, 1, 3).contiguous()
+
+    def _bhnd(t: torch.Tensor) -> torch.Tensor:
+        if layout == 'BNHD' and t.ndim == 4:
+            return t.transpose(1, 2).contiguous()
+        return t
+
+    q, k, v = _bhnd(q), _bhnd(k), _bhnd(v)
+    q4 = _to_4d(q, q_num_heads, 'Q')
+    k4 = _to_4d(k, kv_num_heads, 'K')
+    v4 = _to_4d(v, kv_num_heads, 'V')
+
+    h_q, h_kv = int(q4.shape[1]), int(k4.shape[1])
+    if h_kv <= 0 or h_q % h_kv != 0:
+        raise ValueError(f'ai.onnx::Attention {op.name}: Hq must be a multiple of Hkv; got Hq={h_q}, Hkv={h_kv}')
+
+    # Reject v_head_size != head_size and Q/K head_dim mismatch here so the
+    # error names the op instead of surfacing deep in SDPA.
+    head_size = int(q4.shape[-1])
+    if int(k4.shape[-1]) != head_size:
+        raise ValueError(
+            f'ai.onnx::Attention {op.name}: K head_dim ({k4.shape[-1]}) must equal Q head_dim ({head_size}).'
+        )
+    v_head_size = int(v4.shape[-1])
+    if v_head_size != head_size:
+        raise NotImplementedError(
+            f'ai.onnx::Attention {op.name}: v_head_size={v_head_size} != '
+            f'head_size={head_size} is not supported (esp-ppq requires the '
+            f'value head_dim to match the query/key head_dim).'
+        )
+
+    if h_kv != h_q:  # GQA/MQA head broadcast for a single F.SDPA call
+        group = h_q // h_kv
+        k4 = k4.repeat_interleave(group, dim=1)
+        v4 = v4.repeat_interleave(group, dim=1)
+
+    scale = 1.0 / _math.sqrt(head_size) if attr_scale is None else float(attr_scale)
+
+    if attn_mask is not None and attn_mask.dtype == torch.bool:
+        attn_mask = torch.zeros_like(attn_mask, dtype=q4.dtype).masked_fill(~attn_mask, float('-inf'))
+    elif attn_mask is not None:
+        attn_mask = attn_mask.to(q4.dtype)
+
+    attn_mask, sdpa_causal = compose_causal_into_mask(attn_mask, bool(is_causal), q4, k4)
+
+    out = torch.nn.functional.scaled_dot_product_attention(
+        q4,
+        k4,
+        v4,
+        attn_mask=attn_mask,
+        dropout_p=0.0,
+        is_causal=sdpa_causal,
+        scale=scale,
+    )
+
+    if q.ndim == 3:  # 3-D in -> 3-D out
+        B, Lq, _ = q.shape
+        return out.permute(0, 2, 1, 3).reshape(B, Lq, h_q * v_head_size).contiguous()
+    if layout == 'BNHD':
+        return out.transpose(1, 2).contiguous()
+    return out
+
+
+def Attention_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    """Computes scaled dot-product attention.
+
+    com.microsoft.Attention (packed QKV) and the fused device subset are
+    handled by their own forwards. Everything else uses the opset-23 path.
+
+    Attributes
+        is_causal : int (default is 0)
+            When 1, apply an upper-left causal mask (key index j <= query index i)
+            before the additive mask.
+        kv_num_heads : int (default is 0)
+            Number of key and value heads.
+        q_num_heads : int (default is 0)
+            Number of query heads.
+        qk_matmul_output_mode : int (default is 0)
+            Only 0 is implemented.
+        scale : float
+            Multiplier of QK^T. The default is 1/sqrt(head_dim).
+        softcap : float (default is 0.0)
+            Only 0 is implemented.
+        layout : string (default is BHND)
+            BHND or BNHD. 4-D BNHD is transposed to BHND for the score.
+        quant_type : string
+            S8, S16 or F32. Read by the fused device path.
+
+    Inputs (3 - 7)
+        Q (differentiable) : T
+            Query. 4-D BHND is [batch, heads, sequence, head_dim].
+            4-D BNHD is [batch, sequence, heads, head_dim].
+        K (differentiable) : T
+            Key.
+        V (differentiable) : T
+            Value.
+        attn_mask (optional, differentiable) : T
+            Bool mask (True keeps the score) or a float additive mask.
+        past_key (optional) : T
+            Not implemented.
+        past_value (optional) : T
+            Not implemented.
+        nonpad_kv_seqlen (optional) : T
+            Not implemented.
+
+    Outputs
+        Y (differentiable) : T
+            Same rank and layout as Q.
+
+    Args:
+        op (Operation): [description]
+        values (List[torch.Tensor]): [description]
+        ctx (TorchBackendContext, optional): [description]. Defaults to None.
+
+    Returns:
+        torch.Tensor: [description]
+    """
+    if _is_microsoft_attention(op, values):
+        return _microsoft_attention_forward(op, values, ctx, **kwargs)
+    if espdl_attention_eligible(op, [tuple(v.shape) for v in values[:3]]):
+        return espdl_attention_forward(op, values, ctx, **kwargs)
+    return _onnx23_attention_forward(op, values, ctx, **kwargs)
 
 
 def Conv_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
@@ -644,19 +912,40 @@ def Mul_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
 def MultiHeadAttention_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
-    """Perform MultiHeadAttetion opr forward.
+    """Multi-head attention with separate Q, K, V and output projections.
+
+    The simplified form (fewer than 11 inputs) is not implemented. embed_dim
+    and num_heads are required, and embed_dim must be divisible by num_heads.
+
+    Attributes
+        embed_dim : int (required)
+            Total embedding size.
+        num_heads : int (required)
+            Number of attention heads.
+
+    Inputs (11)
+        query (differentiable) : T
+            Query.
+        key (differentiable) : T
+            Key.
+        value (differentiable) : T
+            Value.
+        q_weight, q_bias, k_weight, k_bias, v_weight, v_bias : T
+            Per-projection weight and bias.
+        out_weight, out_bias : T
+            Output projection weight and bias.
+
+    Outputs
+        output (differentiable) : T
+            Attention output.
 
     Args:
-        op (Operation): MultiHeadAttention
-        values (List[torch.Tensor]): opr inputs
-        ctx (TorchBackendContext, optional): Context. Defaults to None.
-
-    Raises:
-        NotImplementedError: In [Vit Paper](https://arxiv.org/abs/2010.11929), MultiHeadAttention inputs are actually the same tensor, we suppose that this would **not** be simplified.
-        ValueError: MultiHeadAttention contains `embed_dim` and `num_heads`.
+        op (Operation): [description]
+        values (List[torch.Tensor]): [description]
+        ctx (TorchBackendContext, optional): [description]. Defaults to None.
 
     Returns:
-        list: opr output and internal result for quantization.
+        torch.Tensor: [description]
     """
     if len(values) != 11:
         raise NotImplementedError('Not implement simplified MultiHeadAttention')
@@ -1510,7 +1799,7 @@ def Slice_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
     """
     ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=5)
     data, starts, ends = values[:3]
-    axes = values[3] if len(values) > 3 else torch.tensor([int(_) for idx, _ in enumerate(starts.tolist())])
+    axes = values[3] if len(values) > 3 else torch.tensor([idx for idx, _ in enumerate(starts.tolist())])
     steps = values[4] if len(values) > 4 else torch.ones_like(starts)
     if axes is not None:
         axes = axes.tolist()
@@ -2389,6 +2678,9 @@ def Range_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
 def Where_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     condition, x, y = values
+    # ONNX Where selects X where condition is nonzero. PyTorch requires a bool.
+    if condition.dtype != torch.bool:
+        condition = condition.to(dtype=torch.bool)
     output = torch.where(condition, x, y)
     return output
 

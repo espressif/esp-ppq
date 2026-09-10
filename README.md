@@ -23,7 +23,7 @@ For Windows User:
 
   (3) Add your C++ compiler to Windows PATH Environment, if you are using Visual Studio, it should be like "C:\Program Files\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.16.27023\bin\Hostx86\x86"
 
-  (4) Update PyTorch version to >=2.0.0.
+  (4) Update PyTorch version to >=2.1.0.
 
 3. Install PPQ
 

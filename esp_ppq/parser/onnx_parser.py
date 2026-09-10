@@ -112,8 +112,10 @@ class OnnxParser(GraphBuilder):
                     # The attribute of 'Constant' node is a value, needs to convert to numpy array
                     value = numpy_helper.to_array(value).copy()
                 if op.type == 'Cast' and key == 'to':
-                    # The attribute of 'Cast' node is data type (represented in int), need to convert to numpy data type
-                    value = helper.tensor_dtype_to_np_dtype[value]
+                    # The attribute of 'Cast' node is data type (represented in int), need to convert to numpy data type.
+                    # onnx 1.19 made ``tensor_dtype_to_np_dtype`` a function; older releases keep a dict.
+                    mapper = helper.tensor_dtype_to_np_dtype
+                    value = mapper(value) if callable(mapper) else mapper[value]
                 op.attributes[key] = value
 
         graph_initializers = []

@@ -51,8 +51,11 @@ class OOSExporter(OperationExporter):
 
 class AttentionExporter(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
-        # MMCV operation must have a domain attribute.
-        op.attributes['domain'] = 'com.microsoft'
+        # 'num_heads' / 'qkv_hidden_sizes' are com.microsoft-only spellings;
+        # opset-23 uses 'q_num_heads' / 'kv_num_heads'. Only stamp the domain
+        # on the microsoft variant.
+        if 'qkv_hidden_sizes' in op.attributes or 'num_heads' in op.attributes:
+            op.attributes['domain'] = 'com.microsoft'
         return op
 
 
