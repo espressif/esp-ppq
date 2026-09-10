@@ -11,9 +11,11 @@ from esp_ppq.core import (
     PPQ_CONFIG,
     DataType,
     QuantizationStates,
+    TargetPlatform,
     convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
+from esp_ppq.executor import TorchExecutor
 from esp_ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.log import NaiveLogger
@@ -83,6 +85,36 @@ class EspdlExporter(GraphExporter):
     The export logic of any exporter is performed in-place, meaning it will modify the incoming computational graph object in-place.
     Therefore, you need to manually clone the computational graph before exporting.
     """
+
+    @staticmethod
+    def prepare_graph_for_float_export(
+        graph: BaseGraph,
+        platform: TargetPlatform,
+        inputs: Any,
+        device: str = "cpu",
+        attention_fusion: bool = True,
+    ) -> BaseGraph:
+        """Trace, then optionally fuse primitive Attention before legalizing it.
+
+        ``attention_fusion`` controls only ``MatMul -> Softmax -> MatMul``
+        rewriting. Native ONNX ``Attention`` nodes are always legalized.
+        """
+        from esp_ppq.quantization.optim.espdl_attention import (
+            EspdlAttentionFusionPass,
+            _log_attention_report,
+            espdl_attention_platform_unsupported_reason,
+            legalize_espdl_attention_graph,
+        )
+
+        executor = TorchExecutor(graph=graph, device=device)
+        executor.tracing_operation_meta(inputs=inputs)
+        if attention_fusion and espdl_attention_platform_unsupported_reason(platform) is None:
+            EspdlAttentionFusionPass().optimize(graph, executor=executor, inputs=inputs)
+        if any(op.type == "Attention" for op in graph.operations.values()):
+            legalize_espdl_attention_graph(graph, platform=platform, quantized=False, executor=executor, inputs=inputs)
+        else:
+            _log_attention_report(graph)
+        return graph
 
     def __init__(self) -> None:
         super().__init__()
@@ -234,6 +266,12 @@ class EspdlExporter(GraphExporter):
             BaseGraph: Processed Graph
         """
         self.convert_operation_from_opset11_to_opset18(graph)
+        for const_op in [op for op in graph.operations.values() if op.type == "Constant"]:
+            if len(const_op.outputs) == 1 and "value" in const_op.attributes:
+                output_var = const_op.outputs[0]
+                output_var._is_parameter = True
+                output_var.value = const_op.attributes["value"]
+                graph.remove_operation(removing_op=const_op)
 
         # before we can export them, we firstly convert all ops to proper format. Copy from onnx exporter
         for op in [_ for _ in graph.topological_sort()]:
@@ -470,7 +508,22 @@ class EspdlExporter(GraphExporter):
         Convert PPQ Op to Onnx Operation
         An Op consumes zero or more Tensors, and produces zero or more Tensors.
         """
-        attributes = operation.attributes
+        if operation.type == "Attention":
+            from esp_ppq.executor.op.torch.espdl_attention import lower_espdl_attention_attributes
+
+            if (
+                isinstance(operation, QuantableOperation)
+                and operation.num_of_input > 3
+                and operation.input_quant_config[3].state != QuantizationStates.FP32
+            ):
+                raise ValueError(
+                    f"Attention '{operation.name}': attn_mask (input 3) must stay FP32, got "
+                    f"{operation.input_quant_config[3].state.name}. int8/int16 cannot represent "
+                    f"-inf / large-negative mask entries."
+                )
+            attributes = lower_espdl_attention_attributes(operation.attributes)
+        else:
+            attributes = operation.attributes
         for key in attributes:
             value = attributes[key]
             if isinstance(value, DataType):

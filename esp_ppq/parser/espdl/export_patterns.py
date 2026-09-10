@@ -100,6 +100,13 @@ def _is_w8a16_mixed_precision_op(op: Operation) -> bool:
 
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
+        if (
+            op.type in {"Softmax", "LogSoftmax"}
+            and isinstance(op, QuantableOperation)
+            and all(cfg.state == QuantizationStates.FP32 for cfg in op.input_quant_config + op.output_quant_config)
+        ):
+            op.attributes["quant_type"] = EspQuantType.F32
+            return op
         if op.platform in [TargetPlatform.ESPDL_INT8, TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8]:
             op.attributes["quant_type"] = EspQuantType.S8
         elif op.platform in [

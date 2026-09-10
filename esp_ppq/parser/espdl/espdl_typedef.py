@@ -104,6 +104,7 @@ OTHER_OP_SET = {
     "GRU",
     "LSTM",
     "Sum",
+    "Attention",
 }
 
 SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax", "Split"}

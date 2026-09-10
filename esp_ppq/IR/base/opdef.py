@@ -992,4 +992,5 @@ DEFAULT_SOCKET_TABLE = {
     'Erf': DEFAULT_SOCKET_CREATOR,
     'ReverseSequence': ReverseSequence_Socket,
     'Swish': DEFAULT_SOCKET_CREATOR,
+    'Attention': DEFAULT_SOCKET_CREATOR,
 }
