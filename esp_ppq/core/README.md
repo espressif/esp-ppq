@@ -180,10 +180,20 @@ PPQ 全局控制常量被定义在 esp_ppq.core.common.py 文件中，用户可�
 
 6. FORMATTER_FUSE_BIAS_ADD - 读取 Onnx 图时，是否尝试合并 Bias Add。部分情况下，导出 Onnx 时前端框架会把 Conv, ConvTranspose, Gemm 等层的 Bias 单独拆分成一个 Add 算子，这将造成后续处理逻辑的错误，因此建议开启该选项。
 
-7. FORMATTER_REPLACE_BN_TO_CONV - 是否将单独的 Batchnorm 替换为卷积，这可能导致错误，因为我们无法判断 Batchnorm 的维数，PPQ 会将所有孤立的（无法进行 BN-Fusion 的） Batchnorm 替换为 Conv2d，对于三维或一维网络而言，这可能会导致错误的结果。
+7. FORMATTER_FUSE_BN - 读取 Onnx 图时，是否尝试将可融合的 BatchNorm 合并到 Conv、ConvTranspose 或 Gemm。
 
-8. FORMATTER_REMOVE_IDENTITY - 是否移除图中所有的 Identity 算子。
+8. FORMATTER_REPLACE_BN_TO_CONV - 是否将单独的 Batchnorm 替换为卷积，这可能导致错误，因为我们无法判断 Batchnorm 的维数，PPQ 会将所有孤立的（无法进行 BN-Fusion 的） Batchnorm 替换为 Conv2d，对于三维或一维网络而言，这可能会导致错误的结果。
 
-9. FORMATTER_REMOVE_ISOLATED - 是否移除图中的所有孤立的节点。
+9. FORMATTER_REMOVE_IDENTITY - 是否移除图中所有的 Identity 算子。
 
-10. PASSIVE_OPERATIONS - 一个集合，如果一个算子的类型出现在该集合中，PPQ 对该算子执行输入-输出联合定点。即保证该算子的输入变量与输出变量共享 Scale，如果算子有多个输入-输出变量，该操作只影响第一个输入和第一个输出变量。
+10. FORMATTER_REMOVE_ISOLATED - 是否移除图中的所有孤立的节点。
+
+11. FORMATTER_FUSE_SWISH - 是否将分解的 `Sigmoid + Mul` Swish 模式合并为单个算子。
+
+12. FORMATTER_FUSE_RMSNORM - 是否将分解的 RMSNorm 子图合并为单个 `RMSNormalization` 节点。
+
+13. FORMATTER_FUSE_LP_NORMALIZATION - 是否将分解的 Lp norm 子图合并为单个 `LpNormalization` 节点。
+
+14. PASSIVE_OPERATIONS - 一个集合，如果一个算子的类型出现在该集合中，PPQ 对该算子执行输入-输出联合定点。即保证该算子的输入变量与输出变量共享 Scale，如果算子有多个输入-输出变量，该操作只影响第一个输入和第一个输出变量。
+
+Attention 故意不属于这些全局 `FORMATTER_*` 开关：基础 `MatMul -> Softmax -> MatMul` 的融合只在 ESP-DL 的 prequant 或 FP32 prepare 路径、且完成 shape trace 后进行。可通过 `QuantizationSetting.espdl_attention_fusion=False` 关闭基础图模式融合；输入图已有的原生 `Attention` 仍会被合法化。

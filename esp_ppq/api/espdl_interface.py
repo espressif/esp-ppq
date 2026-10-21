@@ -28,6 +28,7 @@ from esp_ppq.core import (
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
+from esp_ppq.parser.espdl_exporter import EspdlExporter
 from esp_ppq.quantization.analyse import graphwise_error_analyse
 from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
 from esp_ppq.quantization.optim import *
@@ -238,10 +239,17 @@ def generate_test_value(
 
 
 def collate_fn_template(batch: Union[torch.Tensor, List[torch.Tensor]], dtype=torch.float32, device="cpu"):
+    def _convert(tensor: torch.Tensor) -> torch.Tensor:
+        # A bool input is a condition (Where, logical ops). Casting it to float
+        # makes torch.where reject the tensor during calibration.
+        if tensor.dtype == torch.bool:
+            return tensor.to(device)
+        return tensor.type(dtype).to(device)
+
     if isinstance(batch, list) and isinstance(batch[0], torch.Tensor):
-        return [x.type(dtype).to(device) for x in batch]
+        return [_convert(x) for x in batch]
     elif isinstance(batch, torch.Tensor):
-        return batch.type(dtype).to(device)
+        return _convert(batch)
     else:
         logger.error("please provide a valid collate_fn.")
 
@@ -294,7 +302,9 @@ def espdl_quantize_onnx(
                                            It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
         dispatching_method (deprecated): Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8.
                                          It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
-        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
+        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None.
+                                      ``espdl_attention_fusion`` controls primitive Attention fusion in both
+                                      quantized and ``quant_type="none"`` FP32 export paths.
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
         skip_export (bool, optional): whether to export the quantized model, defaults to False.
@@ -395,9 +405,13 @@ def espdl_quantize_onnx(
             )
     else:
         # support TargetPlatform.FP32
-        ppq_graph = load_onnx_graph(onnx_import_file=onnx_import_file)
-        executor = TorchExecutor(graph=ppq_graph, device=device)
-        executor.tracing_operation_meta(inputs=dummy_inputs)
+        ppq_graph = EspdlExporter.prepare_graph_for_float_export(
+            load_onnx_graph(onnx_import_file=onnx_import_file),
+            platform=get_target_platform(target, "w8a8"),
+            inputs=dummy_inputs,
+            device=device,
+            attention_fusion=bool(getattr(setting, "espdl_attention_fusion", True)),
+        )
         target_platform = TargetPlatform.ESPDL_INT8
 
     # ------------------------------------------------------------

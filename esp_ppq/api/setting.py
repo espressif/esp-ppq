@@ -513,6 +513,13 @@ class QuantizationSetting:
         self.fusion = True
         self.fusion_setting = QuantizationFusionSetting()
 
+        # ESP-DL Attention 融合：在 trace 后的 ESP-DL prequant 与 FP32 导出路径生效；
+        # 关闭后基础 MatMul->Softmax->MatMul 保持原样，但原生 Attention 仍会合法化。
+        # ESP-DL Attention fusion: applied after tracing on ESP-DL prequant and
+        # FP32 export paths. Disabling it leaves primitive patterns unfused but
+        # does not skip native Attention legalization.
+        self.espdl_attention_fusion = True
+
         # ESP-DL INT16 LUT 激活融合 (仅在 ESP-DL INT16 平台生效)。
         # ESP-DL INT16 LUT activation fusion (only effective on ESP-DL INT16 platforms).
         self.lut_optimization = True
