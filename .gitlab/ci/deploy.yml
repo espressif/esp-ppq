@@ -13,8 +13,15 @@ push_to_github:
   before_script:
     - echo "skip default before_script"
   script:
+    - |
+      if [ -z "${GITHUB_PUSH_TOKEN:-}" ]; then
+        echo "ERROR: GITHUB_PUSH_TOKEN is not set or is empty." >&2
+        exit 1
+      fi
+      TOKEN_FINGERPRINT="$(printf '%s' "${GITHUB_PUSH_TOKEN}" | sha256sum | cut -c1-12)"
+      echo "GITHUB_PUSH_TOKEN is set (length=${#GITHUB_PUSH_TOKEN}, sha256=${TOKEN_FINGERPRINT}...)."
     - git remote remove github &>/dev/null || true
-    - git remote add github https://${GITHUB_PUSH_TOKEN}@github.com/espressif/esp-ppq.git
+    - git remote add github "https://x-access-token:${GITHUB_PUSH_TOKEN}@github.com/espressif/esp-ppq.git"
     - source ${CI_PROJECT_DIR}/.gitlab/tool/push_to_github.sh
 
 create_version_tag:
