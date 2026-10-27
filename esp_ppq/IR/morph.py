@@ -1,5 +1,6 @@
-from typing import Any, List
+from typing import Any, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from esp_ppq.core import (
@@ -20,6 +21,79 @@ from .base.command import (
 )
 from .base.graph import Operation, Variable
 from .processer import GraphCommandProcessor
+
+_RNN_OUTPUT_ARITY = {
+    'GRU': 2,  # Y, Y_h
+    'LSTM': 3,  # Y, Y_h, Y_c
+}
+
+
+def halve_rope_cache(
+    value,
+    seq_len: Optional[int] = None,
+    batch_size: Optional[int] = None,
+):
+    """Fold a full-width ``cat((f, f), -1)`` RoPE table into a half-width ONNX cache.
+
+    Accepts rank-2 ``[L, D]``, rank-3 ``[1, L, D]``, and rank-4 ``[B|1, 1, L, D]``
+    tables whose two halves along the last axis are bit-identical.
+
+    Returns:
+        Tuple[Optional[Union[np.ndarray, torch.Tensor]], Optional[str]]:
+            ``(cache, None)`` with shape ``[B|1, L, D/2]`` on success, or
+            ``(None, reason)`` on failure.
+    """
+    if value is None:
+        return None, "table has no value"
+    was_numpy = isinstance(value, np.ndarray)
+    try:
+        table = torch.from_numpy(value) if was_numpy else value
+        if not isinstance(table, torch.Tensor):
+            return None, f"unsupported table container {type(value).__name__}"
+    except Exception as exc:
+        return None, f"cannot read table ({exc})"
+
+    if table.dim() not in (2, 3, 4):
+        return None, f"table rank {table.dim()} is not one of the broadcastable ranks 2, 3, or 4"
+    width = int(table.shape[-1])
+    if width < 2 or width % 2 != 0:
+        return None, f"table width {width} is not a positive even number"
+    half = width // 2
+
+    cache_batch = 1
+    if table.dim() == 3:
+        # [1, L, D] aligns to X's head axis under ONNX broadcasting.
+        if int(table.shape[0]) != 1:
+            return None, (
+                f"rank-3 table leading dim {int(table.shape[0])} is a per-head axis, "
+                "which cannot be expressed as an ONNX cache"
+            )
+    elif table.dim() == 4:
+        table_batch, table_heads = (int(table.shape[0]), int(table.shape[1]))
+        if table_heads != 1:
+            return None, (
+                f"rank-4 table head axis is {table_heads}; per-head caches cannot be expressed as an ONNX cache"
+            )
+        if table_batch != 1:
+            if batch_size is None:
+                return None, f"rank-4 table batch axis is {table_batch}, but X batch is unknown"
+            if table_batch != int(batch_size):
+                return None, f"rank-4 table batch axis {table_batch} does not match X batch {batch_size}"
+        cache_batch = table_batch
+
+    folded = table[..., :half]
+    if not torch.equal(folded, table[..., half:]):
+        return None, "table halves are not bit-identical, so a half-width cache would change results"
+
+    seq_t = int(table.shape[-2])
+    cache = folded.reshape(cache_batch, seq_t, half)
+    if seq_t == 1:
+        if seq_len is None or seq_len < 1:
+            return None, "table covers a single token and X's sequence length is unknown"
+        if seq_len != 1:
+            cache = cache.expand(cache_batch, seq_len, half)
+    cache = cache.contiguous()
+    return (cache.numpy() if was_numpy else cache), None
 
 
 class GraphReplacer(GraphCommandProcessor):
@@ -182,6 +256,7 @@ class GraphFormatter(GraphCommandProcessor):
             GraphCommandType.FORMAT_RESIZE,
             GraphCommandType.REMOVE_IDENTITY,
             GraphCommandType.CONVERT_TO_TENSOR,
+            GraphCommandType.FORMAT_RNN_OUTPUT_ARITY,
         ]
 
     def process(self, command: GraphCommand) -> Any:
@@ -212,6 +287,44 @@ class GraphFormatter(GraphCommandProcessor):
             return self.remove_identity()
         if command.command_type == GraphCommandType.CONVERT_TO_TENSOR:
             return self.convert_to_tensor()
+        if command.command_type == GraphCommandType.FORMAT_RNN_OUTPUT_ARITY:
+            return self.format_rnn_output_arity()
+
+    def format_rnn_output_arity(self) -> None:
+        """Normalize GRU/LSTM to PPQ's canonical output arity by appending sink variables."""
+        from .quantize import QuantableOperation
+
+        for op in list(self.graph.operations.values()):
+            target_outputs = _RNN_OUTPUT_ARITY.get(op.type)
+            if target_outputs is None:
+                continue
+            if op.num_of_output > target_outputs:
+                raise ValueError(
+                    f'RNN {op.name}: expected at most {target_outputs} outputs for {op.type}, got {op.num_of_output}.'
+                )
+
+            needs_update = op.num_of_output < target_outputs or any(not var.name for var in op.outputs)
+            if needs_update and isinstance(op, QuantableOperation):
+                raise ValueError(
+                    f'RNN {op.name}: cannot normalize outputs after quantization; '
+                    'run FORMAT_RNN_OUTPUT_ARITY before quantize_operation.'
+                )
+
+            for index, var in enumerate(list(op.outputs)):
+                if var.name:
+                    continue
+                if var.dest_ops or var.name in self.graph.outputs:
+                    raise ValueError(f'RNN {op.name}: omitted output {index} unexpectedly has graph consumers.')
+                if var.source_op is op:
+                    var.source_op = None
+                if self.graph.variables.get(var.name) is var:
+                    self.graph.variables.pop(var.name)
+                sink = self.graph.create_variable()
+                sink.source_op = op
+                op.outputs[index] = sink
+
+            while op.num_of_output < target_outputs:
+                self.graph.create_variable(source_op=op)
 
     def format_slice(self) -> None:
         """
@@ -473,6 +586,7 @@ class GraphFormatter(GraphCommandProcessor):
             if var.is_parameter and len(var.dest_ops) > 1:
                 for op in var.dest_ops:
                     created = self.graph.create_variable(value=var.value.clone(), is_parameter=True)
+                    created.shape = list(created.value.shape)
                     op.inputs[op.inputs.index(var)] = created
                     created.dest_ops.append(op)
                 var.dest_ops.clear()
@@ -534,6 +648,9 @@ class GraphMerger(GraphCommandProcessor):
             GraphCommandType.FUSE_SWISH,
             GraphCommandType.FUSE_RMSNORM,
             GraphCommandType.FUSE_LP_NORMALIZATION,
+            GraphCommandType.FUSE_INVERSE_SIGMOID,
+            GraphCommandType.FUSE_ROTARY_EMBEDDING,
+            GraphCommandType.FUSE_ATTENTION,
         ]
 
     def process(self, command: GraphCommand) -> Any:
@@ -547,6 +664,12 @@ class GraphMerger(GraphCommandProcessor):
             return self.fuse_rmsnorm()
         if command.command_type == GraphCommandType.FUSE_LP_NORMALIZATION:
             return self.fuse_lp_normalization()
+        if command.command_type == GraphCommandType.FUSE_INVERSE_SIGMOID:
+            return self.fuse_inverse_sigmoid()
+        if command.command_type == GraphCommandType.FUSE_ROTARY_EMBEDDING:
+            return self.fuse_rotary_embedding()
+        if command.command_type == GraphCommandType.FUSE_ATTENTION:
+            return self.fuse_attention()
 
     def fuse_bn(self):
         search_engine = SearchableGraph(graph=self.graph)
@@ -1241,6 +1364,143 @@ class GraphMerger(GraphCommandProcessor):
         if not fused:
             ppq_warning("No suitable matmul + add was found, check your graph again.")
 
+    def fuse_inverse_sigmoid(self) -> None:
+        """Fuse the canonical DETR inverse-sigmoid subgraph into InverseSigmoid.
+
+        Pattern:
+            xc = Clip(x, 0, 1)
+            num = Clip(xc, eps, <none-or-at-least-1>)
+            den = Clip(1 - xc, eps, <none-or-at-least-1>)
+            y = Log(num / den)
+        """
+        for op in list(self.graph.operations.values()):
+            if op.name in self.graph.operations and op.type == "Log" and len(op.inputs) == 1:
+                self._try_fuse_inverse_sigmoid(op)
+
+    def _try_fuse_inverse_sigmoid(self, log_op: Operation) -> None:
+        def _param_scalar(var: Optional[Variable]) -> Optional[float]:
+            if var is None or not getattr(var, "is_parameter", False) or getattr(var, "value", None) is None:
+                return None
+            try:
+                tensor = convert_any_to_torch_tensor(var.value, accept_none=False, device="cpu")
+                if tensor.ndim != 0 or tensor.numel() != 1:
+                    return None
+                return float(tensor.item())
+            except (RuntimeError, TypeError, ValueError):
+                return None
+
+        def _decode_clip(op: Optional[Operation]) -> Optional[Tuple[Optional[float], Optional[float]]]:
+            if op is None or op.type != "Clip":
+                return None
+            bounds: List[Optional[float]] = []
+            for attr_name, idx in (("min", 1), ("max", 2)):
+                if attr_name in op.attributes:
+                    try:
+                        bounds.append(float(op.attributes[attr_name]))
+                    except (TypeError, ValueError):
+                        return None
+                elif idx >= len(op.inputs) or not op.inputs[idx].name:
+                    bounds.append(None)
+                else:
+                    val = _param_scalar(op.inputs[idx])
+                    if val is None:
+                        return None
+                    bounds.append(val)
+            return bounds[0], bounds[1]
+
+        def _is_exclusive(var: Optional[Variable], consumer: Operation) -> bool:
+            return var is not None and set(var.dest_ops) == {consumer} and var.name not in self.graph.outputs
+
+        div_op = log_op.inputs[0].source_op
+        if div_op is None or div_op.type != "Div" or len(div_op.inputs) != 2 or len(log_op.outputs) != 1:
+            return
+
+        num_clip = div_op.inputs[0].source_op
+        denom_clip = div_op.inputs[1].source_op
+        num_range = _decode_clip(num_clip)
+        denom_range = _decode_clip(denom_clip)
+        if num_range is None or denom_range is None:
+            return
+        num_lo, num_hi = num_range
+        denom_lo, denom_hi = denom_range
+        if num_lo is None or denom_lo is None or num_lo != denom_lo:
+            return
+        eps = float(num_lo)
+        if not 0.0 < eps < 1.0:
+            return
+        if (num_hi is not None and not (num_hi >= 1.0)) or (denom_hi is not None and not (denom_hi >= 1.0)):
+            return
+
+        if not num_clip.inputs or not denom_clip.inputs:
+            return
+        xc_var = num_clip.inputs[0]
+        sub_op = denom_clip.inputs[0].source_op
+        if sub_op is None or sub_op.type != "Sub" or len(sub_op.inputs) != 2:
+            return
+        if _param_scalar(sub_op.inputs[0]) != 1.0 or sub_op.inputs[1] is not xc_var:
+            return
+
+        if not (
+            _is_exclusive(log_op.inputs[0], log_op)
+            and _is_exclusive(div_op.inputs[0], div_op)
+            and _is_exclusive(div_op.inputs[1], div_op)
+            and _is_exclusive(denom_clip.inputs[0], denom_clip)
+        ):
+            return
+
+        outer_candidate = xc_var.source_op
+        if outer_candidate is None or not outer_candidate.inputs or _decode_clip(outer_candidate) != (0.0, 1.0):
+            return
+
+        ops_to_remove = [log_op, div_op, num_clip, denom_clip, sub_op]
+        x_var = xc_var
+        if set(xc_var.dest_ops) == {num_clip, sub_op} and xc_var.name not in self.graph.outputs:
+            ops_to_remove.append(outer_candidate)
+            x_var = outer_candidate.inputs[0]
+
+        fused_name = f"InverseSigmoid_{log_op.name}"
+        if fused_name in self.graph.operations:
+            # Mirror fuse_swish: fall back to a Log-derived name instead of
+            # silently skipping an otherwise fusable pattern.
+            fused_name = f"{log_op.name}/InverseSigmoid"
+            suffix = 1
+            while fused_name in self.graph.operations:
+                fused_name = f"{log_op.name}/InverseSigmoid_{suffix}"
+                suffix += 1
+
+        y_var = log_op.outputs[0]
+        fused = self.graph.create_operation(
+            op_type="InverseSigmoid",
+            name=fused_name,
+            attributes={"eps": eps},
+            inputs=[x_var],
+            outputs=[y_var],
+            platform=log_op.platform,
+        )
+        y_var.source_op = fused
+
+        candidates = {var for op in ops_to_remove for var in op.inputs + op.outputs}
+        for op in ops_to_remove:
+            for input_var in op.inputs:
+                if op in input_var.dest_ops:
+                    input_var.dest_ops.remove(op)
+            for output_var in op.outputs:
+                if output_var is not y_var and output_var.source_op is op:
+                    output_var.source_op = None
+            op.inputs.clear()
+            op.outputs.clear()
+            self.graph.remove_operation(op, keep_coherence=False, remove_unlinked_variable=False)
+
+        for var in candidates:
+            if (
+                var.name in self.graph.variables
+                and var.source_op is None
+                and not var.dest_ops
+                and var.name not in self.graph.inputs
+                and var.name not in self.graph.outputs
+            ):
+                self.graph.remove_variable(var)
+
     @staticmethod
     def _same_source(a: Variable, b: Variable) -> bool:
         """Return True when *a* and *b* represent the same tensor.
@@ -1400,8 +1660,7 @@ class GraphMerger(GraphCommandProcessor):
             return
         ops_to_remove.append(scaling_op)
 
-        # ---- extract axis from ReduceMean ----
-        # axes can be an attribute (opset <= 17) or an input (opset >= 18)
+        # extract axis from ReduceMean (attribute in opset <= 17, input in opset >= 18)
         axes = reduce_op.attributes.get('axes', None)
         if axes is None:
             for inp in reduce_op.inputs[1:]:
@@ -1441,7 +1700,7 @@ class GraphMerger(GraphCommandProcessor):
         else:
             return  # cannot validate positive axes without rank
 
-        # ---- extract epsilon ----
+        # extract epsilon
         epsilon = 1e-5
         if add_op is not None:
             for inp in add_op.inputs:
@@ -1457,7 +1716,7 @@ class GraphMerger(GraphCommandProcessor):
         else:
             epsilon = reduce_op.attributes.get('epsilon', sqrt_op.attributes.get('epsilon', 1e-5))
 
-        # ---- build fused op ----
+        # build fused op
         output_var = scaling_op.outputs[0]
 
         if pow_op in in_x.dest_ops:
@@ -1479,7 +1738,7 @@ class GraphMerger(GraphCommandProcessor):
         )
         output_var.source_op = rmsnorm_op
 
-        # ---- remove old ops ----
+        # remove old ops
         vars_to_remove = []
         for op in ops_to_remove:
             for var in op.outputs:
@@ -1573,7 +1832,7 @@ class GraphMerger(GraphCommandProcessor):
         if not self._var_or_alias_is_input(expand_out, div_op):
             return
 
-        # ---- extract axis from ReduceL2 ----
+        # extract axis from ReduceL2
         axes = reduce_op.attributes.get('axes', None)
         if axes is None:
             for inp in reduce_op.inputs[1:]:
@@ -1597,7 +1856,7 @@ class GraphMerger(GraphCommandProcessor):
         else:
             axis = axes
 
-        # ---- build fused op ----
+        # build fused op
         output_var = div_op.outputs[0]
 
         # Update in_x's dest_ops
@@ -1616,7 +1875,7 @@ class GraphMerger(GraphCommandProcessor):
         )
         output_var.source_op = lpnorm_op
 
-        # ---- remove old ops ----
+        # remove old ops
         ops_to_remove = [reduce_op, clip_op, expand_op, div_op]
         vars_to_remove = []
         for old_op in ops_to_remove:
@@ -1647,6 +1906,268 @@ class GraphMerger(GraphCommandProcessor):
         for var in vars_to_remove:
             if var.name in graph.variables and var.source_op is None and len(var.dest_ops) == 0:
                 graph.variables.pop(var.name)
+
+    def fuse_rotary_embedding(self) -> None:
+        """Fuse ``X * cos + rotate_half(X) * sin`` into ``RotaryEmbedding``."""
+        for add_op in list(self.graph.operations.values()):
+            if add_op.name not in self.graph.operations:
+                continue
+            if add_op.type != "Add" or len(add_op.inputs) != 2 or len(add_op.outputs) != 1:
+                continue
+            self._try_fuse_rotary_embedding(add_op)
+
+    def _try_fuse_rotary_embedding(self, add_op: Operation) -> None:
+        graph = self.graph
+
+        def _param_value(var: Optional[Variable]):
+            if var is not None and getattr(var, "is_parameter", False):
+                return getattr(var, "value", None)
+            return None
+
+        def _static_shape(var: Optional[Variable]) -> Optional[List[int]]:
+            if var is None:
+                return None
+            shape = getattr(var, "shape", None)
+            if shape is None:
+                shape = getattr(_param_value(var), "shape", None)
+            if shape is None:
+                return None
+            try:
+                dims = [
+                    int(d) for d in shape if not isinstance(d, bool) and isinstance(d, (int, np.integer)) and int(d) > 0
+                ]
+                return dims if len(dims) == len(list(shape)) and dims else None
+            except TypeError:
+                return None
+
+        def _to_int_list(val) -> Optional[List[int]]:
+            if val is None:
+                return None
+            try:
+                v = val.tolist() if hasattr(val, "tolist") else list(val)
+                return [int(v)] if isinstance(v, (int, float)) else [int(x) for x in v]
+            except Exception:
+                return None
+
+        def _slice_bounds_on_last_axis(op: Operation, rank: int) -> Optional[Tuple[int, int]]:
+            if op.type != "Slice" or rank < 1:
+                return None
+            starts = op.attributes.get("starts")
+            ends = op.attributes.get("ends")
+            axes = op.attributes.get("axes")
+            steps = op.attributes.get("steps")
+            if starts is None and len(op.inputs) >= 3:
+                starts = _param_value(op.inputs[1])
+                ends = _param_value(op.inputs[2])
+                if len(op.inputs) >= 4:
+                    axes = _param_value(op.inputs[3])
+                if len(op.inputs) >= 5:
+                    steps = _param_value(op.inputs[4])
+            starts_v, ends_v = _to_int_list(starts), _to_int_list(ends)
+            if starts_v is None or ends_v is None or len(starts_v) != 1 or len(ends_v) != 1:
+                return None
+            axes_v = [0] if axes is None else _to_int_list(axes)
+            steps_v = [1] if steps is None else _to_int_list(steps)
+            if axes_v is None or len(axes_v) != 1 or steps_v != [1]:
+                return None
+            sliced_axis = axes_v[0] + rank if axes_v[0] < 0 else axes_v[0]
+            if sliced_axis != rank - 1:
+                return None
+            return starts_v[0], ends_v[0]
+
+        def _split_half_bounds_on_last_axis(op: Operation, x_shape: List[int]) -> Optional[Tuple[int, int]]:
+            if op.type != "Split" or len(op.outputs) != 2 or not (1 <= len(op.inputs) <= 2):
+                return None
+            rank = len(x_shape)
+            try:
+                axis = int(op.attributes.get("axis", 0))
+                num_outputs = op.attributes.get("num_outputs")
+                if num_outputs is not None and int(num_outputs) != 2:
+                    return None
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if (axis + rank if axis < 0 else axis) != rank - 1:
+                return None
+            dim = int(x_shape[-1])
+            if dim < 2 or dim % 2 != 0:
+                return None
+            half = dim // 2
+            split_attr = op.attributes.get("split")
+            if split_attr is not None and _to_int_list(split_attr) != [half, half]:
+                return None
+            if len(op.inputs) == 2 and _to_int_list(_param_value(op.inputs[1])) != [half, half]:
+                return None
+            return half, dim
+
+        def _parse_mul_with_param(mul_op: Operation):
+            if mul_op.type != "Mul" or len(mul_op.inputs) != 2:
+                return None
+            a, b = mul_op.inputs[0], mul_op.inputs[1]
+            a_param, b_param = _param_value(a) is not None, _param_value(b) is not None
+            if a_param != b_param:
+                return (b, a) if a_param else (a, b)
+            return None
+
+        def _parse_rotate_half(concat_op: Optional[Operation]):
+            if concat_op is None or concat_op.type != "Concat" or len(concat_op.inputs) != 2:
+                return None
+            try:
+                axis = int(concat_op.attributes["axis"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                return None
+            src0, src1 = concat_op.inputs[0].source_op, concat_op.inputs[1].source_op
+            if src0 is None or src1 is None or (src0.type == "Neg") == (src1.type == "Neg"):
+                return None
+            swapped = src1.type == "Neg"
+            rotate_ops: List[Operation] = [concat_op]
+            leaves: List[Tuple[Variable, Operation]] = []
+            for var in concat_op.inputs:
+                op = var.source_op
+                if op is not None and op.type == "Neg":
+                    if op not in rotate_ops:
+                        rotate_ops.append(op)
+                    if not op.inputs:
+                        return None
+                    var = op.inputs[0]
+                    op = var.source_op
+                if op is None or op.type not in ("Slice", "Split") or not op.inputs:
+                    return None
+                if op not in rotate_ops:
+                    rotate_ops.append(op)
+                leaves.append((var, op))
+
+            (var_hi, op_hi), (var_lo, op_lo) = leaves
+            if op_hi.inputs[0] is not op_lo.inputs[0]:
+                return None
+            x_var = op_lo.inputs[0]
+            x_shape = _static_shape(x_var)
+            if x_shape is None or len(x_shape) != 4:
+                return None
+            rank = len(x_shape)
+            if (axis + rank if axis < 0 else axis) != rank - 1:
+                return None
+
+            if op_hi.type == "Split" or op_lo.type == "Split":
+                if op_hi is not op_lo or len(op_hi.outputs) != 2:
+                    return None
+                if var_lo is not op_hi.outputs[0] or var_hi is not op_hi.outputs[1]:
+                    return None
+                bounds = _split_half_bounds_on_last_axis(op_hi, x_shape)
+                if bounds is None:
+                    return None
+                split, rot_end = bounds
+            else:
+                r_hi = _slice_bounds_on_last_axis(op_hi, rank)
+                r_lo = _slice_bounds_on_last_axis(op_lo, rank)
+                if r_hi is None or r_lo is None or r_lo[0] != 0 or r_hi[0] != r_lo[1]:
+                    return None
+                split, rot_end = r_lo[1], r_hi[1]
+
+            return x_var, x_shape, split, rot_end, swapped, rotate_ops
+
+        for cos_side, sin_side in ((0, 1), (1, 0)):
+            mul_cos = add_op.inputs[cos_side].source_op
+            mul_sin = add_op.inputs[sin_side].source_op
+            if mul_cos is None or mul_sin is None:
+                continue
+            cos_pair = _parse_mul_with_param(mul_cos)
+            sin_pair = _parse_mul_with_param(mul_sin)
+            if cos_pair is None or sin_pair is None:
+                continue
+            x_direct, cos_var = cos_pair
+            rotated_var, sin_var = sin_pair
+
+            parsed = _parse_rotate_half(rotated_var.source_op)
+            if parsed is None:
+                continue
+            x_var, x_shape, split, raw_rot_end, swapped, rotate_ops = parsed
+            if x_var is not x_direct:
+                continue
+
+            batch_size, _, seq_len, head_dim = x_shape
+            rot_end = min(raw_rot_end, head_dim) if raw_rot_end >= 0 else raw_rot_end
+            y_var = add_op.outputs[0]
+            y_shape = _static_shape(y_var)
+            if (y_shape is not None and y_shape != x_shape) or rot_end != 2 * split or rot_end != head_dim:
+                continue
+
+            cos_cache, _ = halve_rope_cache(_param_value(cos_var), seq_len=seq_len, batch_size=batch_size)
+            sin_cache, _ = halve_rope_cache(_param_value(sin_var), seq_len=seq_len, batch_size=batch_size)
+            if cos_cache is None or sin_cache is None or cos_cache.shape != sin_cache.shape:
+                continue
+            if int(cos_cache.shape[-1]) != split or int(cos_cache.shape[-2]) != seq_len:
+                continue
+            if swapped:
+                sin_cache = (
+                    np.negative(sin_cache).copy()
+                    if isinstance(sin_cache, np.ndarray)
+                    else torch.neg(sin_cache).contiguous()
+                )
+
+            interior_ops = [mul_cos, mul_sin, *rotate_ops]
+            chain_set = set(interior_ops) | {add_op}
+            if any(
+                ov.name in graph.outputs or any(dest not in chain_set for dest in ov.dest_ops)
+                for iop in interior_ops
+                for ov in iop.outputs
+            ):
+                continue
+
+            fused_name = f"RotaryEmbedding_{add_op.name}"
+            if (
+                fused_name in graph.operations
+                or f"{fused_name}_cos_cache" in graph.variables
+                or f"{fused_name}_sin_cache" in graph.variables
+            ):
+                continue
+
+            fused = graph.create_operation(
+                op_type="RotaryEmbedding",
+                name=fused_name,
+                attributes={},
+                inputs=[x_direct],
+                outputs=[y_var],
+                platform=add_op.platform,
+            )
+            y_var.source_op = fused
+            y_var.shape = list(x_shape)
+
+            cos_tensor = convert_any_to_torch_tensor(cos_cache)
+            sin_tensor = convert_any_to_torch_tensor(sin_cache)
+            cos_param = graph.create_variable(
+                name=f"{fused_name}_cos_cache", value=cos_tensor, is_parameter=True, dest_ops=[fused]
+            )
+            sin_param = graph.create_variable(
+                name=f"{fused_name}_sin_cache", value=sin_tensor, is_parameter=True, dest_ops=[fused]
+            )
+            cos_param.shape = list(cos_tensor.shape)
+            sin_param.shape = list(sin_tensor.shape)
+
+            for old_op in (add_op, *interior_ops):
+                for iv in list(old_op.inputs):
+                    if old_op in iv.dest_ops:
+                        iv.dest_ops.remove(old_op)
+                    if getattr(iv, "is_parameter", False) and (
+                        iv.dest_ops or iv.name in graph.inputs or iv.name in graph.outputs
+                    ):
+                        old_op.inputs.remove(iv)
+                for ov in list(old_op.outputs):
+                    if old_op is add_op:
+                        old_op.outputs.remove(ov)
+                        continue
+                    if ov.source_op is old_op:
+                        ov.source_op = None
+                    if ov.source_op is None and not ov.dest_ops and ov.name in graph.variables:
+                        graph.remove_variable(ov)
+                if old_op.name in graph.operations:
+                    graph.remove_operation(old_op, keep_coherence=False, remove_unlinked_variable=False)
+            return
+
+    def fuse_attention(self) -> None:
+        """Fuse primitive attention subgraphs into Attention and prepare/decompose native Attention."""
+        from esp_ppq.quantization.optim.espdl_attention import format_espdl_attention_graph
+
+        format_espdl_attention_graph(self.graph)
 
 
 class GraphDecomposer(GraphCommandProcessor):
@@ -1874,13 +2395,7 @@ class GraphDecomposer(GraphCommandProcessor):
             # Flip all spatial dimensions (dims 2 and above)
             spatial_dims_indices = list(range(2, weight_dim))
             weight_flipped = torch.flip(weight_value, dims=spatial_dims_indices)
-            # Swap input/output channels, group-aware.
-            # ConvTranspose weight shape is [C_in, C_out / group, *spatial];
-            # the equivalent Conv weight shape is [C_out, C_in / group, *spatial].
-            # A plain transpose(0, 1) is only correct for group == 1; for grouped/depthwise
-            # ConvTranspose it yields the wrong shape ([C_out / group, C_in, *spatial]) and the
-            # following Conv fails (e.g. "Given groups=G, expected weight to be at least G at
-            # dimension 0, but got weight of size [1, C_in, ...]"). Do the swap within each group.
+            # Swap input/output channels per group: [C_in, C_out / group, *spatial] -> [C_out, C_in / group, *spatial].
             c_in = weight_flipped.shape[0]
             c_out_per_group = weight_flipped.shape[1]
             spatial = list(weight_flipped.shape[2:])

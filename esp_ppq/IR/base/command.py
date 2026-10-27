@@ -124,6 +124,18 @@ class GraphCommandType(Enum):
     # Fuse decomposed Lp normalization subgraph into a single LpNormalization op
     FUSE_LP_NORMALIZATION = 38
 
+    # Normalize optional GRU/LSTM outputs to PPQ's canonical output arity
+    FORMAT_RNN_OUTPUT_ARITY = 39
+
+    # Fuse the canonical DETR inverse-sigmoid subgraph into InverseSigmoid
+    FUSE_INVERSE_SIGMOID = 40
+
+    # Fuse decomposed rotate_half RoPE subgraph into a single RotaryEmbedding op
+    FUSE_ROTARY_EMBEDDING = 41
+
+    # Fuse primitive attention subgraphs into Attention and decompose ineligible native Attention
+    FUSE_ATTENTION = 42
+
 
 class GraphCommand:
     def __init__(self, command_type: GraphCommandType, **kwargs) -> None:

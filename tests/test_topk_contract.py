@@ -14,18 +14,13 @@ from esp_ppq.api.setting import QuantizationSettingFactory
 from esp_ppq.core import (
     DataType,
     NetworkFramework,
-    QuantizationPolicy,
-    QuantizationProperty,
     QuantizationStates,
-    QuantizationVisibility,
-    RoundingPolicy,
     TargetPlatform,
 )
 from esp_ppq.executor.op.torch.default import TopK_forward
 from esp_ppq.IR import BaseGraph, Operation, Opset
 from esp_ppq.parser.espdl_exporter import EspdlExporter
-from esp_ppq.quantization.quantizer.base import BaseQuantizer
-from esp_ppq.quantization.quantizer.EspdlQuantizer import EspdlQuantizer, finalize_espdl_topk_for_export
+from esp_ppq.quantization.quantizer.EspdlQuantizer import EspdlQuantizer
 
 
 def _topk_graph(
@@ -106,17 +101,12 @@ def _topk_model():
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
 
 
-def test_topk_float_export_preparation_uses_static_contract():
+def test_topk_float_export_preparation_keeps_topk():
     with tempfile.TemporaryDirectory() as tmp:
         model_path = os.path.join(tmp, "topk.onnx")
         onnx.save(_topk_model(), model_path)
         graph = load_onnx_graph(model_path)
 
-    EspdlExporter.prepare_graph_for_float_export(
-        graph=graph,
-        platform=TargetPlatform.ESPDL_INT8,
-        inputs=[torch.randn(1, 8)],
-    )
     assert any(op.type == "TopK" for op in graph.operations.values())
 
 
@@ -134,6 +124,20 @@ def test_topk_forward_rejects_newer_attributes_on_opset1():
     _, op = _topk_graph(opset=1, k=2, attributes={"axis": -1, "largest": 0})
     with pytest.raises(ValueError, match="require ONNX opset 11"):
         TopK_forward(op, [torch.randn(1, 8)])
+
+
+@pytest.mark.parametrize(
+    ("attributes", "message"),
+    [
+        ({"axis": 2}, "out of range"),
+        ({"axis": -1, "largest": 2}, "largest must be 0 or 1"),
+        ({"axis": -1, "sorted": 2}, "sorted must be 0 or 1"),
+    ],
+)
+def test_topk_forward_rejects_invalid_attributes(attributes, message):
+    _, op = _topk_graph(attributes=attributes)
+    with pytest.raises(ValueError, match=message):
+        TopK_forward(op, [torch.randn(1, 8), op.inputs[1].value])
 
 
 def test_topk_forward_supports_dynamic_k_outside_espdl():
@@ -171,24 +175,22 @@ def test_topk_forward_rejects_invalid_k(k_value, message):
         (23, {"axis": -1, "largest": 0, "sorted": 1}),
     ],
 )
-def test_espdl_topk_contract_accepts_supported_opsets(opset, attributes):
+def test_topk_quantization_supports_standard_opsets(opset, attributes):
     graph, op = _topk_graph(opset=opset, attributes=attributes)
-    finalize_espdl_topk_for_export(graph)
+    EspdlQuantizer(graph).init_quantize_config(op)
     values, indices = TopK_forward(op, [torch.arange(8.0).reshape(1, 8), op.inputs[1].value])
     assert values.shape == indices.shape == (1, 3)
     assert indices.dtype == torch.int64
 
 
-def test_topk_integer_attributes_are_serialized_as_scalars():
+def test_topk_integer_attributes_use_generic_serialization():
     _, op = _topk_graph(
         attributes={
-            "axis": torch.tensor([-1], dtype=torch.int64),
-            "largest": torch.tensor([1], dtype=torch.int64),
-            "sorted": torch.tensor([0], dtype=torch.int64),
+            "axis": -1,
+            "largest": 1,
+            "sorted": 0,
         }
     )
-    op.outputs[0].shape = [1, 3]
-    op.outputs[1].shape = [1, 3]
 
     with patch("esp_ppq.parser.espdl_exporter.helper.make_node", return_value=0) as make_node:
         EspdlExporter().build_operator_proto(op)
@@ -201,97 +203,13 @@ def test_topk_integer_attributes_are_serialized_as_scalars():
     assert all(isinstance(attributes[name], int) for name in ("axis", "largest", "sorted"))
 
 
-@pytest.mark.parametrize(
-    ("case", "message"),
-    [
-        ("old_opset", "use opset 10-23"),
-        ("opset10_new_attributes", "require ONNX opset 11"),
-        ("dynamic_k", "constant parameter"),
-        ("missing_k", "constant value"),
-        ("float_k", "K dtype must be INT64"),
-        ("scalar_k", "K shape must be \\[1\\]"),
-        ("zero_k", "out of range"),
-        ("large_k", "out of range"),
-        ("bad_axis", "out of range for rank"),
-        ("bad_largest", "largest must be 0 or 1"),
-        ("bad_sorted", "sorted must be 0 or 1"),
-        ("scalar_x", "rank must be at least 1"),
-        ("zero_dimension", "positive dimensions"),
-        ("dynamic_x", "X shape is missing or dynamic"),
-        ("unsupported_x_dtype", "X dtype FP16 is unsupported"),
-        ("bad_values_shape", "Values shape must be"),
-        ("bad_values_dtype", "Values dtype"),
-        ("bad_indices_dtype", "Indices dtype must be INT64"),
-        ("wrong_arity", "expected 2 inputs and 2 outputs"),
-        ("too_many_elements", "element count exceeds"),
-    ],
-)
-def test_espdl_topk_contract_rejects_unsupported_graphs(case, message):
-    graph, op = _topk_graph(attributes={"axis": -1, "largest": 1, "sorted": 1})
-    if case == "old_opset":
-        op.opset = Opset(version=9)
-    elif case == "opset10_new_attributes":
-        op.opset = Opset(version=10)
-    elif case == "dynamic_k":
-        op.inputs[1].is_parameter = False
-        op.inputs[1].value = None
-        op.inputs[1].shape, op.inputs[1].dtype = [1], DataType.INT64
-    elif case == "missing_k":
-        op.inputs[1].value = None
-        op.inputs[1].shape, op.inputs[1].dtype = [1], DataType.INT64
-    elif case == "float_k":
-        op.inputs[1].value = torch.tensor([3.0])
-    elif case == "scalar_k":
-        op.inputs[1].value = torch.tensor(3, dtype=torch.int64)
-    elif case == "zero_k":
-        op.inputs[1].value = torch.tensor([0], dtype=torch.int64)
-    elif case == "large_k":
-        op.inputs[1].value = torch.tensor([9], dtype=torch.int64)
-    elif case == "bad_axis":
-        op.attributes["axis"] = 2
-    elif case == "bad_largest":
-        op.attributes["largest"] = 2
-    elif case == "bad_sorted":
-        op.attributes["sorted"] = 2
-    elif case == "scalar_x":
-        op.inputs[0].shape = []
-    elif case == "zero_dimension":
-        op.inputs[0].shape = [1, 0]
-    elif case == "dynamic_x":
-        op.inputs[0].shape = ["batch", 8]
-    elif case == "unsupported_x_dtype":
-        op.inputs[0].dtype = DataType.FP16
-        op.outputs[0].dtype = DataType.FP16
-    elif case == "bad_values_shape":
-        op.outputs[0].shape = [1, 4]
-    elif case == "bad_values_dtype":
-        op.outputs[0].dtype = DataType.FP16
-    elif case == "bad_indices_dtype":
-        op.outputs[1].dtype = DataType.INT32
-    elif case == "wrong_arity":
-        op.outputs.pop()
-    elif case == "too_many_elements":
-        op.inputs[0].shape = [50000, 50000]
-        op.outputs[0].shape = [50000, 3]
-        op.outputs[1].shape = [50000, 3]
-
-    with pytest.raises(ValueError, match=message):
-        finalize_espdl_topk_for_export(graph)
-
-
-def test_topk_quantizer_preflights_static_contract_before_shared_pipeline():
+def test_topk_quantizer_does_not_impose_device_contract():
     graph, op = _topk_graph(k_parameter=False, attributes={"axis": -1, "largest": 1, "sorted": 1})
     op.inputs[1].shape, op.inputs[1].dtype = [1], DataType.INT64
 
-    with patch.object(BaseQuantizer, "quantize") as base_quantize:
-        with pytest.raises(ValueError, match="constant parameter"):
-            EspdlQuantizer(graph).quantize(
-                inputs=[torch.randn(1, 8)],
-                calib_dataloader=[],
-                executor=None,
-                setting=QuantizationSettingFactory.espdl_setting(),
-            )
-    base_quantize.assert_not_called()
+    config = EspdlQuantizer(graph).init_quantize_config(op)
+
+    assert config.input_quantization_config[1].state == QuantizationStates.FP32
 
 
 def test_topk_quantizer_aligns_values_even_across_upstream_platforms():
@@ -342,65 +260,8 @@ def test_topk_quantization_and_export_preserve_the_contract(platform):
             topk.config.output_quantization_config[0].dominated_by
             is topk.config.input_quantization_config[0].dominated_by
         )
-        finalize_espdl_topk_for_export(graph)
         EspdlExporter().export(export_path, graph, export_config=False)
         assert os.path.getsize(export_path) > 0
-
-
-def test_topk_export_rechecks_quantization_state():
-    graph, op = _topk_graph(attributes={"axis": -1, "largest": 1, "sorted": 1})
-    quantizer = EspdlQuantizer(graph)
-    quantized = quantizer.quantize_operation(op.name, platform=TargetPlatform.ESPDL_INT8)
-    quantized.config.output_quantization_config[1].state = QuantizationStates.ACTIVATED
-
-    with tempfile.TemporaryDirectory() as tmp:
-        with pytest.raises(ValueError, match="Indices quantization state must be FP32"):
-            EspdlExporter().export(
-                os.path.join(tmp, "invalid.espdl"),
-                graph,
-                export_config=False,
-            )
-
-
-@pytest.mark.parametrize(
-    ("case", "message"),
-    [
-        ("values_bit_width", "same storage quantization"),
-        ("values_fp32_only", "same storage quantization"),
-        ("non_pot_policy", "symmetric per-tensor linear POWER_OF_2"),
-        ("unsupported_4bit", "8-bit or 16-bit integer"),
-        ("k_force_export", "K quantization config must not be exportable"),
-        ("indices_force_export", "Indices quantization config must not be exportable"),
-    ],
-)
-def test_topk_validation_rejects_unsafe_quantization_configs(case, message):
-    graph, op = _topk_graph(attributes={"axis": -1, "largest": 1, "sorted": 1})
-    quantized = EspdlQuantizer(graph).quantize_operation(op.name, platform=TargetPlatform.ESPDL_INT8)
-    if case == "values_bit_width":
-        quantized.config.output_quantization_config[0].num_of_bits = 16
-    elif case == "values_fp32_only":
-        quantized.config.output_quantization_config[0].state = QuantizationStates.FP32
-    elif case == "non_pot_policy":
-        policy = QuantizationPolicy(
-            QuantizationProperty.SYMMETRICAL + QuantizationProperty.LINEAR + QuantizationProperty.PER_TENSOR
-        )
-        quantized.config.input_quantization_config[0].policy = policy
-        quantized.config.output_quantization_config[0].policy = policy
-    elif case == "unsupported_4bit":
-        for cfg in (quantized.config.input_quantization_config[0], quantized.config.output_quantization_config[0]):
-            cfg.num_of_bits = 4
-            cfg.quant_min, cfg.quant_max = -8, 7
-    elif case == "k_force_export":
-        config = quantized.config.input_quantization_config[1]
-        config.visibility = QuantizationVisibility.FORCE_EXPORT
-        config.scale, config.offset = torch.tensor(1.0), torch.tensor(0.0)
-    elif case == "indices_force_export":
-        config = quantized.config.output_quantization_config[1]
-        config.visibility = QuantizationVisibility.FORCE_EXPORT
-        config.scale, config.offset = torch.tensor(1.0), torch.tensor(0.0)
-
-    with pytest.raises(ValueError, match=message):
-        finalize_espdl_topk_for_export(graph)
 
 
 def test_conv_to_topk_quantizes_and_exports_with_layout_restore():
@@ -444,20 +305,6 @@ def test_conv_to_topk_quantizes_and_exports_with_layout_restore():
         )
         EspdlExporter().export(espdl_path, graph, export_config=False)
         assert os.path.isfile(espdl_path)
-
-
-def test_topk_ignores_non_exportable_force_visibility_and_rounding_differences():
-    graph, op = _topk_graph(attributes={"axis": -1, "largest": 1, "sorted": 1})
-    quantized = EspdlQuantizer(graph).quantize_operation(op.name, platform=TargetPlatform.ESPDL_INT8)
-    quantized.config.input_quantization_config[1].visibility = QuantizationVisibility.FORCE_EXPORT
-    quantized.config.output_quantization_config[1].visibility = QuantizationVisibility.FORCE_EXPORT
-    quantized.config.output_quantization_config[0].rounding = RoundingPolicy.ROUND_HALF_UP
-    assert (
-        quantized.config.output_quantization_config[0].rounding
-        != quantized.config.input_quantization_config[0].rounding
-    )
-
-    finalize_espdl_topk_for_export(graph)
 
 
 def test_auto_generated_variable_names_skip_existing_round_trip_names():

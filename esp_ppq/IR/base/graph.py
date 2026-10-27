@@ -112,7 +112,7 @@ class Variable(Serializable):
         """Return tensor shape of this variable It is modifiable when current
         variable is not a paramter."""
         if self.value is not None:
-            if isinstance(self.value, torch.Tensor):
+            if isinstance(self.value, (torch.Tensor, np.ndarray)):
                 return list(self.value.shape)
             else:
                 return self._shape

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 import onnx
 from onnx import helper, numpy_helper
@@ -7,8 +7,10 @@ from esp_ppq.core import (
     DEFAULT_OPSET_DOMAIN,
     DEFAULT_OPSET_VERSION,
     GRAPH_OPSET_ATTRIB,
+    DataType,
     NetworkFramework,
     is_file_exist,
+    ppq_warning,
 )
 from esp_ppq.IR import BaseGraph, GraphBuilder, Operation, Opset, Variable
 
@@ -18,6 +20,43 @@ def _strip_trailing_empty_names(names: List[str]) -> List[str]:
     while end > 0 and names[end - 1] == '':
         end -= 1
     return names[:end]
+
+
+def _extract_onnx_tensor_shape(value_info: Any) -> Optional[List[int]]:
+    if not value_info.HasField('type') or not value_info.type.HasField('tensor_type'):
+        return None
+    tensor_type = value_info.type.tensor_type
+    if not tensor_type.HasField('shape'):
+        return None
+    dims = []
+    for dim in tensor_type.shape.dim:
+        if dim.HasField('dim_value') and dim.dim_value > 0:
+            dims.append(int(dim.dim_value))
+        else:
+            return None
+    return dims
+
+
+def _extract_onnx_tensor_dtype(value_info: Any) -> Optional[DataType]:
+    if not value_info.HasField('type') or not value_info.type.HasField('tensor_type'):
+        return None
+    tensor_type = value_info.type.tensor_type
+    if not tensor_type.HasField('elem_type'):
+        return None
+    elem_type = int(tensor_type.elem_type)
+    if elem_type <= 0:
+        return None
+
+    # DataType values follow ONNX TensorProto enums for supported types.
+    try:
+        return DataType(elem_type)
+    except ValueError:
+        mapper = helper.tensor_dtype_to_np_dtype
+        try:
+            np_dtype = mapper(elem_type) if callable(mapper) else mapper[elem_type]
+            return DataType.convert_from_numpy(np_dtype)
+        except (KeyError, TypeError, ValueError):
+            return None
 
 
 class OnnxParser(GraphBuilder):
@@ -158,11 +197,15 @@ class OnnxParser(GraphBuilder):
         if not is_file_exist(file_path):
             raise FileNotFoundError(f'file {file_path} does not exist, or it is a directory.')
         model_pb = onnx.load(file_path)
-        opsets = model_pb.opset_import
-
         assert isinstance(model_pb, onnx.ModelProto), (
             f'onnx load failed, only ProtoBuffer object is expected here, while {type(model_pb)} is loaded.'
         )
+        inferred_pb = None
+        try:
+            inferred_pb = onnx.shape_inference.infer_shapes(model_pb, strict_mode=True, data_prop=True)
+        except Exception as e:
+            ppq_warning(f"ONNX shape inference failed for {file_path}, fallback to value_info from the raw model: {e}")
+        opsets = model_pb.opset_import
         graph_pb = model_pb.graph
         graph = BaseGraph(name=graph_pb.name, built_from=NetworkFramework.ONNX)
         graph._detail[GRAPH_OPSET_ATTRIB] = self.convert_opsets_to_str(opsets)
@@ -207,4 +250,19 @@ class OnnxParser(GraphBuilder):
         )
         graph = self.initialize_params(graph, initializer)
         self.de_inplace(graph)
+        shape_infos = (
+            (*inferred_pb.graph.input, *inferred_pb.graph.output, *inferred_pb.graph.value_info)
+            if inferred_pb is not None
+            else (*graph_pb.input, *graph_pb.output, *graph_pb.value_info)
+        )
+        for info in shape_infos:
+            var = graph.variables.get(info.name)
+            if var is None or var.is_parameter:
+                continue
+            shape = _extract_onnx_tensor_shape(info)
+            if shape is not None:
+                var.shape = shape
+            dtype = _extract_onnx_tensor_dtype(info)
+            if dtype is not None:
+                var.dtype = dtype
         return self.refine_graph(graph)

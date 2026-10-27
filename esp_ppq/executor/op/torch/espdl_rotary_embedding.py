@@ -61,18 +61,6 @@ def set_espdl_rotary_embedding_simulation_enabled(enabled: bool) -> None:
     _ESPDL_ROPE_SIMULATION_ENABLED = bool(enabled)
 
 
-def _simulation_forced() -> bool:
-    return _ESPDL_ROPE_SIMULATION_ENABLED or os.environ.get(_ENV_DEVICE_EMULATE_KEY, "0") in {
-        "1",
-        "true",
-        "True",
-    }
-
-
-def _use_device_emulator(op: Operation) -> bool:
-    return getattr(op, "platform", None) in _ROPE_EMULATED_PLATFORMS or _simulation_forced()
-
-
 def _validate_and_normalize(
     op: Operation, values: Sequence[torch.Tensor]
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int, int, int, int]:
@@ -85,7 +73,7 @@ def _validate_and_normalize(
     if interleaved:
         raise ValueError(
             f"RotaryEmbedding {op.name}: interleaved={interleaved} (GPT-J layout) is unsupported; "
-            "the ESP-DL vision subset only implements interleaved=0"
+            "the current implementation only implements interleaved=0"
         )
 
     x, cos_cache, sin_cache = values[0], values[1], values[2]
@@ -94,7 +82,7 @@ def _validate_and_normalize(
         if tensor.dtype not in supported_dtypes:
             raise ValueError(
                 f"RotaryEmbedding {op.name}: {label} dtype {tensor.dtype} is unsupported; "
-                "ESP-DL accepts float32, int8, or int16 only"
+                "the current implementation accepts float32, float64, int8, or int16 only"
             )
 
     if x.dim() != 4:
@@ -178,41 +166,6 @@ def rotary_embedding_reference(
     return torch.cat((real, imag), dim=-1).permute(0, 2, 1, 3).contiguous().to(dtype=original_dtype)
 
 
-def _power_of_two_scale(config) -> Optional[Tuple[int, float]]:
-    """Return an exact power-of-two exponent and scale, or ``None``."""
-    if config is None or getattr(config, "state", None) not in _READY_STATES:
-        return None
-    root = getattr(config, "dominated_by", config)
-    policy = getattr(root, "policy", None)
-    if policy is None or not (
-        policy.has_property(QuantizationProperty.LINEAR)
-        and policy.has_property(QuantizationProperty.SYMMETRICAL)
-        and policy.has_property(QuantizationProperty.PER_TENSOR)
-        and policy.has_property(QuantizationProperty.POWER_OF_2)
-    ):
-        return None
-    bits = int(getattr(config, "num_of_bits", 0))
-    if bits not in (8, 16):
-        return None
-    scale = getattr(root, "scale", None)
-    if isinstance(scale, torch.Tensor):
-        if scale.numel() != 1:
-            return None
-        scale = float(scale.detach().cpu().item())
-    else:
-        try:
-            scale = float(scale)
-        except (TypeError, ValueError):
-            return None
-    if not math.isfinite(scale) or scale <= 0.0:
-        return None
-    mantissa, exponent = math.frexp(scale)
-    if mantissa != 0.5:
-        return None
-    # frexp(scale) == (0.5, exponent), so scale == 2 ** (exponent - 1).
-    return exponent - 1, scale
-
-
 def _extract_integer_contract(op: Operation):
     """Read the four device tensor contracts from a calibrated quantized op."""
     if not isinstance(op, QuantableOperation):
@@ -221,7 +174,37 @@ def _extract_integer_contract(op: Operation):
     out_cfg = list(getattr(op, "output_quant_config", ()) or ())
     if len(in_cfg) < 3 or len(out_cfg) < 1:
         return None
-    contracts = [_power_of_two_scale(cfg) for cfg in (*in_cfg[:3], out_cfg[0])]
+
+    def _pow2_scale(config) -> Optional[Tuple[int, float]]:
+        if config is None or getattr(config, "state", None) not in _READY_STATES:
+            return None
+        root = getattr(config, "dominated_by", config)
+        policy = getattr(root, "policy", None)
+        if policy is None or not (
+            policy.has_property(QuantizationProperty.LINEAR)
+            and policy.has_property(QuantizationProperty.SYMMETRICAL)
+            and policy.has_property(QuantizationProperty.PER_TENSOR)
+            and policy.has_property(QuantizationProperty.POWER_OF_2)
+        ):
+            return None
+        if int(getattr(config, "num_of_bits", 0)) not in (8, 16):
+            return None
+        scale = getattr(root, "scale", None)
+        if isinstance(scale, torch.Tensor):
+            if scale.numel() != 1:
+                return None
+            scale = float(scale.detach().cpu().item())
+        else:
+            try:
+                scale = float(scale)
+            except (TypeError, ValueError):
+                return None
+        if not math.isfinite(scale) or scale <= 0.0:
+            return None
+        mantissa, exponent = math.frexp(scale)
+        return (exponent - 1, scale) if mantissa == 0.5 else None
+
+    contracts = [_pow2_scale(cfg) for cfg in (*in_cfg[:3], out_cfg[0])]
     if any(contract is None for contract in contracts):
         return None
     x, cos, sin, y = contracts
@@ -320,33 +303,6 @@ def _rescale_integer(
     )
 
 
-def _saturate(value: torch.Tensor, bits: int) -> torch.Tensor:
-    return value.clamp(min=-(1 << (bits - 1)), max=(1 << (bits - 1)) - 1)
-
-
-def _to_integer(tensor: torch.Tensor, config) -> torch.Tensor:
-    # PPQ's executor provides fake-quantized fp32 tensors. Reconstructing the
-    # stored signed integer through the same PPQ rounding policy makes this
-    # model usable before parameter baking as well as after it.
-    return PPQLinearQuant_toInt(tensor, config).to(dtype=torch.int64)
-
-
-def _simd_eligible(bits: Tuple[int, int, int, int], exponents: Tuple[int, int, int, int], D_half: int) -> Optional[int]:
-    """Return mac_shift for a P4 SIMD path, otherwise ``None``."""
-    x_bits, cos_bits, sin_bits, y_bits = bits
-    x_exp, cos_exp, sin_exp, y_exp = exponents
-    if cos_exp != sin_exp:
-        return None
-    mac_shift = y_exp - x_exp - cos_exp
-    if x_bits == cos_bits == sin_bits == y_bits == 8:
-        return mac_shift if D_half % 16 == 0 and 0 < mac_shift <= 31 else None
-    if x_bits == cos_bits == sin_bits == y_bits == 16:
-        return mac_shift if D_half % 8 == 0 and 0 < mac_shift <= 63 else None
-    if x_bits == y_bits == 8 and cos_bits == sin_bits == 16:
-        return mac_shift if D_half % 16 == 0 and 0 < mac_shift <= 31 else None
-    return None
-
-
 def simulate_espdl_rotary_embedding(
     op: Operation,
     values: List[torch.Tensor],
@@ -376,11 +332,9 @@ def simulate_espdl_rotary_embedding(
             RoundingPolicy.ROUND_HALF_UP if op_platform in _ROPE_HALF_UP_PLATFORMS else RoundingPolicy.ROUND_HALF_EVEN
         )
 
-    # ``QuantableOperation`` receives fake-quantized values. Recover exactly
-    # what ESP-DL stores, not merely a rounded copy of the ideal fp32 input.
-    qx = _to_integer(x.float(), x_cfg).reshape(B, H, L, D_half * 2)
-    qc = _to_integer(cos_cache.float(), cos_cfg)
-    qs = _to_integer(sin_cache.float(), sin_cfg)
+    qx = PPQLinearQuant_toInt(x.float(), x_cfg).to(dtype=torch.int64).reshape(B, H, L, D_half * 2)
+    qc = PPQLinearQuant_toInt(cos_cache.float(), cos_cfg).to(dtype=torch.int64)
+    qs = PPQLinearQuant_toInt(sin_cache.float(), sin_cfg).to(dtype=torch.int64)
     if qc.shape[0] == 1 and B != 1:
         qc = qc.expand(B, -1, -1)
         qs = qs.expand(B, -1, -1)
@@ -389,15 +343,6 @@ def simulate_espdl_rotary_embedding(
 
     qx_first, qx_second = qx[..., :D_half], qx[..., D_half:]
     is_p4_platform = op_platform in _ROPE_P4_PLATFORMS or op_platform is None
-    simd_shift = (
-        None
-        if force_scalar or not is_p4_platform
-        else _simd_eligible(
-            (x_bits, cos_bits, sin_bits, y_bits),
-            (x_exp, cos_exp, sin_exp, y_exp),
-            D_half,
-        )
-    )
 
     typed_integer_combo = (
         x_bits == cos_bits == sin_bits == y_bits == 8
@@ -406,12 +351,18 @@ def simulate_espdl_rotary_embedding(
     )
     if typed_integer_combo and cos_exp == sin_exp:
         mac_shift = y_exp - x_exp - cos_exp
-
-        # Pure-width assembly uses a saturating VSUB. Production dispatch
-        # scans x2 and sends any row containing INT_MIN to the exact scalar
-        # integer path; rows without INT_MIN are already mathematically exact.
         pure_width = x_bits == cos_bits == sin_bits == y_bits
-        if simd_shift is not None and pure_width:
+        simd_ok = (
+            not force_scalar
+            and is_p4_platform
+            and pure_width
+            and (
+                (x_bits == 8 and D_half % 16 == 0 and 0 < mac_shift <= 31)
+                or (x_bits == 16 and D_half % 8 == 0 and 0 < mac_shift <= 63)
+            )
+        )
+        # Rows containing INT_MIN take the exact scalar path; other rows use saturating SIMD VSUB.
+        if simd_ok:
             neg_min = -(1 << (x_bits - 1))
             neg_max = (1 << (x_bits - 1)) - 1
             simd_neg_second = (-qx_second).clamp(min=neg_min, max=neg_max)
@@ -424,9 +375,6 @@ def simulate_espdl_rotary_embedding(
         q_real = _rescale_integer(acc_real, mac_shift, rounding=rounding)
         q_imag = _rescale_integer(acc_imag, mac_shift, rounding=rounding)
     else:
-        # Unsupported typed combinations or independently-scaled caches use
-        # the generic fp32 fallback. Explicit fp32 preserves device rounding
-        # rather than accidentally using Python fp64.
         kc = torch.tensor(x_scale * cos_scale / y_scale, dtype=torch.float32, device=x.device)
         ks = torch.tensor(x_scale * sin_scale / y_scale, dtype=torch.float32, device=x.device)
         if cos_exp == sin_exp:
@@ -438,7 +386,8 @@ def simulate_espdl_rotary_embedding(
         q_real = ppq_tensor_round(real, rounding).to(torch.int64)
         q_imag = ppq_tensor_round(imag, rounding).to(torch.int64)
 
-    qy = torch.cat((_saturate(q_real, y_bits), _saturate(q_imag, y_bits)), dim=-1)
+    y_min, y_max = -(1 << (y_bits - 1)), (1 << (y_bits - 1)) - 1
+    qy = torch.cat((q_real.clamp(min=y_min, max=y_max), q_imag.clamp(min=y_min, max=y_max)), dim=-1)
     return (qy.to(dtype=orig_dtype) * float(y_scale)).contiguous()
 
 
@@ -449,7 +398,11 @@ def espdl_rotary_embedding_forward(
     **kwargs,
 ) -> torch.Tensor:
     """RoPE executor entry point: P4 integer model when eligible, fp32 otherwise."""
-    if _use_device_emulator(op):
+    if (
+        getattr(op, "platform", None) in _ROPE_EMULATED_PLATFORMS
+        or _ESPDL_ROPE_SIMULATION_ENABLED
+        or os.environ.get(_ENV_DEVICE_EMULATE_KEY, "0") in {"1", "true", "True"}
+    ):
         emulated = simulate_espdl_rotary_embedding(op, values)
         if emulated is not None:
             return emulated

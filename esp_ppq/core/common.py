@@ -52,6 +52,12 @@ FORMATTER_FUSE_SWISH = True
 FORMATTER_FUSE_RMSNORM = True
 # 读取 Onnx 图时，合并图中分解的 Lp norm 子图为单个 LpNormalization 节点
 FORMATTER_FUSE_LP_NORMALIZATION = True
+# 读取 Onnx 图时，合并 DETR inverse_sigmoid 子图为单个 InverseSigmoid 节点
+FORMATTER_FUSE_INVERSE_SIGMOID = True
+# 读取 Onnx 图时，合并图中分解的 rotate_half RoPE 子图为单个 RotaryEmbedding 节点
+FORMATTER_FUSE_ROTARY_EMBEDDING = True
+# 读取 Onnx 图时，合并图中的 Attention 子图并处理原生 Attention 节点
+FORMATTER_FUSE_ATTENTION = True
 
 # PASSIVE OPERATIONS 是那些不参与计算的 Op, 这些 op 的输入与输出将直接共享 scale
 # 同时这些 op 前后的定点过程将被直接停用

@@ -358,16 +358,13 @@ def RotaryEmbedding_Socket(op: OperationBase) -> OpSocket:
             Sine cache values for the rotation.
 
         position_ids (optional, non-differentiable) : tensor(int64)
-            2D tensor with shape (batch_size, sequence_length). Retained in the
-            socket so 4-input ONNX nodes can be parsed and rejected by the
-            ESP-DL support check.
+            2D tensor with shape (batch_size, sequence_length).
 
     Outputs
         Y (differentiable) : T
             Tensor with the same shape as X.
     """
     CEHCK_TYPE(op=op, t='RotaryEmbedding')
-    # Allow opset 1-23 so graphs re-exported at ONNX_EXPORT_OPSET (18) remain valid.
     CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=23)
     in_plat = [
         TargetPlatform.UNSPECIFIED,
