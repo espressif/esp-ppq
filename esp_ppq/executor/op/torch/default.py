@@ -26,6 +26,7 @@ from .espdl_attention import (
     espdl_attention_forward,
     espdl_attention_head_attrs_ineligible_reason,
 )
+from .espdl_rotary_embedding import espdl_rotary_embedding_forward
 
 # Reference:
 # onnx op: https://github.com/onnx/onnx/blob/master/docs/Operators.md
@@ -456,6 +457,13 @@ def Attention_forward(
     if espdl_attention_eligible(op, [tuple(v.shape) for v in values[:3]]):
         return espdl_attention_forward(op, values, ctx, **kwargs)
     return _onnx23_attention_forward(op, values, ctx, **kwargs)
+
+
+def RotaryEmbedding_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    """Run the ESP-DL RoPE reference or its calibrated P4 integer emulator."""
+    return espdl_rotary_embedding_forward(op, values, ctx=ctx, **kwargs)
 
 
 def Conv_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
@@ -2539,12 +2547,14 @@ def TopK_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
         sorted : int (default is 1)
             Whether to return the elements in sorted order.
 
-    Inputs
+    Inputs (opset 10+)
         X (differentiable) : T
             Tensor of shape [a_1, a_2, ..., a_n, r]
 
         K (non-differentiable) : tensor(int64)
             A 1-D tensor containing a single positive value corresponding to the number of top elements to retrieve
+
+    Opset 1-9 encode K as the required integer attribute ``k`` and have only X as input.
 
     Outputs
         Values (differentiable) : T
@@ -2556,23 +2566,71 @@ def TopK_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCon
             containing the corresponding input tensor indices for the top K values.
 
     Args:
-        op (Operation): [description]
-        input_value ([type]): [description]
+        op (Operation): TopK operation.
+        values (List[torch.Tensor]): Input tensor(s).
 
     Returns:
-        [type]: [description]
+        Tuple[torch.Tensor, torch.Tensor]: Top-K values and indices.
     """
-    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=2, max_num_of_input=2)
-    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
-    axis = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='axis', default=-1)
-    largest = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='largest', default=1)
-    sorted = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='sorted', default=1)
-    largest, sorted = bool(largest), bool(sorted)
+    version = op.opset.onnx_opset_version()
+    if version < 1 or version > 23:
+        raise ValueError(f'TopK {op.name} does not support ONNX opset {version}')
 
-    x, k = values
-    k = convert_any_to_python_primary_type(k)
-    values, indices = torch.topk(input=x, k=k, dim=axis, largest=largest, sorted=sorted)
-    return values, indices
+    expected_inputs = 1 if version < 10 else 2
+    ASSERT_NUM_OF_INPUT(
+        op=op,
+        values=values,
+        min_num_of_input=expected_inputs,
+        max_num_of_input=expected_inputs,
+    )
+    values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
+
+    def read_integer_attribute(name: str, default=None, required: bool = False) -> int:
+        value = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute=name, compulsive=required, default=default)
+        if isinstance(value, bool):
+            raise ValueError(f'TopK {op.name} attribute {name} must be an integer, got {value!r}')
+        try:
+            return operator.index(value)
+        except TypeError as error:
+            raise ValueError(f'TopK {op.name} attribute {name} must be an integer, got {value!r}') from error
+
+    axis = read_integer_attribute('axis', default=-1)
+    if version < 11:
+        if any(name in op.attributes for name in ('largest', 'sorted')):
+            raise ValueError(f'TopK {op.name} attributes largest and sorted require ONNX opset 11 or newer')
+        largest, sorted_output = 1, 1
+    else:
+        largest = read_integer_attribute('largest', default=1)
+        sorted_output = read_integer_attribute('sorted', default=1)
+        if largest not in (0, 1):
+            raise ValueError(f'TopK {op.name} attribute largest must be 0 or 1, got {largest}')
+        if sorted_output not in (0, 1):
+            raise ValueError(f'TopK {op.name} attribute sorted must be 0 or 1, got {sorted_output}')
+
+    x = values[0]
+    if x.ndim == 0:
+        raise ValueError(f'TopK {op.name} requires an input tensor with rank >= 1')
+    if axis < -x.ndim or axis >= x.ndim:
+        raise ValueError(f'TopK {op.name} axis {axis} is out of range for rank {x.ndim}')
+
+    if version < 10:
+        k = read_integer_attribute('k', required=True)
+    else:
+        k_tensor = values[1]
+        if k_tensor.dtype != torch.int64:
+            raise ValueError(f'TopK {op.name} K must have dtype int64, got {k_tensor.dtype}')
+        if tuple(k_tensor.shape) != (1,):
+            raise ValueError(f'TopK {op.name} K must have shape [1], got {list(k_tensor.shape)}')
+        k = int(k_tensor.item())
+
+    axis_size = int(x.size(axis))
+    if k <= 0 or k > axis_size:
+        raise ValueError(f'TopK k={k} is out of range (0, axis_size={axis_size}]')
+    sorted_values, sorted_indices = torch.sort(x, dim=axis, descending=bool(largest), stable=True)
+    return (
+        sorted_values.narrow(axis, 0, k).contiguous(),
+        sorted_indices.narrow(axis, 0, k).to(dtype=torch.int64).contiguous(),
+    )
 
 
 def Expand_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
@@ -4753,6 +4811,49 @@ def Swish_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
     return F.silu(input_value)
 
 
+DEFAULT_INVERSE_SIGMOID_EPS = 1e-5
+
+
+def _inverse_sigmoid_eps_f32(eps) -> float:
+    """Canonicalize ``eps`` to the float32 bit pattern the device stores."""
+    return float(torch.as_tensor(float(eps), dtype=torch.float32).item())
+
+
+def inverse_sigmoid_reference(x: torch.Tensor, eps: float) -> torch.Tensor:
+    """FP32 reference for the DETR ``InverseSigmoid`` operator.
+
+    Not ``torch.logit``: that clamps into ``[eps, 1 - eps]``, while this
+    clamps to ``[0, 1]`` first and then floors numerator and denominator
+    independently.
+    """
+    if x.dtype != torch.float32:
+        raise TypeError(f'InverseSigmoid reference requires float32 input, got {x.dtype}')
+    eps32 = _inverse_sigmoid_eps_f32(eps)
+    xc = x.clamp(min=0.0, max=1.0)
+    num = xc.clamp(min=eps32)
+    denom = (1.0 - xc).clamp(min=eps32)
+    return torch.log(num / denom)
+
+
+def InverseSigmoid_forward(
+    op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
+) -> torch.Tensor:
+    """Inverse sigmoid after clip to ``[0, 1]``."""
+    ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=1)
+    [x] = values
+    if getattr(op.inputs[0], '_dtype', op.inputs[0].dtype) != DataType.FP32:
+        raise TypeError(f'InverseSigmoid {op.name}: logical input dtype must be FP32')
+    if getattr(op.outputs[0], '_dtype', op.outputs[0].dtype) != DataType.FP32:
+        raise TypeError(f'InverseSigmoid {op.name}: logical output dtype must be FP32')
+    if x.dtype not in (torch.float32, torch.float64):
+        raise TypeError(f'InverseSigmoid {op.name}: unsupported execution dtype {x.dtype}')
+    orig_dtype = x.dtype
+    eps = _inverse_sigmoid_eps_f32(op.attributes.get('eps', DEFAULT_INVERSE_SIGMOID_EPS))
+    if not 0.0 < eps < 1.0:
+        raise ValueError(f'InverseSigmoid {op.name}: eps={eps} out of range (0, 1)')
+    return inverse_sigmoid_reference(x.float().contiguous(), eps).to(dtype=orig_dtype)
+
+
 def LpNormalization_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
@@ -4830,6 +4931,7 @@ DEFAULT_BACKEND_TABLE = {
     'Reshape': Reshape_forward,
     'Resize': Resize_forward,
     'ReverseSequence': ReverseSequence_forward,
+    'RotaryEmbedding': RotaryEmbedding_forward,
     'ScatterElements': ScatterElements_forward,
     'ScatterND': ScatterND_forward,
     'Shape': Shape_forward,
@@ -4878,4 +4980,5 @@ DEFAULT_BACKEND_TABLE = {
     'Elu': Elu_forward,
     'Erf': Erf_forward,
     'Swish': Swish_forward,
+    'InverseSigmoid': InverseSigmoid_forward,
 }

@@ -20,14 +20,24 @@ logger = NaiveLogger.get_logger("AutoQuant")
 
 
 def simplify_onnx(onnx_path: str) -> str:
-    """Return a simplified ONNX path without overwriting the original model."""
+    """Return a simplified ONNX path without overwriting the original model.
+
+    Falls back to the original path when ``onnxsim`` fails on an unregistered
+    operator schema.
+    """
     base, _ext = os.path.splitext(onnx_path)
     out_path = f"{base}_simplified.onnx"
 
     if not os.path.isfile(out_path) or os.path.getmtime(out_path) < os.path.getmtime(onnx_path):
         logger.info(f"Simplifying ONNX {onnx_path} -> {out_path}")
         model = onnx.load(onnx_path)
-        model, ok = simplify(model)
+        try:
+            model, ok = simplify(model)
+        except (RuntimeError, onnx.checker.ValidationError) as e:
+            if "No Op registered for" not in str(e):
+                raise
+            logger.warning(f"onnxsim skipped due to unregistered operator, using {onnx_path} as-is: {e}")
+            return onnx_path
         if not ok:
             raise RuntimeError(f"onnxsim failed on {onnx_path}")
         model = onnx.shape_inference.infer_shapes(model)

@@ -334,12 +334,12 @@ class ResetResizePattern(OperationExporter):
 
             # Get roi
             roi_var = op.inputs[1]
-            if not roi_var.name or roi_var.value.numel() == 0:
+            if not roi_var.name or roi_var.value is None or roi_var.value.numel() == 0:
                 roi_var = None
 
             # Get scales
             scales_var = op.inputs[2]
-            if not scales_var.name:
+            if not scales_var.name or scales_var.value is None:
                 scales_var = None
 
             # Get sizes

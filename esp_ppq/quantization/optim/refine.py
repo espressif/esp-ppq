@@ -26,6 +26,14 @@ from esp_ppq.quantization.observer.range import minmax_to_scale_offset
 from .base import QuantizationOptimizationPass
 
 
+def _fusion_edge_is_graph_output(graph: BaseGraph, upstream: Operation, downstream: Operation) -> bool:
+    """Whether an edge between two operations is also a public graph output."""
+    return any(
+        downstream in variable.dest_ops and graph.outputs.get(variable.name) is variable
+        for variable in upstream.outputs
+    )
+
+
 class QuantizeSimplifyPass(QuantizationOptimizationPass):
     """
     ## PPQ Quantize Simplify Pass(通用量化精简过程)
@@ -212,6 +220,8 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                     continue
                 if not isinstance(computing_op, QuantableOperation):
                     continue
+                if _fusion_edge_is_graph_output(graph, computing_op, act_op):
+                    continue
 
                 if (
                     computing_op.platform != act_op.platform
@@ -327,6 +337,8 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                 if isinstance(op, QuantableOperation) and self.is_same_platform([op, source_op]):
                     TQC = op.config.input_quantization_config[0]
                     for output_cfg in op.config.output_quantization_config:
+                        if output_cfg.state == QuantizationStates.FP32:
+                            continue
                         output_cfg.dominated_by = TQC
 
         if self.fuse_relu_clip:
@@ -337,6 +349,8 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                 if not isinstance(act_op, QuantableOperation):
                     continue
                 if not isinstance(computing_op, QuantableOperation):
+                    continue
+                if _fusion_edge_is_graph_output(graph, computing_op, act_op):
                     continue
 
                 if (
@@ -534,7 +548,9 @@ class QuantAlignmentPass(QuantizationOptimizationPass):
         Any change to slave config will be rejected since then.
         """
         master_config = op.config.output_quantization_config[0]
-        slave_configs = [op.config.output_quantization_config[1], op.config.input_quantization_config[5]]
+        slave_configs = [op.config.output_quantization_config[1]]
+        if len(op.config.input_quantization_config) > 5:
+            slave_configs.append(op.config.input_quantization_config[5])
 
         for slave_config in slave_configs:
             if slave_config.policy.has_property(QuantizationProperty.FLOATING):

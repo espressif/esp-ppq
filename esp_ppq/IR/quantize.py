@@ -65,6 +65,8 @@ class QuantableOperation(Operation):
             opset=convert_from.opset,
         )
 
+        # Preserve extension metadata (e.g. omitted optional ONNX slot indices).
+        self._detail = convert_from._detail.copy()
         self._config = quantize_config
         self._dequantized = False
 

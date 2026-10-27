@@ -16,6 +16,11 @@ from .espdl_attention import (
 )
 from .espdl_lut import EspdlLUTFusionPass
 from .extension import ExtensionPass
+from .inverse_sigmoid_fusion import (
+    InverseSigmoidFusionPass,
+    finalize_espdl_inverse_sigmoid_for_export,
+    inverse_sigmoid_unsupported_reason,
+)
 from .legacy import AdaroundPass
 from .morph import (
     ConvTransposeDecompositionPass,
@@ -34,6 +39,15 @@ from .refine import (
     QuantizeFusionPass,
     QuantizeSimplifyPass,
     SwishFusionPass,
+)
+from .rnn_arity_normalization import RNNArityNormalizationPass
+from .rotary_embedding_fusion import (
+    EspdlRotaryEmbeddingLegalizePass,
+    RotaryEmbeddingFusionPass,
+    check_rotary_embedding,
+    finalize_espdl_rotary_embedding_for_export,
+    halve_rope_cache,
+    legalize_espdl_rotary_embedding_graph,
 )
 from .ssd import SSDEqualizationPass
 from .training import BiasCorrectionPass, LearnedStepSizePass, RoundTuningPass, TrainedQuantizationThresholdPass

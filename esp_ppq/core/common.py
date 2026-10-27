@@ -70,6 +70,7 @@ PASSIVE_OPERATIONS = {
     'Squeeze',
     'Unsqueeze',
     'Gather',
+    'TopK',
     'ReverseSequence',
     'ReduceMax',
     'ReduceMin',

@@ -420,6 +420,109 @@ class TestPrimitiveFusion(unittest.TestCase):
         self.assertIsNotNone(out, "fused graph produced no output")
         torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
 
+    @staticmethod
+    def _platform_graph(platform):
+        from esp_ppq.core import DataType
+        from esp_ppq.IR import BaseGraph
+
+        graph = BaseGraph(name="attention_platform_fusion")
+
+        def variable(name, shape):
+            var = graph.create_variable(name=name)
+            var.shape = list(shape)
+            var.dtype = DataType.FP32
+            return var
+
+        q = variable("q", [1, 2, 8, 16])
+        k = variable("k", [1, 2, 8, 16])
+        v = variable("v", [1, 2, 8, 16])
+        mask = variable("mask", [1, 1, 8, 8])
+        for var in (q, k, v, mask):
+            graph.mark_variable_as_graph_input(var)
+
+        kt = variable("kt", [1, 2, 16, 8])
+        scores = variable("scores", [1, 2, 8, 8])
+        scaled = variable("scaled", [1, 2, 8, 8])
+        biased = variable("biased", [1, 2, 8, 8])
+        probs = variable("probs", [1, 2, 8, 8])
+        out = variable("out", [1, 2, 8, 16])
+        scale = graph.create_variable(
+            name="scale_value",
+            value=torch.tensor(0.25, dtype=torch.float32),
+            is_parameter=True,
+        )
+        scale.shape = []
+        scale.dtype = DataType.FP32
+
+        graph.create_operation(
+            op_type="Transpose",
+            name="kT",
+            attributes={"perm": [0, 1, 3, 2]},
+            platform=platform,
+            inputs=[k],
+            outputs=[kt],
+        )
+        graph.create_operation(
+            op_type="MatMul",
+            name="qk",
+            platform=platform,
+            inputs=[q, kt],
+            outputs=[scores],
+        )
+        graph.create_operation(
+            op_type="Mul",
+            name="scale",
+            platform=platform,
+            inputs=[scores, scale],
+            outputs=[scaled],
+        )
+        graph.create_operation(
+            op_type="Add",
+            name="bias",
+            platform=platform,
+            inputs=[scaled, mask],
+            outputs=[biased],
+        )
+        graph.create_operation(
+            op_type="Softmax",
+            name="sm",
+            attributes={"axis": -1},
+            platform=platform,
+            inputs=[biased],
+            outputs=[probs],
+        )
+        graph.create_operation(
+            op_type="MatMul",
+            name="pv",
+            platform=platform,
+            inputs=[probs, v],
+            outputs=[out],
+        )
+        graph.mark_variable_as_graph_output(out)
+        return graph
+
+    def test_fused_attention_inherits_uniform_platform(self):
+        from esp_ppq.core import TargetPlatform
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
+
+        graph = self._platform_graph(TargetPlatform.FP32)
+        fuse_espdl_attention_graph(graph)
+        attention = next(op for op in graph.operations.values() if op.type == "Attention")
+        self.assertEqual(attention.platform, TargetPlatform.FP32)
+
+    def test_mixed_platform_runtime_chain_is_not_fused(self):
+        from esp_ppq.core import TargetPlatform
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
+
+        for mismatched_name in ("kT", "qk", "scale", "bias", "sm", "pv"):
+            with self.subTest(mismatched_name=mismatched_name):
+                graph = self._platform_graph(TargetPlatform.FP32)
+                graph.operations[mismatched_name].platform = TargetPlatform.UNSPECIFIED
+                original_ops = set(graph.operations)
+                fuse_espdl_attention_graph(graph)
+                self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
+                self.assertEqual(set(graph.operations), original_ops)
+
     def test_plain_matmul_softmax_matmul(self):
         class M(torch.nn.Module):
             def forward(self, q, k, v, mask):
@@ -591,6 +694,37 @@ class TestSdpaExportFusion(unittest.TestCase):
                 self.assertTrue(any(op.type in ("MatMul", "Gemm") for op in graph.operations.values()))
                 torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
 
+    def test_dynamo_multihead_cross_attention_keeps_lq_and_lk_independent(self):
+        class Block(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.m = torch.nn.MultiheadAttention(64, 4, batch_first=True, bias=False)
+
+            def forward(self, q, memory):
+                y, _ = self.m(q, memory, memory, need_weights=False)
+                return y
+
+        torch.manual_seed(0)
+        block = Block().eval()
+        for lq, lk in ((5, 7), (9, 4)):
+            with self.subTest(lq=lq, lk=lk):
+                q = torch.randn(1, lq, 64)
+                memory = torch.randn(1, lk, 64)
+                golden = block(q, memory)
+                _, attentions, out = self._load_fused(
+                    block,
+                    (q, memory),
+                    ["q", "memory"],
+                    dynamo=True,
+                    execute=True,
+                )
+                self.assertEqual(len(attentions), 1)
+                self.assertEqual(
+                    [list(var.shape) for var in attentions[0].inputs[:3]],
+                    [[1, 4, lq, 16], [1, 4, lk, 16], [1, 4, lk, 16]],
+                )
+                torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
+
     def test_multihead_attention_default_need_weights_fuses_3d_bmm(self):
         class Block(torch.nn.Module):
             def __init__(self):
@@ -696,6 +830,63 @@ class TestWhereMaskFusion(unittest.TestCase):
         )
         torch.testing.assert_close(mask_val, expected_mask)
         torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
+
+    def test_fp32_where_override_is_not_confused_with_dispatcher_fallback(self):
+        import os
+        import tempfile
+
+        from esp_ppq.api import load_onnx_graph
+        from esp_ppq.core import TargetPlatform
+        from esp_ppq.executor import TorchExecutor
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
+
+        keep = torch.tril(torch.ones(self.L, self.L, dtype=torch.bool)).view(1, 1, self.L, self.L)
+
+        class M(torch.nn.Module):
+            def __init__(self, keep):
+                super().__init__()
+                self.register_buffer("keep", keep)
+
+            def forward(self, q, k, v):
+                scores = torch.matmul(q, k.transpose(-1, -2))
+                masked = torch.where(self.keep, scores, torch.tensor(float("-inf")))
+                return torch.matmul(torch.softmax(masked, -1), v)
+
+        args = (self.q, self.k, self.v)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "static_where.onnx")
+            with _silence_export_logs():
+                torch.onnx.export(
+                    M(keep),
+                    args,
+                    path,
+                    input_names=["q", "k", "v"],
+                    output_names=["out"],
+                    opset_version=18,
+                )
+            for explicit_override in (False, True):
+                with self.subTest(explicit_override=explicit_override):
+                    graph = load_onnx_graph(path)
+                    feed = [dict(zip(("q", "k", "v"), args))[name] for name in graph.inputs]
+                    TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=feed)
+                    for op in graph.operations.values():
+                        op.platform = TargetPlatform.UNSPECIFIED
+                    where = next(op for op in graph.operations.values() if op.type == "Where")
+                    where.platform = TargetPlatform.FP32
+                    overrides = {where.name} if explicit_override else set()
+                    fuse_espdl_attention_graph(
+                        graph,
+                        dispatching_overrides=overrides,
+                        allow_automatic_fp32_where=True,
+                    )
+                    attentions = [op for op in graph.operations.values() if op.type == "Attention"]
+                    if explicit_override:
+                        self.assertEqual(attentions, [])
+                        add = next(op for op in graph.operations.values() if op.type == "Add")
+                        self.assertEqual(add.platform, TargetPlatform.FP32)
+                    else:
+                        self.assertEqual(len(attentions), 1)
+                        self.assertEqual(attentions[0].platform, TargetPlatform.UNSPECIFIED)
 
     def test_where_true_is_neg_inf_folds_to_additive_mask(self):
         """``Where(cond, -inf, scores)`` — cond True masks, False keeps."""
@@ -2065,6 +2256,9 @@ class TestDeployabilityGuard(unittest.TestCase):
             EspdlAttentionFusionPass,
             EspdlAttentionLegalizePass,
         )
+        from esp_ppq.quantization.optim.rnn_arity_normalization import (
+            RNNArityNormalizationPass,
+        )
         from esp_ppq.quantization.quantizer.base import BaseQuantizer
         from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
 
@@ -2074,10 +2268,11 @@ class TestDeployabilityGuard(unittest.TestCase):
         inputs = mock.Mock(name="inputs")
         setting = QuantizationSettingFactory.espdl_setting()
         passes = list(quantizer.build_prequant_pipeline(setting, executor))
-        self.assertIsInstance(passes[0], EspdlAttentionFusionPass)
-        self.assertIsInstance(passes[1], EspdlAttentionLegalizePass)
-        self.assertEqual(passes[1].platform, TargetPlatform.ESPDL_INT8)
-        self.assertTrue(passes[1].quantized)
+        self.assertIsInstance(passes[0], RNNArityNormalizationPass)
+        self.assertIsInstance(passes[1], EspdlAttentionFusionPass)
+        self.assertIsInstance(passes[2], EspdlAttentionLegalizePass)
+        self.assertEqual(passes[2].platform, TargetPlatform.ESPDL_INT8)
+        self.assertTrue(passes[2].quantized)
 
         order = []
         with (
@@ -2090,8 +2285,8 @@ class TestDeployabilityGuard(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: order.append("legalize"),
             ) as legalize,
         ):
-            passes[0].optimize(graph, executor=executor, inputs=inputs)
             passes[1].optimize(graph, executor=executor, inputs=inputs)
+            passes[2].optimize(graph, executor=executor, inputs=inputs)
         self.assertEqual(order, ["fuse", "legalize"])
         self.assertIs(legalize.call_args.args[0], graph)
         self.assertEqual(legalize.call_args.kwargs["platform"], TargetPlatform.ESPDL_INT8)
@@ -2487,6 +2682,84 @@ class TestAttentionFinalizeGate(unittest.TestCase):
         self.gate(graph)
         self.assertTrue(any(op.type == "Attention" for op in graph.operations.values()))
         self.assertFalse(any(op.type == "MatMul" for op in graph.operations.values()))
+
+    def test_accepts_explicit_fp32_attention_and_marks_f32_quant_type(self):
+        from esp_ppq.core import QuantizationStates, TargetPlatform
+        from esp_ppq.parser.espdl.espdl_typedef import EspQuantType
+        from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern
+
+        fp32_graph = self._graph_with([[1, 4, 16, 32]] * 3)
+        fp32_graph.operations["attn"].platform = TargetPlatform.FP32
+        self.gate(fp32_graph)
+
+        bad_fp32_graph = self._graph_with([[1, 4, 16, 32]] * 3, {"scale": 0.0})
+        bad_fp32_graph.operations["attn"].platform = TargetPlatform.FP32
+        with self.assertRaises(ValueError) as ctx:
+            self.gate(bad_fp32_graph)
+        self.assertIn("finite, positive, normal float32", str(ctx.exception))
+
+        dequant_graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
+        attn_op = dequant_graph.operations["attn"]
+        for cfg in attn_op.input_quant_config + attn_op.output_quant_config:
+            cfg.state = QuantizationStates.FP32
+        self.gate(dequant_graph)
+        InsertQuantTypePattern().export(attn_op, dequant_graph)
+        self.assertEqual(attn_op.attributes["quant_type"], EspQuantType.F32)
+
+        import os
+        import tempfile
+
+        from esp_ppq.api import quantize_onnx_model
+        from esp_ppq.api.setting import QuantizationSettingFactory
+        from esp_ppq.parser.espdl_exporter import EspdlExporter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            onnx_path = os.path.join(tmp, "mixed_fp32_attention.onnx")
+            espdl_path = os.path.join(tmp, "mixed_fp32_attention.espdl")
+            model = _native_attention_block_model(head_dim=8)
+            for node in model.graph.node:
+                if node.op_type == "Attention":
+                    node.name = "attn"
+            onnx.save(model, onnx_path)
+            setting = QuantizationSettingFactory.espdl_setting()
+            setting.dispatching_table.append("attn", TargetPlatform.FP32)
+            sample = [torch.randn(1, 2, 4, 8)]
+            with _silence_export_logs():
+                quantized_graph = quantize_onnx_model(
+                    onnx_import_file=onnx_path,
+                    calib_dataloader=[sample, sample],
+                    calib_steps=2,
+                    input_shape=None,
+                    platform=TargetPlatform.ESPDL_INT8,
+                    inputs=sample,
+                    setting=setting,
+                    device="cpu",
+                    verbose=0,
+                )
+            self.assertEqual(quantized_graph.operations["attn"].platform, TargetPlatform.FP32)
+            EspdlExporter().export(espdl_path, quantized_graph, export_config=False)
+            self.assertTrue(os.path.isfile(espdl_path))
+            self.assertGreater(os.path.getsize(espdl_path), 0)
+
+    def test_rejects_mixed_storage_quantization(self):
+        from esp_ppq.core import QuantizationStates
+
+        cases = (
+            ("mixed_v_bits", lambda op: setattr(op.input_quant_config[2], "num_of_bits", 16), "bit-widths must match"),
+            ("mixed_o_bits", lambda op: setattr(op.output_quant_config[0], "num_of_bits", 16), "bit-widths must match"),
+            (
+                "fp32_v_only",
+                lambda op: setattr(op.input_quant_config[2], "state", QuantizationStates.FP32),
+                "logit_scale was not checked",
+            ),
+        )
+        for name, mutate, expected in cases:
+            with self.subTest(name=name):
+                graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
+                mutate(graph.operations["attn"])
+                with self.assertRaises(ValueError) as ctx:
+                    self.gate(graph)
+                self.assertIn(expected, str(ctx.exception))
 
 
 class TestAttentionPlatformGate(unittest.TestCase):
@@ -3320,6 +3593,61 @@ class TestFp32PathFusion(unittest.TestCase):
         self.assertEqual(len(attentions), 1)
         self.assertEqual(attentions[0].inputs[3].dtype, DataType.FP32)
 
+    def test_graph_output_mask_and_scale_parameter_remain_intact(self):
+        from esp_ppq.core import DataType, TargetPlatform
+        from esp_ppq.quantization.optim.espdl_attention import (
+            fuse_espdl_attention_graph,
+            legalize_espdl_attention_graph,
+        )
+
+        graph = TestDeployabilityGuard._graph_with([[1, 4, 8, 16]] * 3 + [[1, 1, 8, 8]], num_inputs=4)
+        mask_var = graph.operations["attn"].inputs[3]
+        mask_var.is_parameter = True
+        mask_var.value = torch.tensor([0.0, float("-inf")], dtype=torch.float32).repeat(1, 1, 8, 4)
+        mask_var.dtype = DataType.FP32
+        graph.mark_variable_as_graph_output(mask_var)
+
+        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+        self.assertEqual(mask_var.dtype, DataType.FP32)
+        self.assertTrue(mask_var.value.is_floating_point())
+        self.assertIs(graph.outputs[mask_var.name], mask_var)
+
+        from esp_ppq.IR import BaseGraph
+
+        prim = BaseGraph(name="prim_scale_graph_out")
+        shape = [1, 2, 4, 8]
+        q_in, k_in, v_in = (prim.create_variable(name=n) for n in ("q", "k", "v"))
+        for var in (q_in, k_in, v_in):
+            var.shape = list(shape)
+            prim.mark_variable_as_graph_input(var)
+        kt = prim.create_variable(name="kt")
+        kt.shape = [1, 2, 8, 4]
+        scores = prim.create_variable(name="scores")
+        scores.shape = [1, 2, 4, 4]
+        scaled = prim.create_variable(name="scaled")
+        scaled.shape = [1, 2, 4, 4]
+        probs = prim.create_variable(name="probs")
+        probs.shape = [1, 2, 4, 4]
+        out = prim.create_variable(name="out")
+        out.shape = list(shape)
+        scale_param = prim.create_variable(name="scale_param", value=torch.tensor(0.25), is_parameter=True)
+        scale_param.shape = []
+        prim.create_operation(
+            op_type="Transpose", name="kT", attributes={"perm": [0, 1, 3, 2]}, inputs=[k_in], outputs=[kt]
+        )
+        prim.create_operation(op_type="MatMul", name="qk", inputs=[q_in, kt], outputs=[scores])
+        prim.create_operation(op_type="Mul", name="scale_mul", inputs=[scores, scale_param], outputs=[scaled])
+        prim.create_operation(op_type="Softmax", name="sm", attributes={"axis": -1}, inputs=[scaled], outputs=[probs])
+        prim.create_operation(op_type="MatMul", name="pv", inputs=[probs, v_in], outputs=[out])
+        prim.mark_variable_as_graph_output(out)
+        prim.mark_variable_as_graph_output(scale_param)
+
+        fuse_espdl_attention_graph(prim)
+        self.assertTrue(any(op.type == "Attention" for op in prim.operations.values()))
+        self.assertIs(prim.variables["scale_param"], scale_param)
+        self.assertIs(prim.outputs["scale_param"], scale_param)
+        self.assertIsNotNone(scale_param.value)
+
     def test_s3_and_c_fuse_unless_fusion_is_disabled(self):
         from esp_ppq.core import TargetPlatform
 
@@ -3646,6 +3974,66 @@ class TestMaskStaysFp32(unittest.TestCase):
 
         op.input_quant_config[3].state = QuantizationStates.FP32
         self.assertIsInstance(exporter.build_operator_proto(op), int)
+
+    def test_direct_exporter_preflights_attention_contract(self):
+        import os
+        import tempfile
+
+        from esp_ppq.core import DataType, TargetPlatform
+        from esp_ppq.IR import BaseGraph
+        from esp_ppq.parser.espdl_exporter import EspdlExporter
+
+        def build_float_graph(attributes=None):
+            graph = BaseGraph(name="direct_attention_export")
+            shape = [1, 4, 8, 32]
+            inputs = []
+            for name in ("q", "k", "v"):
+                var = graph.create_variable(name=name)
+                var.shape, var.dtype = list(shape), DataType.FP32
+                graph.mark_variable_as_graph_input(var)
+                inputs.append(var)
+            out = graph.create_variable(name="out")
+            out.shape, out.dtype = list(shape), DataType.FP32
+            graph.create_operation(
+                op_type="Attention",
+                name="attn",
+                attributes=dict(attributes or {}),
+                platform=TargetPlatform.FP32,
+                inputs=inputs,
+                outputs=[out],
+            )
+            graph.mark_variable_as_graph_output(out)
+            return graph
+
+        with tempfile.TemporaryDirectory() as tmp:
+            softcap_graph = build_float_graph({"softcap": 1.0})
+            with self.assertRaises(ValueError) as ctx:
+                EspdlExporter().export(
+                    os.path.join(tmp, "softcap.espdl"),
+                    softcap_graph,
+                    export_config=False,
+                )
+            self.assertIn("unsupported attrs ['softcap']", str(ctx.exception))
+            self.assertEqual(softcap_graph.operations["attn"].attributes.get("softcap"), 1.0)
+
+            bad_scale_graph = _activate_qk_scales(
+                TestDeployabilityGuard._graph_with([[1, 4, 16, 32]] * 3),
+                scale=float(2**80),
+            )
+            with self.assertRaises(ValueError) as ctx:
+                EspdlExporter().export(
+                    os.path.join(tmp, "bad_scale.espdl"),
+                    bad_scale_graph,
+                    export_config=False,
+                )
+            self.assertIn("logit_scale", str(ctx.exception))
+
+            valid_float_graph = build_float_graph({"is_causal": 1})
+            float_path = os.path.join(tmp, "valid_float.espdl")
+            EspdlExporter().export(float_path, valid_float_graph, export_config=False)
+            self.assertTrue(os.path.isfile(float_path))
+            self.assertGreater(os.path.getsize(float_path), 0)
+            self.assertEqual(valid_float_graph.operations["attn"].attributes, {"is_causal": 1})
 
 
 class TestOnnxAttentionDomain(unittest.TestCase):

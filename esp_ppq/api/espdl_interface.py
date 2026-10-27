@@ -302,9 +302,7 @@ def espdl_quantize_onnx(
                                            It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
         dispatching_method (deprecated): Refer to https://github.com/espressif/esp-ppq/blob/master/ppq/scheduler/__init__.py#L8.
                                          It is recommended to use the `setting` parameter, as this argument will be removed in the next version.
-        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None.
-                                      ``espdl_attention_fusion`` controls primitive Attention fusion in both
-                                      quantized and ``quant_type="none"`` FP32 export paths.
+        setting (QuantizationSetting): Quantization setting, default espdl setting will be used when set None
         device (str, optional):  execution device, defaults to 'cpu'.
         error_report (bool, optional): whether to print error report, defaults to True.
         skip_export (bool, optional): whether to export the quantized model, defaults to False.
@@ -324,9 +322,9 @@ def espdl_quantize_onnx(
         model_sim, check = simplify(model)
         if check:
             onnx.save(model_sim, onnx_import_file)
-    except RuntimeError as e:
+    except (RuntimeError, onnx.checker.ValidationError) as e:
         if "No Op registered for" in str(e):
-            ppq_warning(f"ONNX simplifier skipped due to custom operator: {e}")
+            ppq_warning(f"ONNX simplifier skipped due to unregistered operator: {e}")
         else:
             raise
 
@@ -410,7 +408,7 @@ def espdl_quantize_onnx(
             platform=get_target_platform(target, "w8a8"),
             inputs=dummy_inputs,
             device=device,
-            attention_fusion=bool(getattr(setting, "espdl_attention_fusion", True)),
+            setting=setting,
         )
         target_platform = TargetPlatform.ESPDL_INT8
 
