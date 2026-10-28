@@ -427,8 +427,11 @@ class BaseGraph(Serializable):
             self.append_operation(inserting_op)
 
         # create all links.
-        name = f'PPQ_Variable_{self._num_of_generated_var}'
-        self._num_of_generated_var += 1
+        while True:
+            name = f'PPQ_Variable_{self._num_of_generated_var}'
+            self._num_of_generated_var += 1
+            if name not in self._variables:
+                break
         link_var = Variable(
             name=name, value=None, is_parameter=False, dest_ops=variable.dest_ops.copy(), source_op=inserting_op
         )
@@ -779,8 +782,12 @@ class BaseGraph(Serializable):
             outputs = []
 
         if name is None:
-            name = f'PPQ_Operation_{self._num_of_generated_op}'
-            self._num_of_generated_op += 1
+            # Skip names that already exist in the graph (e.g. after an ONNX round-trip).
+            while True:
+                name = f'PPQ_Operation_{self._num_of_generated_op}'
+                self._num_of_generated_op += 1
+                if name not in self._operations:
+                    break
 
         if not isinstance(inputs, list):
             raise TypeError(
@@ -845,8 +852,11 @@ class BaseGraph(Serializable):
             Variable: _description_
         """
         if name is None:
-            name = f'PPQ_Variable_{self._num_of_generated_var}'
-            self._num_of_generated_var += 1
+            while True:
+                name = f'PPQ_Variable_{self._num_of_generated_var}'
+                self._num_of_generated_var += 1
+                if name not in self._variables:
+                    break
 
         created = Variable(name=name, value=value, is_parameter=is_parameter, dest_ops=dest_ops, source_op=source_op)
 

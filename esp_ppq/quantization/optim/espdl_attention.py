@@ -81,6 +81,7 @@ def _shape(var: Optional[Variable]) -> Optional[List[int]]:
 
 _REPORT_KEY = "espdl_attention_report"
 _REPORT_MAX_NAMES = 3
+_FOLDED_WHERE_MASK_ADD_KEY = "espdl_attention_folded_where_mask_add"
 
 
 @dataclass
@@ -709,7 +710,11 @@ class _AttentionPrimitiveMatch:
         return ""
 
 
-def _rewrite_where_masks_to_add(graph: BaseGraph) -> int:
+def _rewrite_where_masks_to_add(
+    graph: BaseGraph,
+    dispatching_overrides: Optional[Set[str]] = None,
+    allow_automatic_fp32_where: bool = False,
+) -> int:
     """Fold ``Where(cond, scores, -inf)`` into ``Add(scores, fp32_mask)``.
 
     Detects every ``MatMul → [Mul/Div]? → Where → Softmax`` where one
@@ -750,7 +755,22 @@ def _rewrite_where_masks_to_add(graph: BaseGraph) -> int:
             # Fall through to _report_unfused_where_masks.
             continue
         softmax = where.outputs[0].dest_ops[0]
-        if not _rewire_where_to_add(graph, where, softmax, scores_output, mask_tensor):
+        fusion_platform = where.platform
+        if (
+            allow_automatic_fp32_where
+            and dispatching_overrides is not None
+            and where.name not in dispatching_overrides
+            and where.platform == TargetPlatform.FP32
+        ):
+            fusion_platform = None
+        if not _rewire_where_to_add(
+            graph,
+            where,
+            softmax,
+            scores_output,
+            mask_tensor,
+            fusion_platform,
+        ):
             continue
         rewired += 1
     return rewired
@@ -762,6 +782,7 @@ def _rewire_where_to_add(
     softmax: Operation,
     scores_output: Variable,
     mask_tensor: torch.Tensor,
+    fusion_platform: Optional[TargetPlatform],
 ) -> bool:
     """Replace ``scores_op → Where → softmax`` with ``scores_op → Add(mask) → softmax``.
 
@@ -831,6 +852,7 @@ def _rewire_where_to_add(
         inputs=[scores_output, mask_const_out],
         outputs=[where_out],
     )
+    add_op.set_extension_attrib(_FOLDED_WHERE_MASK_ADD_KEY, fusion_platform)
     where_out.source_op = add_op
     if softmax not in where_out.dest_ops:
         where_out.dest_ops.append(softmax)
@@ -920,6 +942,44 @@ def _pattern_rank(match: _AttentionPrimitiveMatch) -> int:
     return len(perm)
 
 
+def _primitive_doomed_ops(
+    graph: BaseGraph,
+    match: _AttentionPrimitiveMatch,
+) -> Tuple[Operation, ...]:
+    drop_k_transpose = match.k_transpose_mode == "drop" and len(match.k_transpose.outputs[0].dest_ops) == 1
+    drop_k_transpose = drop_k_transpose and not _var_is_graph_output(graph, match.k_transpose.outputs[0])
+
+    doomed = match.head_merge_ops + match.prescale_ops + (match.qk_matmul,)
+    if match.scale_op is not None:
+        doomed = doomed + (match.scale_op,)
+    if match.add is not None:
+        doomed = doomed + (match.add,)
+    doomed = doomed + (match.softmax, match.pv_matmul)
+    if drop_k_transpose:
+        doomed = (match.k_transpose,) + doomed
+    return doomed
+
+
+def _primitive_platform_mismatch_reason(
+    match: _AttentionPrimitiveMatch,
+    doomed: Tuple[Operation, ...],
+) -> str:
+    mismatched = []
+    for op in doomed:
+        platform = op.platform
+        if op is match.add and _FOLDED_WHERE_MASK_ADD_KEY in op.extension_attrib:
+            platform = op.extension_attrib[_FOLDED_WHERE_MASK_ADD_KEY]
+        if platform is not None and platform != match.qk_matmul.platform:
+            mismatched.append((op, platform))
+    if not mismatched:
+        return ""
+    assignments = ", ".join(
+        [f"{match.qk_matmul.type}={match.qk_matmul.platform.name}"]
+        + [f"{op.type}={platform.name}" for op, platform in mismatched]
+    )
+    return f"matched runtime operators use different platforms ({assignments})"
+
+
 def _try_fuse(
     graph: BaseGraph,
     qk_matmul: Operation,
@@ -931,6 +991,7 @@ def _try_fuse(
     match = _match_primitive(graph, qk_matmul, add, softmax, pv_matmul)
     if match is None:
         return 0
+    doomed = _primitive_doomed_ops(graph, match)
     # Perm length rejects rank 2. 3-D and 4-D layouts fuse only after Q, K, V,
     # and a connected mask all have shapes; a missing shape stays MatMul/Softmax.
     rank = _pattern_rank(match)
@@ -950,11 +1011,14 @@ def _try_fuse(
     else:
         reason = match.ineligible_reason()
         actionable = _is_ceiling_reason(reason)
+    if not reason:
+        reason = _primitive_platform_mismatch_reason(match, doomed)
+        actionable = False
     if reason:
         _report(graph).record_left(match.name, reason, actionable)
         logger.debug(f'[espdl-attention-fusion] {match.name}: left as MatMul/Softmax/MatMul — {reason}')
         return 0
-    fused = _rewrite_primitive(graph, match)
+    fused = _rewrite_primitive(graph, match, doomed)
     _report(graph).fused += 1
     logger.debug(
         f'[espdl-attention-fusion] fused MatMul->'
@@ -1177,24 +1241,25 @@ def _match_head_merge(graph: BaseGraph, data: Variable) -> Optional[Tuple[Operat
 
 
 def _match_kt_4d(k_data: Variable, q_var: Variable) -> bool:
-    """True when ``k_data`` is K^T already, shaped ``[B, H, D, L]`` against Q.
+    """True when ``k_data`` is K^T already, shaped ``[B, H, D, Lk]`` against Q.
 
     Dynamo's ``MultiheadAttention`` export reaches the scale Mul with a
     4-D reshape of that form, instead of the SDPA ``Reshape -> Transpose
-    -> Reshape`` chain. The transpose back to ``[B, H, L, D]`` is inserted
+    -> Reshape`` chain. The transpose back to ``[B, H, Lk, D]`` is inserted
     at rewrite.
     """
     k_shape = _shape(k_data)
     q_shape = _shape(q_var)
     if k_shape is None or q_shape is None or len(k_shape) != 4 or len(q_shape) != 4:
         return False
-    b, h, lq, d = q_shape
-    if k_shape != [b, h, d, lq]:
+    b, h, _lq, d = q_shape
+    if k_shape[:3] != [b, h, d]:
         return False
+    lk = k_shape[3]
     outer = getattr(k_data, "source_op", None)
     if outer is not None and outer.type == "Reshape" and outer.inputs:
         in_shape = _shape(outer.inputs[0])
-        if in_shape is not None and len(in_shape) == 3 and in_shape != [b * h, d, lq]:
+        if in_shape is not None and len(in_shape) == 3 and in_shape != [b * h, d, lk]:
             return False
     return True
 
@@ -1343,15 +1408,17 @@ def _match_primitive(
     )
 
 
-def _rewrite_primitive(graph: BaseGraph, match: _AttentionPrimitiveMatch) -> Operation:
+def _rewrite_primitive(
+    graph: BaseGraph,
+    match: _AttentionPrimitiveMatch,
+    doomed: Tuple[Operation, ...],
+) -> Operation:
     """Replace an accepted match with one Attention op."""
     k_transpose = match.k_transpose
     if match.k_transpose_mode == "rewrite_to_bhnd":
         k_var = _rewrite_k_transpose_for_bhnd(k_transpose)
-        drop_k_transpose = False
     elif match.k_transpose_mode == "head_merge":
         k_var = match.k_var
-        drop_k_transpose = False
     elif match.k_transpose_mode == "kt_4d":
         kt_shape = _shape(match.k_var)
         out_shape = None if kt_shape is None else [kt_shape[0], kt_shape[1], kt_shape[3], kt_shape[2]]
@@ -1363,12 +1430,8 @@ def _rewrite_primitive(graph: BaseGraph, match: _AttentionPrimitiveMatch) -> Ope
             out_shape=out_shape,
             platform=match.qk_matmul.platform,
         )
-        drop_k_transpose = False
     else:  # k_transpose_mode == "drop"
         k_var = match.k_var
-        drop_k_transpose = len(k_transpose.outputs[0].dest_ops) == 1 and not _var_is_graph_output(
-            graph, k_transpose.outputs[0]
-        )
 
     out_var = match.pv_matmul.outputs[0]
     q_shape, k_shape, v_shape = match.qkv_shapes()
@@ -1416,14 +1479,6 @@ def _rewrite_primitive(graph: BaseGraph, match: _AttentionPrimitiveMatch) -> Ope
             platform=match.qk_matmul.platform,
             output=out_var,
         )
-    doomed: Tuple[Operation, ...] = match.head_merge_ops + match.prescale_ops + (match.qk_matmul,)
-    if match.scale_op is not None:
-        doomed = doomed + (match.scale_op,)
-    if match.add is not None:
-        doomed = doomed + (match.add,)
-    doomed = doomed + (match.softmax, match.pv_matmul)
-    if drop_k_transpose:
-        doomed = (k_transpose,) + doomed
     for old_op in doomed:
         _detach_op(graph, old_op, keep_output=(old_op is match.pv_matmul))
     return fused
@@ -1475,8 +1530,9 @@ def _detach_op(graph: BaseGraph, op: Operation, keep_output: bool = False) -> No
         except Exception:
             pass
         # remove_operation clears and drops every parameter input, even one
-        # the fused Attention now consumes (e.g. a constant attn_mask).
-        if iv.is_parameter and iv.dest_ops:
+        # the fused Attention now consumes (e.g. a constant attn_mask) or one
+        # still exposed on the graph boundary.
+        if iv.is_parameter and (iv.dest_ops or iv.name in graph.inputs or _var_is_graph_output(graph, iv)):
             op.inputs.remove(iv)
         elif (
             not iv.is_parameter
@@ -1965,18 +2021,18 @@ def _unverifiable_attention_message(op: Operation, qkv_shapes: List[Optional[Lis
     )
 
 
-def _compact_constant_mask(op: Operation) -> bool:
+def _compact_constant_mask(graph: BaseGraph, op: Operation) -> bool:
     """Store a constant fp32 ``attn_mask`` holding only ``0`` / ``-inf`` as bool.
 
     The device reads a bool mask as ``True -> 0``, ``False -> -inf``, so the
     rewrite is exact and cuts the mask to one byte per element. Masks with any
-    other value, runtime masks, and masks shared with other consumers are left
-    untouched.
+    other value, runtime masks, and masks shared with other consumers or graph
+    outputs are left untouched.
     """
     if op.num_of_input < 4 or op.inputs[3] is None:
         return False
     mask = op.inputs[3]
-    if len(mask.dest_ops) != 1:
+    if len(mask.dest_ops) != 1 or _var_is_graph_output(graph, mask):
         return False
     value = _var_static_value(mask)
     if value is None or not value.is_floating_point() or value.numel() == 0:
@@ -1987,7 +2043,7 @@ def _compact_constant_mask(op: Operation) -> bool:
     keep = keep.contiguous()
     if not mask.is_parameter:
         src = mask.source_op
-        if src is None or src.type != "Constant":
+        if src is None or src.type != "Constant" or any(_var_is_graph_output(graph, ov) for ov in src.outputs):
             return False
         src.attributes["value"] = keep
     mask.value = keep
@@ -2019,7 +2075,7 @@ def legalize_espdl_attention_graph(
         if unsupported is None:
             if espdl_attention_eligible(op, qkv_shapes):
                 report.kept += 1
-                if _compact_constant_mask(op):
+                if _compact_constant_mask(graph, op):
                     report.compacted += 1
                     logger.debug(f'[espdl-attention-check] {op.name}: constant 0/-inf attn_mask stored as bool')
                 continue
@@ -2046,9 +2102,10 @@ def legalize_espdl_attention_graph(
 def finalize_espdl_attention_for_export(graph: BaseGraph) -> None:
     """Check ``logit_scale`` once Q/K scales exist. Does not rewrite the graph.
 
-    A missing or unusable Q/K scale is an error. ``logit_scale`` must be a
-    finite, positive, normal float32. Shape, mask, and platform checks stay
-    in ``legalize_espdl_attention_graph``.
+    Explicit ``FP32`` Attention nodes are accepted when their float ``scale``
+    contract holds. Otherwise a missing or unusable Q/K/V/O scale is an error,
+    and ``logit_scale`` must be a finite, positive, normal float32. Shape,
+    mask, and platform checks stay in ``legalize_espdl_attention_graph``.
     """
     for op in graph.operations.values():
         if op.type != ATTENTION:
@@ -2076,11 +2133,21 @@ def _prune_dead_ops(graph: BaseGraph) -> None:
                 changed = True
 
 
-def fuse_espdl_attention_graph(graph: BaseGraph, **kwargs) -> None:
+def fuse_espdl_attention_graph(
+    graph: BaseGraph,
+    *,
+    dispatching_overrides: Optional[Set[str]] = None,
+    allow_automatic_fp32_where: bool = False,
+    **kwargs,
+) -> None:
     """Fuse ``MatMul -> [Mul/Div]? -> [Add]? -> Softmax -> MatMul`` into Attention."""
 
     _ensure_traced_shapes(graph, **kwargs)
-    rewired = _rewrite_where_masks_to_add(graph)
+    rewired = _rewrite_where_masks_to_add(
+        graph,
+        dispatching_overrides=dispatching_overrides,
+        allow_automatic_fp32_where=allow_automatic_fp32_where,
+    )
     fused_primitive = _fuse_primitive_pattern(graph) + _fuse_no_mask_primitive_pattern(graph)
     if rewired or fused_primitive:
         _prune_dead_ops(graph)
@@ -2092,11 +2159,22 @@ def fuse_espdl_attention_graph(graph: BaseGraph, **kwargs) -> None:
 class EspdlAttentionFusionPass(QuantizationOptimizationPass):
     """Fuse MatMul->Softmax->MatMul patterns into Attention nodes."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        dispatching_overrides: Optional[Set[str]] = None,
+        allow_automatic_fp32_where: bool = False,
+    ) -> None:
         super().__init__(name="ESPDL Attention Fusion Pass")
+        self.dispatching_overrides = dispatching_overrides
+        self.allow_automatic_fp32_where = allow_automatic_fp32_where
 
     def optimize(self, graph: BaseGraph, **kwargs) -> None:
-        fuse_espdl_attention_graph(graph, **kwargs)
+        fuse_espdl_attention_graph(
+            graph,
+            dispatching_overrides=self.dispatching_overrides,
+            allow_automatic_fp32_where=self.allow_automatic_fp32_where,
+            **kwargs,
+        )
 
 
 class EspdlAttentionLegalizePass(QuantizationOptimizationPass):

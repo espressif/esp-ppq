@@ -1,7 +1,8 @@
 import json
+import operator
 import os
 import sys
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -62,6 +63,25 @@ def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
         return value.tolist()
 
 
+def _lower_espdl_topk_attributes(attributes) -> dict:
+    lowered = dict(attributes)
+    for name in ("axis", "largest", "sorted"):
+        if name not in lowered:
+            continue
+        value = lowered[name]
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1:
+                raise ValueError(f"TopK attribute {name} must be a scalar integer, got shape {list(value.shape)}")
+            value = value.item()
+        if isinstance(value, bool):
+            raise ValueError(f"TopK attribute {name} must be a scalar integer, got {lowered[name]!r}")
+        try:
+            lowered[name] = operator.index(value)
+        except TypeError as error:
+            raise ValueError(f"TopK attribute {name} must be a scalar integer, got {lowered[name]!r}") from error
+    return lowered
+
+
 def set_streaming_input_shape(origin_shape, shape, perm) -> None:
     """Set streaming input shape for graph inputs.
 
@@ -79,12 +99,121 @@ def set_streaming_input_shape(origin_shape, shape, perm) -> None:
         raise ValueError(f"Only one dimension can be different for streaming input shape. {origin_shape} -> {shape}")
 
 
+# Op types whose lookup-table parameters are immutable after baking and can be
+# deduplicated across ops before FlatBuffer serialization.
+ESPDL_SHAREABLE_PARAM_OP_TYPES = frozenset({"RotaryEmbedding"})
+
+
+def _tensor_content_key(value):
+    """Return a stable ``(dtype, shape, sha256)`` key for a parameter value."""
+    import hashlib
+
+    if value is None:
+        return None
+    try:
+        if isinstance(value, torch.Tensor):
+            arr = value.detach().cpu().contiguous().numpy()
+        elif isinstance(value, np.ndarray):
+            arr = np.ascontiguousarray(value)
+        else:
+            return None
+    except Exception:
+        return None
+    return (str(arr.dtype), tuple(arr.shape), hashlib.sha256(arr.tobytes()).digest())
+
+
+def dedupe_espdl_shareable_parameters(
+    graph,
+    whitelist_op_types=ESPDL_SHAREABLE_PARAM_OP_TYPES,
+):
+    """Merge bit-identical parameter Variables for whitelisted lookup-table ops.
+
+    PPQ splits shared parameters into per-op copies during quantization. After
+    ``prepare_graph`` bakes parameters into integer storage, identical lookup
+    tables that share the same exported exponent, layout, and permute metadata
+    are re-merged into a single canonical Variable.
+
+    Returns:
+        dict: Counts with keys ``variables_merged``, ``groups_merged``, and ``bytes_saved``.
+    """
+    if not whitelist_op_types:
+        return {"variables_merged": 0, "groups_merged": 0, "bytes_saved": 0}
+
+    def _nbytes(value):
+        if isinstance(value, torch.Tensor):
+            try:
+                return value.element_size() * value.numel()
+            except Exception:
+                return 0
+        if isinstance(value, np.ndarray):
+            return int(value.nbytes)
+        return 0
+
+    info = ExporterPatternInfo()
+
+    def _metadata_key(var):
+        exponents = info.get_var_exponents(var.name)
+        if exponents is None:
+            exponent_key = None
+        elif isinstance(exponents, (list, tuple)):
+            exponent_key = tuple(int(value) for value in exponents)
+        else:
+            exponent_key = (int(exponents),)
+        permute = info.get_var_permute(var.name)
+        permute_key = None if permute is None else tuple(int(axis) for axis in permute)
+        return (
+            exponent_key,
+            info.get_var_layout(var.name, LayoutAnnotation.UNKNOWN),
+            permute_key,
+        )
+
+    groups: dict = {}
+    for var in list(graph.variables.values()):
+        if not var.is_parameter or not var.dest_ops:
+            continue
+        if var.name in graph.inputs or var.name in graph.outputs:
+            continue
+        if not all(op.type in whitelist_op_types for op in var.dest_ops):
+            continue
+        content_key = _tensor_content_key(var.value)
+        if content_key is None:
+            continue
+        key = content_key + _metadata_key(var)
+        groups.setdefault(key, []).append(var)
+
+    variables_merged = 0
+    groups_merged = 0
+    bytes_saved = 0
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        canonical = members[0]
+        merged_here = 0
+        for victim in members[1:]:
+            for dest_op in list(victim.dest_ops):
+                inputs_list = dest_op.inputs
+                for slot, iv in enumerate(inputs_list):
+                    if iv is victim:
+                        inputs_list[slot] = canonical
+                if dest_op not in canonical.dest_ops:
+                    canonical.dest_ops.append(dest_op)
+            victim.dest_ops.clear()
+            bytes_saved += _nbytes(victim.value)
+            graph.variables.pop(victim.name, None)
+            variables_merged += 1
+            merged_here += 1
+        if merged_here:
+            groups_merged += 1
+
+    return {
+        "variables_merged": variables_merged,
+        "groups_merged": groups_merged,
+        "bytes_saved": bytes_saved,
+    }
+
+
 class EspdlExporter(GraphExporter):
-    """
-    The EspdlExporter is used to export computational graphs into the esp-dl standard format.
-    The export logic of any exporter is performed in-place, meaning it will modify the incoming computational graph object in-place.
-    Therefore, you need to manually clone the computational graph before exporting.
-    """
+    """Export computational graphs into the ESP-DL FlatBuffer format."""
 
     @staticmethod
     def prepare_graph_for_float_export(
@@ -92,28 +221,59 @@ class EspdlExporter(GraphExporter):
         platform: TargetPlatform,
         inputs: Any,
         device: str = "cpu",
-        attention_fusion: bool = True,
+        setting: Any = None,
     ) -> BaseGraph:
-        """Trace, then optionally fuse primitive Attention before legalizing it.
-
-        ``attention_fusion`` controls only ``MatMul -> Softmax -> MatMul``
-        rewriting. Native ONNX ``Attention`` nodes are always legalized.
-        """
+        """Trace, run ESP-DL-specific fusions, and legalize supported ops for FP32 export."""
+        from esp_ppq.api.setting import QuantizationSettingFactory
+        from esp_ppq.quantization.optim import (
+            EspdlRotaryEmbeddingLegalizePass,
+            InverseSigmoidFusionPass,
+            RNNArityNormalizationPass,
+            RotaryEmbeddingFusionPass,
+            finalize_espdl_inverse_sigmoid_for_export,
+        )
         from esp_ppq.quantization.optim.espdl_attention import (
             EspdlAttentionFusionPass,
             _log_attention_report,
             espdl_attention_platform_unsupported_reason,
             legalize_espdl_attention_graph,
         )
+        from esp_ppq.quantization.quantizer.EspdlQuantizer import finalize_espdl_topk_for_export
+
+        if setting is None:
+            setting = QuantizationSettingFactory.espdl_setting()
+
+        RNNArityNormalizationPass().optimize(graph)
 
         executor = TorchExecutor(graph=graph, device=device)
         executor.tracing_operation_meta(inputs=inputs)
-        if attention_fusion and espdl_attention_platform_unsupported_reason(platform) is None:
+
+        if setting.espdl_attention_fusion and espdl_attention_platform_unsupported_reason(platform) is None:
             EspdlAttentionFusionPass().optimize(graph, executor=executor, inputs=inputs)
         if any(op.type == "Attention" for op in graph.operations.values()):
             legalize_espdl_attention_graph(graph, platform=platform, quantized=False, executor=executor, inputs=inputs)
         else:
             _log_attention_report(graph)
+
+        rope_setting = setting.rotary_embedding_fusion_setting
+        rope_verbose = bool(rope_setting.verbose)
+        rope_strict = bool(rope_setting.strict)
+        if setting.rotary_embedding_fusion:
+            RotaryEmbeddingFusionPass(verbose=rope_verbose).optimize(graph, executor=executor, inputs=inputs)
+        EspdlRotaryEmbeddingLegalizePass(
+            platform=platform,
+            strict=rope_strict,
+            verbose=rope_verbose,
+        ).optimize(graph, executor=executor, inputs=inputs)
+        if setting.inverse_sigmoid_fusion:
+            InverseSigmoidFusionPass().optimize(graph)
+
+        # Fusion passes can replace nodes. Refresh metadata for test-value
+        # generation and the exporter that consumes this graph next.
+        executor = TorchExecutor(graph=graph, device=device)
+        executor.tracing_operation_meta(inputs=inputs)
+        finalize_espdl_inverse_sigmoid_for_export(graph)
+        finalize_espdl_topk_for_export(graph)
         return graph
 
     def __init__(self) -> None:
@@ -168,10 +328,35 @@ class EspdlExporter(GraphExporter):
                 ops, or register extra ``StreamingTable`` entries.
         """
 
-        # during export we will remove all boundary operations from graph.
-        # we do not want to change the structure of original graph,
-        # so there have to take a clone of it.
+        ExporterPatternInfo().reset()
+
+        # Clone the graph so export passes and parameter baking do not mutate the caller's graph.
         graph = graph.copy()
+
+        from esp_ppq.quantization.optim import (
+            finalize_espdl_attention_for_export,
+            finalize_espdl_inverse_sigmoid_for_export,
+            finalize_espdl_rotary_embedding_for_export,
+            legalize_espdl_attention_graph,
+            legalize_espdl_rotary_embedding_graph,
+        )
+        from esp_ppq.quantization.quantizer.EspdlQuantizer import finalize_espdl_topk_for_export
+
+        finalize_espdl_inverse_sigmoid_for_export(graph)
+        finalize_espdl_topk_for_export(graph)
+        if any(op.type == "Attention" for op in graph.operations.values()):
+            has_quantized_attention = any(
+                op.type == "Attention" and isinstance(op, QuantableOperation) for op in graph.operations.values()
+            )
+            legalize_espdl_attention_graph(graph, quantized=has_quantized_attention)
+            if any(
+                op.type == "Attention" and (isinstance(op, QuantableOperation) or op.platform == TargetPlatform.FP32)
+                for op in graph.operations.values()
+            ):
+                finalize_espdl_attention_for_export(graph)
+
+        legalize_espdl_rotary_embedding_graph(graph)
+        finalize_espdl_rotary_embedding_for_export(graph, strict=True)
 
         # In prepare stage, run all graph pattern
         # fuse Conv and Relu and insert quant node if necessary
@@ -200,6 +385,19 @@ class EspdlExporter(GraphExporter):
             streaming_input_shape,
             streaming_custom_passes,
         )
+
+        # Deduplicate identical lookup-table parameters after baking.
+        share_stats = dedupe_espdl_shareable_parameters(graph)
+        if share_stats["variables_merged"]:
+            logger.info(
+                "EspDL shareable parameter dedupe: merged "
+                "{merged} variable(s) across {groups} group(s); bytes saved={bytes:,}".format(
+                    merged=share_stats["variables_merged"],
+                    groups=share_stats["groups_merged"],
+                    bytes=share_stats["bytes_saved"],
+                )
+            )
+
         file_base_name, _ = os.path.splitext(file_path)
 
         # if a valid config path is given, export quantization config to there.
@@ -272,6 +470,16 @@ class EspdlExporter(GraphExporter):
                 output_var._is_parameter = True
                 output_var.value = const_op.attributes["value"]
                 graph.remove_operation(removing_op=const_op)
+
+        for op in [op for op in graph.operations.values() if op.type == "Constant"]:
+            assert len(op.outputs) == 1, (
+                f"Constant operation {op.name} has more than 1 output, Is there a network parsing error?"
+            )
+            var = op.outputs[0]
+            var._is_parameter = True
+            var.value = op.attributes["value"]
+            graph.remove_operation(op, keep_coherence=True)
+            var.value = convert_any_to_torch_tensor(var.value)
 
         # before we can export them, we firstly convert all ops to proper format. Copy from onnx exporter
         for op in [_ for _ in graph.topological_sort()]:
@@ -405,6 +613,8 @@ class EspdlExporter(GraphExporter):
             _nodes.append(self.build_operator_proto(op))
 
         for variable in graph.variables.values():
+            if not variable.name:
+                continue
             tensor_proto = self.build_variable_proto(
                 variable,
                 pattern_info.get_var_exponents(variable.name, [0]),
@@ -522,6 +732,8 @@ class EspdlExporter(GraphExporter):
                     f"-inf / large-negative mask entries."
                 )
             attributes = lower_espdl_attention_attributes(operation.attributes)
+        elif operation.type == "TopK":
+            attributes = _lower_espdl_topk_attributes(operation.attributes)
         else:
             attributes = operation.attributes
         for key in attributes:
@@ -639,6 +851,7 @@ class EspdlExporter(GraphExporter):
                         "dominator": config.dominated_by.__hash__(),
                     }
                     for config, var in operation.config_with_variable
+                    if var.name
                 }
 
                 for config, _ in operation.config_with_variable:

@@ -95,6 +95,7 @@ OTHER_OP_SET = {
     "LayerNorm",
     "LayerNormalization",
     "RMSNormalization",
+    "RotaryEmbedding",
     "Max",
     "Min",
     "ScatterElements",
@@ -105,6 +106,7 @@ OTHER_OP_SET = {
     "LSTM",
     "Sum",
     "Attention",
+    "InverseSigmoid",
 }
 
 SOFTMAX_LIKE_OP_SET = {"Softmax", "LogSoftmax", "Split"}

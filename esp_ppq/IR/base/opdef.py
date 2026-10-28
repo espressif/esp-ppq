@@ -343,6 +343,41 @@ def Resize_Socket(op: OperationBase) -> OpSocket:
     return OpSocket(op=op, in_plat=in_plat[: op.num_of_input], links=[VLink(in_idx=0, out_idx=0)])
 
 
+def RotaryEmbedding_Socket(op: OperationBase) -> OpSocket:
+    """
+    From Opset 23:
+
+    Inputs (3 - 4)
+        X (differentiable) : T
+            4D tensor with shape (batch_size, num_heads, sequence_length, head_size).
+
+        cos_cache (differentiable) : T
+            Cosine cache values for the rotation.
+
+        sin_cache (differentiable) : T
+            Sine cache values for the rotation.
+
+        position_ids (optional, non-differentiable) : tensor(int64)
+            2D tensor with shape (batch_size, sequence_length). Retained in the
+            socket so 4-input ONNX nodes can be parsed and rejected by the
+            ESP-DL support check.
+
+    Outputs
+        Y (differentiable) : T
+            Tensor with the same shape as X.
+    """
+    CEHCK_TYPE(op=op, t='RotaryEmbedding')
+    # Allow opset 1-23 so graphs re-exported at ONNX_EXPORT_OPSET (18) remain valid.
+    CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=23)
+    in_plat = [
+        TargetPlatform.UNSPECIFIED,
+        TargetPlatform.UNSPECIFIED,
+        TargetPlatform.UNSPECIFIED,
+        TargetPlatform.FP32,
+    ]
+    return OpSocket(op=op, in_plat=in_plat[: op.num_of_input], links=[VLink(in_idx=0, out_idx=0)])
+
+
 def Split_Socket(op: OperationBase) -> OpSocket:
     """
     From Opset 1 - 18:
@@ -367,14 +402,16 @@ def Split_Socket(op: OperationBase) -> OpSocket:
 
 def Topk_Socket(op: OperationBase) -> OpSocket:
     """
-    From Opset 1 - 11:
+    From Opset 1 - 23:
 
     Inputs
         X (differentiable) : T
             Tensor of shape [a_1, a_2, ..., a_n, r]
 
-        K (non-differentiable) : tensor(int64)
+        K (opset 10+, non-differentiable) : tensor(int64)
             A 1-D tensor containing a single positive value corresponding to the number of top elements to retrieve
+
+    Opset 1-9 encode K with the required integer attribute ``k``.
 
     Outputs
         Values (differentiable) : T
@@ -386,7 +423,7 @@ def Topk_Socket(op: OperationBase) -> OpSocket:
             containing the corresponding input tensor indices for the top K values.
     """
     CEHCK_TYPE(op=op, t='TopK')
-    CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=11)
+    CHECK_OPSET(op=op, min_version_supported=1, max_version_supported=23)
     in_plat = [TargetPlatform.UNSPECIFIED, TargetPlatform.SOI]
     out_plat = [TargetPlatform.UNSPECIFIED, TargetPlatform.FP32]
     return OpSocket(op=op, in_plat=in_plat[: op.num_of_input], out_plat=out_plat, links=[VLink(in_idx=0, out_idx=0)])
@@ -944,6 +981,7 @@ DEFAULT_SOCKET_TABLE = {
     'Relu': DEFAULT_SOCKET_CREATOR,
     'Reshape': Reshape_Socket,
     'Resize': Resize_Socket,
+    'RotaryEmbedding': RotaryEmbedding_Socket,
     'ScatterElements': ScatterElements_Socket,
     'ScatterND': ScatterND_Socket,
     'Shape': Shape_Socket,
@@ -993,4 +1031,5 @@ DEFAULT_SOCKET_TABLE = {
     'ReverseSequence': ReverseSequence_Socket,
     'Swish': DEFAULT_SOCKET_CREATOR,
     'Attention': DEFAULT_SOCKET_CREATOR,
+    'InverseSigmoid': DEFAULT_SOCKET_CREATOR,
 }

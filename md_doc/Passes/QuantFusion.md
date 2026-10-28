@@ -40,6 +40,60 @@ This Pass is designed for 2 types fusion:
     FIRST input variable and ALL output variables share the same scale(the same scale as its first input).
     The quantization states of all output variables will be set to QuantizationState.OVERLAPPED.
 
+### Graph-output boundary safety
+
+#### Issue
+
+ONNX permits an intermediate value to be both a public graph output and an input of a later operation:
+
+```text
+X -> Conv -> pre_activation -> Relu -> post_activation
+                |
+                +--------------------> graph output
+```
+
+In this graph, `pre_activation` and `post_activation` have different semantics and may both be public outputs.
+The former can contain negative values, while the latter cannot.
+
+The old fusion checks counted only downstream Operations. A public graph output is stored in
+`graph.outputs`; it is not represented as another Operation in `Variable.dest_ops`. Consequently,
+`pre_activation` appeared to have only one consumer (`Relu`) and was incorrectly considered an exclusive
+fusion edge.
+
+This caused two independent problems:
+
+1. `QuantizeFusionPass` made the Conv output TQC depend on the Relu output TQC. The public
+   pre-activation output therefore lost its independent calibration range.
+2. `FuseReluLikePattern` physically removed Relu and replaced the Conv output Variable with
+   `post_activation`. `fuse_downstream_operation()` then removed `pre_activation` from both
+   `graph.variables` and `graph.outputs`, silently changing the model output interface.
+
+The trigger is narrow, but the graph is valid ONNX and the failure is silent. It is therefore treated as a
+low-frequency, high-impact graph-boundary issue. A graph output on `post_activation` is normal and does not
+block fusion; only a public value on the edge being absorbed must block it.
+
+At present, ESP-DL physically fuses `Conv`/`Gemm`/`MatMul -> Relu`. Quantization-level Relu/Clip fusion uses
+the same boundary rule. Clip is not physically removed by the current ESP-DL exporter.
+
+#### Resolution
+
+Before either quantization-config fusion or physical exporter fusion, PPQ now checks the actual edge between
+the upstream operation and the activation:
+
+```python
+downstream in variable.dest_ops and graph.outputs.get(variable.name) is variable
+```
+
+If that edge is a graph output, fusion is skipped. Its TQC, Variable identity, output name and output position
+remain unchanged. Ordinary Conv-like-to-Relu graphs whose pre-activation edge is not public continue to fuse.
+
+The protection is applied at both fusion entry points instead of changing the generic
+`fuse_downstream_operation()` helper, because that helper is also used by layout rewrites with different
+graph-output replacement rules.
+
+Regression coverage verifies both quantization-fusion paths, physical ESP-DL fusion, preservation of both
+public outputs, and the normal non-boundary fusion path.
+
 ### Parameters:
 
 * activation_type(Set[str]):

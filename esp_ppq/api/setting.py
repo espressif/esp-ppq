@@ -349,6 +349,17 @@ class LUTOptimizationSetting:
         ]
 
 
+class RotaryEmbeddingFusionSetting:
+    def __init__(self) -> None:
+        # 是否打印 RoPE 融合、合法化和 SIMD 检查的详细诊断日志。
+        # Whether to print detailed diagnostics during RoPE fusion, legalization, and SIMD checks.
+        self.verbose = False
+
+        # 当 RoPE 合法性检查发现后端不支持的配置时，是否直接抛出异常（False 则仅打印告警）。
+        # Whether to raise an exception when an unsupported RoPE configuration is found (warns when False).
+        self.strict = True
+
+
 class LSQSetting:
     def __init__(self) -> None:
         # should only contain computing ops, if given, ops in interested_layers will be checked and
@@ -524,6 +535,19 @@ class QuantizationSetting:
         # ESP-DL INT16 LUT activation fusion (only effective on ESP-DL INT16 platforms).
         self.lut_optimization = True
         self.lut_optimization_setting = LUTOptimizationSetting()
+
+        # ESP-DL RotaryEmbedding 融合：将 rotate_half 子图重写为 RotaryEmbedding 节点；
+        # 关闭后跳过子图融合，但原生 RotaryEmbedding 节点的合法化检查仍会执行。
+        # ESP-DL RotaryEmbedding fusion: rewrites rotate_half subgraphs into
+        # RotaryEmbedding nodes. Disabling it skips fusion while keeping native
+        # RotaryEmbedding legalization enabled.
+        self.rotary_embedding_fusion = True
+        self.rotary_embedding_fusion_setting = RotaryEmbeddingFusionSetting()
+
+        # ESP-DL InverseSigmoid 融合：在量化前将 inverse_sigmoid 子图融合为单个节点。
+        # ESP-DL InverseSigmoid fusion: fuses the clamped inverse_sigmoid subgraph
+        # into a single InverseSigmoid node before quantization.
+        self.inverse_sigmoid_fusion = True
 
         # extension setting 只是一个空白的占位符，用来向你展示如何创建一个自定义的 setting 并传递参数。
         # extension setting shows you how to create a setting and pass parameter to passes.

@@ -48,6 +48,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
 logger = NaiveLogger.get_logger("ESPDL")
 
 
+def _fusion_edge_is_graph_output(graph: BaseGraph, upstream: Operation, downstream: Operation) -> bool:
+    """Whether an edge between two operations is also a public graph output."""
+    return any(
+        downstream in variable.dest_ops and graph.outputs.get(variable.name) is variable
+        for variable in upstream.outputs
+    )
+
+
 class EspdlQuantHelper:
     """Helper class for processing onnx qdq format"""
 
@@ -101,7 +109,7 @@ def _is_w8a16_mixed_precision_op(op: Operation) -> bool:
 class InsertQuantTypePattern(OperationExporter):
     def export(self, op: Operation, graph: BaseGraph, **kwargs) -> Operation:
         if (
-            op.type in {"Softmax", "LogSoftmax"}
+            op.type in {"Softmax", "LogSoftmax", "Attention"}
             and isinstance(op, QuantableOperation)
             and all(cfg.state == QuantizationStates.FP32 for cfg in op.input_quant_config + op.output_quant_config)
         ):
@@ -400,6 +408,8 @@ class FuseReluLikePattern(OperationExporter):
             if len(downstream_op) == 1:  # the downstream op have only one op and this op is relu
                 # if downstream_op[0].type in ["Relu", "Clip"]:
                 if downstream_op[0].type in ESPDL_CONV_LIKE_FUSED_ACTIVATIONS:
+                    if _fusion_edge_is_graph_output(graph, op, downstream_op[0]):
+                        return op
                     logger.debug(f"fuse {op.type}:{op.name} and {downstream_op[0].type}:{downstream_op[0].name}")
                     conv_quant_config = op.config
                     relu_quant_config = downstream_op[0].config

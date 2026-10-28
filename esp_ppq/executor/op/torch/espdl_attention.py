@@ -812,6 +812,24 @@ def espdl_attention_logit_scale_ineligible_reason(
     return ""
 
 
+def _is_explicit_fp32_attention(op: Operation) -> bool:
+    """True when ``op`` is an explicit FP32 Attention node in a quantized or float graph."""
+    try:
+        from esp_ppq.core.quant import QuantizationStates
+    except ImportError:
+        return getattr(op, "platform", None) == TargetPlatform.FP32
+
+    in_cfg = list(getattr(op, "input_quant_config", None) or ())
+    out_cfg = list(getattr(op, "output_quant_config", None) or ())
+    if not in_cfg and not out_cfg:
+        return getattr(op, "platform", None) == TargetPlatform.FP32
+    if len(in_cfg) < 3 or len(out_cfg) < 1:
+        return False
+    if len(in_cfg) > 3 and getattr(in_cfg[3], "state", None) != QuantizationStates.FP32:
+        return False
+    return all(getattr(cfg, "state", None) == QuantizationStates.FP32 for cfg in (*in_cfg[:3], out_cfg[0]))
+
+
 def espdl_attention_op_logit_scale_ineligible_reason(
     op: Operation, head_dim: int, *, require_scales: bool = False
 ) -> str:
@@ -821,14 +839,27 @@ def espdl_attention_op_logit_scale_ineligible_reason(
     Calibration still executes Attention before scales exist. The
     post-calibration export check passes ``require_scales=True``.
     """
+    if _is_explicit_fp32_attention(op):
+        scale = op.attributes.get("scale")
+        if scale is not None:
+            return espdl_attention_scale_ineligible_reason(scale)
+        if require_scales and head_dim <= 0:
+            return f"head_dim={head_dim} cannot form 1/sqrt(D)"
+        return ""
     in_cfg = getattr(op, "input_quant_config", None) or []
     q_scale = _extract_sym_scale(in_cfg[0]) if len(in_cfg) > 0 else None
     k_scale = _extract_sym_scale(in_cfg[1]) if len(in_cfg) > 1 else None
-    if require_scales and (q_scale is None or k_scale is None):
-        return (
-            "Q/K quantization scales are missing or are not activated "
-            "symmetric per-tensor int8/int16, so logit_scale was not checked"
-        )
+    if require_scales:
+        out_cfg = getattr(op, "output_quant_config", None) or []
+        qkvo = [*in_cfg[:3], *out_cfg[:1]]
+        if len(qkvo) < 4 or any(_extract_sym_scale(cfg) is None for cfg in qkvo):
+            return (
+                "Q/K/V/O quantization scales are missing or are not activated "
+                "symmetric per-tensor int8/int16, so logit_scale was not checked"
+            )
+        bits = {int(getattr(getattr(cfg, "dominated_by", cfg), "num_of_bits", 0)) for cfg in qkvo}
+        if len(bits) != 1:
+            return "Q/K/V/O quantization bit-widths must match"
     return espdl_attention_logit_scale_ineligible_reason(op.attributes.get("scale"), q_scale, k_scale, head_dim)
 
 

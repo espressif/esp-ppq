@@ -133,6 +133,7 @@ class OnnxExporter(GraphExporter):
                         'dominator': config.dominated_by.__hash__(),
                     }
                     for config, var in operation.config_with_variable
+                    if var.name
                 }
 
                 for config, _ in operation.config_with_variable:
@@ -177,6 +178,8 @@ class OnnxExporter(GraphExporter):
             _nodes.append(self.build_operator_proto(op))
 
         for variable in graph.variables.values():
+            if not variable.name:
+                continue
             tensor_proto = self.build_variable_proto(variable)
             if variable.name in graph.inputs:
                 _inputs.append(tensor_proto)

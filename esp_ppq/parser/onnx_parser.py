@@ -13,6 +13,13 @@ from esp_ppq.core import (
 from esp_ppq.IR import BaseGraph, GraphBuilder, Operation, Opset, Variable
 
 
+def _strip_trailing_empty_names(names: List[str]) -> List[str]:
+    end = len(names)
+    while end > 0 and names[end - 1] == '':
+        end -= 1
+    return names[:end]
+
+
 class OnnxParser(GraphBuilder):
     def build_variables(
         self,
@@ -22,13 +29,18 @@ class OnnxParser(GraphBuilder):
         op_inputs: Dict[str, list],
         op_outputs: Dict[str, list],
     ) -> BaseGraph:
+        # Work on local copies so the caller's dicts are never mutated.
+        op_inputs = {name: _strip_trailing_empty_names(list(names)) for name, names in op_inputs.items()}
+        op_outputs = {name: _strip_trailing_empty_names(list(names)) for name, names in op_outputs.items()}
+
         var_list = []
 
-        for op_name, _ in graph.operations.items():
+        for op_name in graph.operations:
             for var_name in op_inputs[op_name]:
                 var_list.append(var_name)
             for var_name in op_outputs[op_name]:
-                var_list.append(var_name)
+                if var_name != '':
+                    var_list.append(var_name)
 
         # create all variable at once.
         for var_name in set(var_list):
@@ -50,11 +62,19 @@ class OnnxParser(GraphBuilder):
             for var_name in op_inputs[op.name]:
                 var = graph.variables[var_name]
                 var.dest_ops.append(op)
-                op.inputs.append(graph.variables[var_name])
+                op.inputs.append(var)
+
             for var_name in op_outputs[op.name]:
-                var = graph.variables[var_name]
-                var.source_op = op
-                op.outputs.append(graph.variables[var_name])
+                if var_name == '':
+                    # Give omitted interior outputs (e.g. GRU ["", "Y_h"]) a
+                    # unique sink variable so multiple ops do not share
+                    # variables[""] as source_op and form a fake cycle.
+                    # create_variable(source_op=op) appends to op.outputs itself.
+                    graph.create_variable(source_op=op)
+                else:
+                    var = graph.variables[var_name]
+                    var.source_op = op
+                    op.outputs.append(var)
         return graph
 
     def initialize_params(self, graph: BaseGraph, initializer: Dict[str, Any]) -> BaseGraph:
