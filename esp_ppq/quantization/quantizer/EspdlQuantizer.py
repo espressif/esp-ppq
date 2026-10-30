@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import math
-import operator
 import re
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Union
 
 import torch
 
@@ -12,36 +10,23 @@ from esp_ppq.api.setting import QuantizationSetting
 from esp_ppq.core import (
     OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE,
     PASSIVE_OPERATIONS,
-    DataType,
     OperationQuantizationConfig,
     QuantizationPolicy,
     QuantizationProperty,
     QuantizationStates,
     RoundingPolicy,
     TargetPlatform,
-    convert_any_to_torch_tensor,
     ppq_warning,
 )
-from esp_ppq.IR import BaseGraph, Operation, Variable
+from esp_ppq.IR import BaseGraph, Operation
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.quantization.optim import (
-    EspdlAttentionFusionPass,
-    EspdlAttentionLegalizePass,
     EspdlLUTFusionPass,
-    EspdlRotaryEmbeddingLegalizePass,
-    InverseSigmoidFusionPass,
     QuantizationOptimizationPipeline,
-    RNNArityNormalizationPass,
-    RotaryEmbeddingFusionPass,
-    espdl_attention_platform_unsupported_reason,
-    finalize_espdl_attention_for_export,
-    finalize_espdl_inverse_sigmoid_for_export,
 )
-from esp_ppq.quantization.optim.espdl_attention import _attention_prequant_needs_trace
-from esp_ppq.quantization.optim.inverse_sigmoid_fusion import _inverse_sigmoid_prequant_needs_trace
-from esp_ppq.quantization.optim.rotary_embedding_fusion import (
-    _finalize_espdl_rotary_embedding_quantization_contract,
-    _rope_prequant_needs_trace,
+from esp_ppq.quantization.optim.espdl_attention import (
+    _NONFINITE_MASK_ADD_KEY,
+    _nonfinite_mask,
 )
 
 from .base import BaseQuantizer
@@ -110,218 +95,6 @@ _W8A16_TO_W16A16 = {
     TargetPlatform.ESPDL_C_W8A16: TargetPlatform.ESPDL_C_INT16,
 }
 _MATMUL_TYPES = {"MatMul", "PPQBiasFusedMatMul"}
-_TOPK_OP_TYPE = "TopK"
-_TOPK_INT_MAX = (1 << 31) - 1
-_TOPK_SUPPORTED_DTYPES = {
-    DataType.INT8,
-    DataType.INT16,
-    DataType.FP32,
-    DataType.FP64,
-}
-
-
-def _topk_integer(value) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    try:
-        return operator.index(value)
-    except TypeError:
-        return None
-
-
-def _topk_concrete_shape(var: Variable) -> Optional[Tuple[int, ...]]:
-    shape = getattr(var, "shape", None)
-    if shape is None:
-        return None
-    result = []
-    for dim in shape:
-        value = _topk_integer(dim)
-        if value is None or value < 0:
-            return None
-        result.append(value)
-    return tuple(result)
-
-
-def _topk_parameter_tensor(var: Variable) -> Optional[torch.Tensor]:
-    if not var.is_parameter or var.value is None:
-        return None
-    try:
-        return convert_any_to_torch_tensor(var.value, accept_none=False, device="cpu")
-    except (RuntimeError, TypeError, ValueError):
-        return None
-
-
-def _topk_dtype_name(dtype) -> str:
-    return getattr(dtype, "name", str(dtype))
-
-
-def _topk_static_unsupported_reason(op: Operation) -> Optional[str]:
-    if op.type != _TOPK_OP_TYPE:
-        return f"expected {_TOPK_OP_TYPE}, got {op.type}"
-
-    version = op.opset.onnx_opset_version()
-    if version < 10 or version > 23:
-        return f"ONNX opset {version} is unsupported by ESP-DL; use opset 10-23 where K is an input"
-    if len(op.inputs) != 2 or len(op.outputs) != 2:
-        return f"expected 2 inputs and 2 outputs, got {len(op.inputs)} and {len(op.outputs)}"
-    if version == 10 and any(name in op.attributes for name in ("largest", "sorted")):
-        return "largest and sorted attributes require ONNX opset 11 or newer"
-
-    axis = _topk_integer(op.attributes.get("axis", -1))
-    if axis is None:
-        return f"axis must be an integer, got {op.attributes.get('axis')!r}"
-    largest = _topk_integer(op.attributes.get("largest", 1))
-    if largest not in (0, 1):
-        return f"largest must be 0 or 1, got {op.attributes.get('largest')!r}"
-    sorted_output = _topk_integer(op.attributes.get("sorted", 1))
-    if sorted_output not in (0, 1):
-        return f"sorted must be 0 or 1, got {op.attributes.get('sorted')!r}"
-
-    x_var, k_var = op.inputs
-    values_var, indices_var = op.outputs
-    if x_var.dtype not in _TOPK_SUPPORTED_DTYPES:
-        return f"X dtype {_topk_dtype_name(x_var.dtype)} is unsupported"
-    if values_var.dtype != x_var.dtype:
-        return f"Values dtype {_topk_dtype_name(values_var.dtype)} must match X dtype {_topk_dtype_name(x_var.dtype)}"
-    if indices_var.dtype != DataType.INT64:
-        return f"Indices dtype must be INT64, got {_topk_dtype_name(indices_var.dtype)}"
-
-    x_shape = _topk_concrete_shape(x_var)
-    if x_shape is None:
-        return "X shape is missing or dynamic"
-    if not x_shape:
-        return "X rank must be at least 1"
-    if any(dim <= 0 for dim in x_shape):
-        return f"X shape must contain only positive dimensions, got {list(x_shape)}"
-    if axis < -len(x_shape) or axis >= len(x_shape):
-        return f"axis {axis} is out of range for rank {len(x_shape)}"
-    normalized_axis = axis % len(x_shape)
-
-    if not k_var.is_parameter:
-        return "K must be a constant parameter, not a runtime input"
-    if k_var.dtype != DataType.INT64:
-        return f"K dtype must be INT64, got {_topk_dtype_name(k_var.dtype)}"
-    k_tensor = _topk_parameter_tensor(k_var)
-    if k_tensor is None:
-        return "K must contain a constant value"
-    if k_tensor.dtype != torch.int64:
-        return f"K storage dtype must be torch.int64, got {k_tensor.dtype}"
-    if tuple(k_tensor.shape) != (1,):
-        return f"K shape must be [1], got {list(k_tensor.shape)}"
-    k = int(k_tensor.item())
-    axis_size = x_shape[normalized_axis]
-    if k <= 0 or k > axis_size:
-        return f"K={k} is out of range (0, axis_size={axis_size}]"
-    if k > _TOPK_INT_MAX:
-        return f"K={k} exceeds ESP-DL's INT_MAX limit"
-
-    expected_shape = list(x_shape)
-    expected_shape[normalized_axis] = k
-    expected_shape = tuple(expected_shape)
-    for role, var in (("Values", values_var), ("Indices", indices_var)):
-        shape = _topk_concrete_shape(var)
-        if shape is None:
-            return f"{role} shape is missing or dynamic"
-        if shape != expected_shape:
-            return f"{role} shape must be {list(expected_shape)}, got {list(shape)}"
-
-    if math.prod(x_shape) > _TOPK_INT_MAX or math.prod(expected_shape) > _TOPK_INT_MAX:
-        return "tensor element count exceeds ESP-DL's INT_MAX indexing limit"
-    return None
-
-
-def _topk_quantization_unsupported_reason(op: QuantableOperation) -> Optional[str]:
-    config = op.config
-    if len(config.input_quantization_config) != 2 or len(config.output_quantization_config) != 2:
-        return "quantization config must contain 2 inputs and 2 outputs"
-
-    k_config = config.input_quantization_config[1]
-    if k_config.state != QuantizationStates.FP32:
-        return f"K quantization state must be FP32, got {k_config.state.name}"
-    if k_config.can_export(export_overlapped=True):
-        return "K quantization config must not be exportable"
-
-    indices_config = config.output_quantization_config[1]
-    if indices_config.state != QuantizationStates.FP32:
-        return f"Indices quantization state must be FP32, got {indices_config.state.name}"
-    if indices_config.can_export(export_overlapped=True):
-        return "Indices quantization config must not be exportable"
-
-    input_config = config.input_quantization_config[0]
-    values_config = config.output_quantization_config[0]
-    if values_config.dominated_by is not input_config.dominated_by:
-        return "Values must share X's quantization configuration"
-
-    def _storage_signature(cfg):
-        return (
-            cfg.state == QuantizationStates.FP32,
-            cfg.policy._policy,
-            cfg.num_of_bits,
-            cfg.exponent_bits,
-            cfg.quant_min,
-            cfg.quant_max,
-        )
-
-    if _storage_signature(values_config) != _storage_signature(input_config):
-        return "Values and X must use the same storage quantization"
-    if input_config.state != QuantizationStates.FP32:
-        policy = input_config.policy
-        if not (
-            policy.has_property(QuantizationProperty.LINEAR)
-            and policy.has_property(QuantizationProperty.SYMMETRICAL)
-            and policy.has_property(QuantizationProperty.PER_TENSOR)
-            and policy.has_property(QuantizationProperty.POWER_OF_2)
-        ):
-            return "X and Values quantization must be symmetric per-tensor linear POWER_OF_2"
-        if input_config.num_of_bits not in (8, 16) or input_config.exponent_bits != 0:
-            return "X and Values quantization must be 8-bit or 16-bit integer"
-    return None
-
-
-def _validate_espdl_topk_static_contract(graph: BaseGraph) -> None:
-    for op in graph.operations.values():
-        if op.type != _TOPK_OP_TYPE:
-            continue
-        reason = _topk_static_unsupported_reason(op)
-        if reason is not None:
-            raise ValueError(f"TopK {op.name}: {reason}")
-
-
-def _validate_espdl_topk_quantization_contract(graph: BaseGraph) -> None:
-    for op in graph.operations.values():
-        if not isinstance(op, QuantableOperation) or op.type != _TOPK_OP_TYPE:
-            continue
-        reason = _topk_quantization_unsupported_reason(op)
-        if reason is not None:
-            raise ValueError(f"TopK {op.name}: {reason}")
-
-
-def finalize_espdl_topk_for_export(graph: BaseGraph) -> None:
-    """Validate static and calibrated ESP-DL TopK deployment contracts."""
-    _validate_espdl_topk_static_contract(graph)
-    _validate_espdl_topk_quantization_contract(graph)
-
-
-def _topk_prequant_needs_trace(graph: BaseGraph) -> bool:
-    for op in graph.operations.values():
-        if op.type != _TOPK_OP_TYPE:
-            continue
-        version = op.opset.onnx_opset_version()
-        if version < 10 or version > 23 or len(op.inputs) != 2 or len(op.outputs) != 2:
-            continue
-        k_var = op.inputs[1]
-        k_tensor = _topk_parameter_tensor(k_var)
-        if (
-            not k_var.is_parameter
-            or k_var.dtype != DataType.INT64
-            or k_tensor is None
-            or k_tensor.dtype != torch.int64
-            or tuple(k_tensor.shape) != (1,)
-        ):
-            continue
-        if any(_topk_concrete_shape(var) is None for var in (op.inputs[0], *op.outputs)):
-            return True
-    return False
 
 
 def _fallback_dynamic_matmul_w8a16_to_w16a16(operation: Operation) -> None:
@@ -343,7 +116,6 @@ def _fallback_dynamic_matmul_w8a16_to_w16a16(operation: Operation) -> None:
 def _var_carries_nonfinite_mask(var) -> bool:
     if var is None:
         return False
-    from esp_ppq.quantization.optim.espdl_attention import _nonfinite_mask
 
     if _nonfinite_mask(var):
         return True
@@ -353,6 +125,8 @@ def _var_carries_nonfinite_mask(var) -> bool:
     if source.type == "Where":
         return any(_var_carries_nonfinite_mask(inp) for inp in source.inputs[1:])
     if source.type == "Add":
+        if source.extension_attrib.get(_NONFINITE_MASK_ADD_KEY, False):
+            return True
         return any(_var_carries_nonfinite_mask(inp) for inp in source.inputs)
     return False
 
@@ -560,111 +334,16 @@ class BaseEspdlQuantizer(BaseQuantizer):
 
         return pipeline
 
-    def build_prequant_pipeline(self, setting: QuantizationSetting, executor) -> QuantizationOptimizationPipeline:
-        """Prepend ESP-DL Attention, RoPE, and InverseSigmoid prequant passes."""
-        pipeline = super().build_prequant_pipeline(setting, executor)
-
-        rope_setting = setting.rotary_embedding_fusion_setting
-        do_rope_fusion = bool(setting.rotary_embedding_fusion)
-        verbose = bool(rope_setting.verbose)
-        strict = bool(rope_setting.strict)
-        dispatchings = setting.dispatching_table.dispatchings
-        explicit_overrides = set(dispatchings).intersection(self._graph.operations)
-        uses_builtin_dispatcher = isinstance(setting.dispatcher, str)
-
-        if setting.inverse_sigmoid_fusion:
-            pipeline.append_optimization_to_pipeline(
-                InverseSigmoidFusionPass(),
-                at_front=True,
-            )
-
-        # ``at_front=True`` reverses insertion order, resulting in:
-        # Attention Fusion -> Attention Legalize -> RoPE Fusion -> RoPE Legalize -> InverseSigmoid Fusion.
-        pipeline.append_optimization_to_pipeline(
-            EspdlRotaryEmbeddingLegalizePass(
-                platform=self.target_platform,
-                strict=strict,
-                verbose=verbose,
-            ),
-            at_front=True,
-        )
-        if do_rope_fusion:
-            pipeline.append_optimization_to_pipeline(
-                RotaryEmbeddingFusionPass(verbose=verbose),
-                at_front=True,
-            )
-
-        pipeline.append_optimization_to_pipeline(
-            EspdlAttentionLegalizePass(platform=self.target_platform, quantized=True),
-            at_front=True,
-        )
-        if setting.espdl_attention_fusion and (
-            espdl_attention_platform_unsupported_reason(self.target_platform) is None
-        ):
-            pipeline.append_optimization_to_pipeline(
-                EspdlAttentionFusionPass(
-                    dispatching_overrides=explicit_overrides,
-                    allow_automatic_fp32_where=uses_builtin_dispatcher,
-                ),
-                at_front=True,
-            )
-
-        # Run before any op-specific fusion/legalization so every downstream pass
-        # sees GRU/LSTM with canonical ONNX arity.
-        pipeline.append_optimization_to_pipeline(RNNArityNormalizationPass(), at_front=True)
-
-        return pipeline
-
-    def quantize(
-        self,
-        inputs: Union[torch.Tensor, list, dict],
-        calib_dataloader,
-        executor,
-        setting: QuantizationSetting,
-        **kwargs,
-    ) -> None:
-        do_rope_fusion = bool(setting.rotary_embedding_fusion)
-        do_attention_fusion = bool(setting.espdl_attention_fusion)
-        do_inverse_sigmoid_fusion = bool(setting.inverse_sigmoid_fusion)
-        needs_attention_trace = _attention_prequant_needs_trace(self._graph, self.target_platform, do_attention_fusion)
-        needs_rope_trace = inputs is not None and _rope_prequant_needs_trace(self._graph, do_fusion=do_rope_fusion)
-        needs_inverse_sigmoid_trace = inputs is not None and _inverse_sigmoid_prequant_needs_trace(
-            self._graph,
-            do_fusion=do_inverse_sigmoid_fusion,
-        )
-        needs_topk_trace = inputs is not None and _topk_prequant_needs_trace(self._graph)
-        if needs_attention_trace or needs_rope_trace or needs_inverse_sigmoid_trace or needs_topk_trace:
-            executor.tracing_operation_meta(inputs=inputs)
-        _validate_espdl_topk_static_contract(self._graph)
-
-        super().quantize(
-            inputs=inputs,
-            calib_dataloader=calib_dataloader,
-            executor=executor,
-            setting=setting,
-            **kwargs,
-        )
-
-        finalize_espdl_inverse_sigmoid_for_export(self._graph)
-        _validate_espdl_topk_quantization_contract(self._graph)
-
-        if any(op.type == "Attention" for op in self._graph.operations.values()):
-            finalize_espdl_attention_for_export(self._graph)
-
-        rope_setting = setting.rotary_embedding_fusion_setting
-        verbose = bool(rope_setting.verbose)
-        strict = bool(rope_setting.strict)
-        _finalize_espdl_rotary_embedding_quantization_contract(
-            self._graph,
-            platform=self.target_platform,
-            verbose=verbose,
-            strict=strict,
-        )
-
     def quantize_operation(self, op_name: str, platform: TargetPlatform = None):
         converting_operation = self._graph.operations[op_name]
         if platform is not None:
             converting_operation.platform = platform
+        # Keep Add in FP32 when an input is bool or carries +/-inf.
+        if converting_operation.type == "Add" and (
+            converting_operation.extension_attrib.get(_NONFINITE_MASK_ADD_KEY, False)
+            or any(_var_carries_nonfinite_mask(var) for var in converting_operation.inputs)
+        ):
+            converting_operation.platform = TargetPlatform.FP32
         _fallback_dynamic_matmul_w8a16_to_w16a16(converting_operation)
         return super().quantize_operation(op_name, platform=converting_operation.platform)
 
@@ -684,9 +363,7 @@ class BaseEspdlQuantizer(BaseQuantizer):
             raise KeyError(f"EspdlQuantizer do not support operation platform : {operation.platform}.")
 
         config = self.create_espdl_quant_config(operation, num_of_bits, quant_min, quant_max, bias_bits)
-        # Where or an upstream -inf mask Add can introduce -inf. Quantizing that
-        # tensor drops the mask to a finite value and the histogram observer
-        # rejects a non-finite range. Leave the consumer input in fp32.
+        # Keep inputs carrying non-finite mask values in FP32.
         for index, var in enumerate(operation.inputs):
             if not _var_carries_nonfinite_mask(var):
                 continue

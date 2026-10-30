@@ -28,7 +28,6 @@ from esp_ppq.core import (
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph
 from esp_ppq.log import NaiveLogger
-from esp_ppq.parser.espdl_exporter import EspdlExporter
 from esp_ppq.quantization.analyse import graphwise_error_analyse
 from esp_ppq.quantization.analyse.layerwise import layerwise_error_analyse
 from esp_ppq.quantization.optim import *
@@ -403,13 +402,9 @@ def espdl_quantize_onnx(
             )
     else:
         # support TargetPlatform.FP32
-        ppq_graph = EspdlExporter.prepare_graph_for_float_export(
-            load_onnx_graph(onnx_import_file=onnx_import_file),
-            platform=get_target_platform(target, "w8a8"),
-            inputs=dummy_inputs,
-            device=device,
-            setting=setting,
-        )
+        ppq_graph = load_onnx_graph(onnx_import_file=onnx_import_file)
+        executor = TorchExecutor(graph=ppq_graph, device=device)
+        executor.tracing_operation_meta(inputs=dummy_inputs)
         target_platform = TargetPlatform.ESPDL_INT8
 
     # ------------------------------------------------------------

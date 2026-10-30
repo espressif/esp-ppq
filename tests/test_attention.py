@@ -39,6 +39,40 @@ def _silence_export_logs():
         yield
 
 
+def _load_unformatted_attention_graph(path: str):
+    """Load an ONNX graph and run non-attention formatting commands."""
+    from esp_ppq.api import load_graph
+    from esp_ppq.IR import GraphCommand, GraphCommandType, GraphFormatter, GraphMerger, GraphReplacer
+
+    graph = load_graph(path)
+    formatter = GraphReplacer(GraphFormatter(GraphMerger(graph)))
+    formatter(GraphCommand(GraphCommandType.FORMAT_CONSTANT_INPUT))
+    formatter(GraphCommand(GraphCommandType.CONVERT_TO_TENSOR))
+    formatter(GraphCommand(GraphCommandType.FORMAT_PARAMETERS))
+    formatter(GraphCommand(GraphCommandType.FORMAT_RNN_OUTPUT_ARITY))
+    formatter(GraphCommand(GraphCommandType.FORMAT_CAST))
+    formatter(GraphCommand(GraphCommandType.FORMAT_SLICE))
+    formatter(GraphCommand(GraphCommandType.FORMAT_CLIP))
+    formatter(GraphCommand(GraphCommandType.FORMAT_PAD))
+    formatter(GraphCommand(GraphCommandType.FORMAT_RESIZE))
+    formatter(GraphCommand(GraphCommandType.REMOVE_IDENTITY))
+    return graph
+
+
+def _prepare_native_attention_graph(graph, platform=None, quantized=False, **kwargs):
+    """Test adapter for the private native-node construction primitive."""
+    from esp_ppq.quantization.optim.espdl_attention import _prepare_native_espdl_attention_ops
+
+    native = [op for op in graph.operations.values() if op.type == "Attention"]
+    return _prepare_native_espdl_attention_ops(
+        graph,
+        native,
+        platform=platform,
+        quantized=quantized,
+        **kwargs,
+    )
+
+
 def _export_trace_and_fuse(module, args, input_names, output_names=("out",)):
     """Export, trace, then fuse. Returns ``(graph, feed)``."""
     import os
@@ -115,10 +149,6 @@ class TestEligibility(unittest.TestCase):
         )
         op = _attention_op()
         self.assertEqual(espdl_attention_op_logit_scale_ineligible_reason(op, 32), "")
-        self.assertIn(
-            "logit_scale was not checked",
-            espdl_attention_op_logit_scale_ineligible_reason(op, 32, require_scales=True),
-        )
 
     def test_accepts_plain_self_attention(self):
         op = _attention_op()
@@ -510,19 +540,6 @@ class TestPrimitiveFusion(unittest.TestCase):
         attention = next(op for op in graph.operations.values() if op.type == "Attention")
         self.assertEqual(attention.platform, TargetPlatform.FP32)
 
-    def test_mixed_platform_runtime_chain_is_not_fused(self):
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
-
-        for mismatched_name in ("kT", "qk", "scale", "bias", "sm", "pv"):
-            with self.subTest(mismatched_name=mismatched_name):
-                graph = self._platform_graph(TargetPlatform.FP32)
-                graph.operations[mismatched_name].platform = TargetPlatform.UNSPECIFIED
-                original_ops = set(graph.operations)
-                fuse_espdl_attention_graph(graph)
-                self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
-                self.assertEqual(set(graph.operations), original_ops)
-
     def test_plain_matmul_softmax_matmul(self):
         class M(torch.nn.Module):
             def forward(self, q, k, v, mask):
@@ -815,78 +832,13 @@ class TestWhereMaskFusion(unittest.TestCase):
         self.assertEqual(attentions[0].num_of_input, 4, "fused Attention should carry a mask")
         self.assertEqual(len(wheres), 0, "the Where op must be detached after fusion")
         self.assertAlmostEqual(attentions[0].attributes["scale"], 0.25, places=6)
-        # Materialized fp32 mask comes from a new Constant op (activation-shaped)
-        # so remove_operation does not strip its value when the intermediate Add
-        # is detached during fusion.
         mask_var = attentions[0].inputs[3]
-        self.assertFalse(getattr(mask_var, "is_parameter", False))
-        self.assertIsNotNone(mask_var.source_op, "mask should be produced by a Constant")
-        self.assertEqual(mask_var.source_op.type, "Constant")
-        mask_val = mask_var.source_op.attributes["value"]
-        self.assertEqual(mask_val.dtype, torch.float32)
-        # Every position: 0 where keep is True, -inf where keep is False.
-        expected_mask = torch.where(
-            keep, torch.zeros_like(keep, dtype=torch.float32), torch.full_like(keep, float("-inf"), dtype=torch.float32)
-        )
-        torch.testing.assert_close(mask_val, expected_mask)
+        self.assertTrue(mask_var.is_parameter)
+        self.assertIsNone(mask_var.source_op)
+        mask_val = mask_var.value
+        self.assertEqual(mask_val.dtype, torch.bool)
+        torch.testing.assert_close(mask_val, keep)
         torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
-
-    def test_fp32_where_override_is_not_confused_with_dispatcher_fallback(self):
-        import os
-        import tempfile
-
-        from esp_ppq.api import load_onnx_graph
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
-
-        keep = torch.tril(torch.ones(self.L, self.L, dtype=torch.bool)).view(1, 1, self.L, self.L)
-
-        class M(torch.nn.Module):
-            def __init__(self, keep):
-                super().__init__()
-                self.register_buffer("keep", keep)
-
-            def forward(self, q, k, v):
-                scores = torch.matmul(q, k.transpose(-1, -2))
-                masked = torch.where(self.keep, scores, torch.tensor(float("-inf")))
-                return torch.matmul(torch.softmax(masked, -1), v)
-
-        args = (self.q, self.k, self.v)
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "static_where.onnx")
-            with _silence_export_logs():
-                torch.onnx.export(
-                    M(keep),
-                    args,
-                    path,
-                    input_names=["q", "k", "v"],
-                    output_names=["out"],
-                    opset_version=18,
-                )
-            for explicit_override in (False, True):
-                with self.subTest(explicit_override=explicit_override):
-                    graph = load_onnx_graph(path)
-                    feed = [dict(zip(("q", "k", "v"), args))[name] for name in graph.inputs]
-                    TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=feed)
-                    for op in graph.operations.values():
-                        op.platform = TargetPlatform.UNSPECIFIED
-                    where = next(op for op in graph.operations.values() if op.type == "Where")
-                    where.platform = TargetPlatform.FP32
-                    overrides = {where.name} if explicit_override else set()
-                    fuse_espdl_attention_graph(
-                        graph,
-                        dispatching_overrides=overrides,
-                        allow_automatic_fp32_where=True,
-                    )
-                    attentions = [op for op in graph.operations.values() if op.type == "Attention"]
-                    if explicit_override:
-                        self.assertEqual(attentions, [])
-                        add = next(op for op in graph.operations.values() if op.type == "Add")
-                        self.assertEqual(add.platform, TargetPlatform.FP32)
-                    else:
-                        self.assertEqual(len(attentions), 1)
-                        self.assertEqual(attentions[0].platform, TargetPlatform.UNSPECIFIED)
 
     def test_where_true_is_neg_inf_folds_to_additive_mask(self):
         """``Where(cond, -inf, scores)`` — cond True masks, False keeps."""
@@ -909,12 +861,11 @@ class TestWhereMaskFusion(unittest.TestCase):
         self.assertEqual(attentions[0].num_of_input, 4)
         self.assertEqual(len(wheres), 0)
         mask_var = attentions[0].inputs[3]
-        self.assertEqual(mask_var.source_op.type, "Constant")
-        mask_val = mask_var.source_op.attributes["value"]
-        expected_mask = torch.where(
-            drop, torch.full_like(drop, float("-inf"), dtype=torch.float32), torch.zeros_like(drop, dtype=torch.float32)
-        )
-        torch.testing.assert_close(mask_val, expected_mask)
+        self.assertTrue(mask_var.is_parameter)
+        self.assertIsNone(mask_var.source_op)
+        mask_val = mask_var.value
+        self.assertEqual(mask_val.dtype, torch.bool)
+        torch.testing.assert_close(mask_val, ~drop)
         torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
 
     def test_runtime_cond_falls_back_to_matmul_softmax(self):
@@ -1585,10 +1536,7 @@ class TestFusionGuards(unittest.TestCase):
         from esp_ppq.api import load_onnx_graph
         from esp_ppq.core import TargetPlatform
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
 
         def save(path, nodes, inputs, initializers=()):
             graph = helper.make_graph(
@@ -1695,27 +1643,24 @@ class TestFusionGuards(unittest.TestCase):
 
             for label, path, input_shapes, expect_attention in cases:
                 with self.subTest(label=label):
-                    graph = load_onnx_graph(path)
-                    self.assertTrue(all(var.shape is None for var in graph.inputs.values()))
-                    self.assertTrue(all(not hasattr(var, "_onnx_shape") for var in graph.variables.values()))
-                    # Without traced shapes, no candidate fuses.
+                    graph = _load_unformatted_attention_graph(path)
+                    for name, expected_shape in input_shapes.items():
+                        self.assertEqual(graph.inputs[name].shape, expected_shape)
+                    for var in graph.variables.values():
+                        if not var.is_parameter:
+                            var.shape = None
+                    # Without shapes, no candidate fuses.
                     fuse_espdl_attention_graph(graph)
                     self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
-                    if all(s is not None for s in input_shapes.values()):
-                        feed = [torch.zeros(input_shapes[name]) for name in graph.inputs.keys()]
-                        TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=feed)
-                    else:
-                        for name, s in input_shapes.items():
-                            graph.inputs[name].shape = s
-                    fuse_espdl_attention_graph(graph)
+                    graph = load_onnx_graph(path)
                     fused = any(op.type == "Attention" for op in graph.operations.values())
                     self.assertEqual(fused, expect_attention)
                     if expect_attention:
-                        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+                        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
                         self.assertTrue(any(op.type == "Attention" for op in graph.operations.values()))
 
-    def test_prequant_fuses_rank4_and_rank3_and_leaves_rank2(self):
-        """Loading does not fuse. Prequant fuses perm length 3 and 4 and leaves 2."""
+    def test_format_graph_fuses_rank4_and_rank3_and_leaves_rank2(self):
+        """format_graph fuses perm length 3 and 4 and leaves 2."""
         import os
         import tempfile
 
@@ -1750,7 +1695,10 @@ class TestFusionGuards(unittest.TestCase):
                             dynamo=False,
                         )
                         loaded = load_onnx_graph(path)
-                    self.assertFalse(any(op.type == "Attention" for op in loaded.operations.values()))
+                    self.assertEqual(
+                        any(op.type == "Attention" for op in loaded.operations.values()),
+                        label in ("rank4", "rank3"),
+                    )
                     sample = [feed[name] for name in loaded.inputs.keys()]
                     with _silence_export_logs():
                         quantized = quantize_onnx_model(
@@ -1771,9 +1719,10 @@ class TestFusionGuards(unittest.TestCase):
                     self.assertTrue(any(op.type == "Softmax" for op in quantized.operations.values()))
 
     def test_attention_fusion_setting_controls_quantized_and_fp32_export(self):
-        """The same setting must disable primitive fusion on both export paths."""
+        """FORMATTER_FUSE_ATTENTION controls primitive fusion in format_graph."""
         import os
         import tempfile
+        from unittest import mock
 
         from esp_ppq.api import quantize_onnx_model
         from esp_ppq.api.espdl_interface import espdl_quantize_onnx
@@ -1788,8 +1737,10 @@ class TestFusionGuards(unittest.TestCase):
         q = torch.randn(1, 2, 8, 16)
         sample = [q, q.clone(), q.clone()]
         setting = QuantizationSettingFactory.espdl_setting()
-        setting.espdl_attention_fusion = False
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("esp_ppq.api.interface.FORMATTER_FUSE_ATTENTION", False),
+        ):
             path = os.path.join(tmp, "m.onnx")
             with _silence_export_logs():
                 torch.onnx.export(
@@ -1941,10 +1892,7 @@ class TestFusionGuards(unittest.TestCase):
         from esp_ppq.core import TargetPlatform
         from esp_ppq.executor import TorchExecutor
         from esp_ppq.quantization.optim import espdl_attention as fusion_mod
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
 
         B, H, L, D = 1, 2, 8, 16
         q = torch.randn(B, H, L, D)
@@ -1965,7 +1913,7 @@ class TestFusionGuards(unittest.TestCase):
                 TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=feed)
                 with patch.object(fusion_mod.logger, "info") as mock_info:
                     fuse_espdl_attention_graph(graph)
-                    legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+                    _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
         info_messages = " | ".join(call.args[0] for call in mock_info.call_args_list if call.args)
         self.assertIn("Where(mask)", info_messages)
 
@@ -2082,9 +2030,7 @@ class TestDeployabilityGuard(unittest.TestCase):
         return graph
 
     def setUp(self):
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
-
-        self.check = legalize_espdl_attention_graph
+        self.check = _prepare_native_attention_graph
 
     def test_accepts_eligible_attention(self):
         self.check(self._graph_with([[1, 4, 16, 32]] * 3))
@@ -2190,7 +2136,7 @@ class TestDeployabilityGuard(unittest.TestCase):
             self.check(self._graph_with([None, None, None]))
         self.assertIn("shapes are still", str(ctx.exception))
 
-    def test_tracing_rescues_shapes_before_legalize(self):
+    def test_tracing_rescues_shapes_before_prepare(self):
         graph = self._graph_with([None, None, None])
 
         class _Executor:
@@ -2218,8 +2164,7 @@ class TestDeployabilityGuard(unittest.TestCase):
         self.check(graph)
         attn = [op for op in graph.operations.values() if op.type == "Attention"]
         self.assertEqual(len(attn), 1)
-        self.assertEqual(attn[0].attributes.get("softcap"), 0.0)
-        self.assertEqual(attn[0].attributes.get("is_causal"), 0)
+        self.assertEqual(attn[0].attributes, {})
 
     def test_non_default_window_is_refused_not_decomposed(self):
         graph = self._graph_with([[1, 4, 16, 32]] * 3, {"left_window_size": 8})
@@ -2246,33 +2191,19 @@ class TestDeployabilityGuard(unittest.TestCase):
             self.check(graph)
         self.assertIn("com.microsoft", str(ctx.exception).lower())
 
-    def test_quantize_runs_legalize_then_finalize(self):
+    def test_quantize_uses_one_attention_preparation_pass(self):
         from unittest import mock
 
         from esp_ppq.api.setting import QuantizationSettingFactory
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.IR import BaseGraph
-        from esp_ppq.quantization.optim.espdl_attention import (
-            EspdlAttentionFusionPass,
-            EspdlAttentionLegalizePass,
-        )
-        from esp_ppq.quantization.optim.rnn_arity_normalization import (
-            RNNArityNormalizationPass,
-        )
+        from esp_ppq.IR import BaseGraph, GraphMerger
         from esp_ppq.quantization.quantizer.base import BaseQuantizer
         from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
 
         graph = self._graph_with([[1, 4, 16, 32]] * 3)
-        quantizer = BaseEspdlQuantizer(graph)
         executor = mock.Mock(name="executor")
         inputs = mock.Mock(name="inputs")
         setting = QuantizationSettingFactory.espdl_setting()
-        passes = list(quantizer.build_prequant_pipeline(setting, executor))
-        self.assertIsInstance(passes[0], RNNArityNormalizationPass)
-        self.assertIsInstance(passes[1], EspdlAttentionFusionPass)
-        self.assertIsInstance(passes[2], EspdlAttentionLegalizePass)
-        self.assertEqual(passes[2].platform, TargetPlatform.ESPDL_INT8)
-        self.assertTrue(passes[2].quantized)
 
         order = []
         with (
@@ -2281,151 +2212,63 @@ class TestDeployabilityGuard(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: order.append("fuse"),
             ),
             mock.patch(
-                "esp_ppq.quantization.optim.espdl_attention.legalize_espdl_attention_graph",
-                side_effect=lambda *args, **kwargs: order.append("legalize"),
-            ) as legalize,
+                "esp_ppq.quantization.optim.espdl_attention._prepare_native_espdl_attention_ops",
+                side_effect=lambda *args, **kwargs: order.append("prepare"),
+            ) as prepare,
         ):
-            passes[1].optimize(graph, executor=executor, inputs=inputs)
-            passes[2].optimize(graph, executor=executor, inputs=inputs)
-        self.assertEqual(order, ["fuse", "legalize"])
-        self.assertIs(legalize.call_args.args[0], graph)
-        self.assertEqual(legalize.call_args.kwargs["platform"], TargetPlatform.ESPDL_INT8)
-        self.assertTrue(legalize.call_args.kwargs["quantized"])
-        self.assertIs(legalize.call_args.kwargs["executor"], executor)
-        self.assertIs(legalize.call_args.kwargs["inputs"], inputs)
+            GraphMerger(graph).fuse_attention()
+        self.assertEqual(order, ["fuse", "prepare"])
+        self.assertIs(prepare.call_args.args[0], graph)
+        self.assertEqual(prepare.call_args.args[1], [graph.operations["attn"]])
+        self.assertFalse(prepare.call_args.kwargs["log_report"])
 
         def run(target):
             seen = []
             runner = BaseEspdlQuantizer(target)
-            with (
-                mock.patch(
-                    "esp_ppq.quantization.quantizer.EspdlQuantizer.finalize_espdl_attention_for_export",
-                    side_effect=lambda *args, **kwargs: seen.append("finalize"),
-                ) as finalize,
-                mock.patch.object(BaseQuantizer, "quantize", side_effect=lambda *args, **kwargs: seen.append("super")),
-            ):
+            with mock.patch.object(BaseQuantizer, "quantize", side_effect=lambda *args, **kwargs: seen.append("super")):
                 runner.quantize(inputs, calib_dataloader=None, executor=executor, setting=setting)
-            return seen, finalize
+            return seen
 
-        seen, finalize = run(graph)
-        self.assertEqual(seen, ["super", "finalize"])
-        self.assertEqual(finalize.call_args.args, (graph,))
-        self.assertEqual(finalize.call_args.kwargs, {})
+        self.assertEqual(run(graph), ["super"])
 
         plain = BaseGraph(name="plain")
         plain.create_operation(op_type="Relu", name="relu")
-        seen, finalize = run(plain)
-        self.assertEqual(seen, ["super"])
-        finalize.assert_not_called()
+        self.assertEqual(run(plain), ["super"])
 
-    def test_quantize_traces_the_quantize_inputs_before_prequant(self):
+    def test_ensure_traced_shapes_traces_inputs_when_shapes_are_incomplete(self):
         from unittest import mock
 
-        from esp_ppq.api.setting import QuantizationSettingFactory
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.IR import BaseGraph
         from esp_ppq.quantization.optim.espdl_attention import _ensure_traced_shapes
-        from esp_ppq.quantization.quantizer.base import BaseQuantizer
-        from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
 
-        graph = BaseGraph(name="unshaped_attention_candidate")
-        q_in = graph.create_variable(name="q")
-        k_in = graph.create_variable(name="k")
-        v_in = graph.create_variable(name="v")
-        for var in (q_in, k_in, v_in):
-            graph.mark_variable_as_graph_input(var)
-        kt_var = graph.create_variable(name="kt")
-        scores_var = graph.create_variable(name="scores")
-        probs_var = graph.create_variable(name="probs")
-        out = graph.create_variable(name="out")
-        graph.create_operation(
-            op_type="Transpose", name="kT", attributes={"perm": [0, 1, 3, 2]}, inputs=[k_in], outputs=[kt_var]
-        )
-        graph.create_operation(op_type="MatMul", name="qk", inputs=[q_in, kt_var], outputs=[scores_var])
-        graph.create_operation(
-            op_type="Softmax", name="sm", attributes={"axis": -1}, inputs=[scores_var], outputs=[probs_var]
-        )
-        graph.create_operation(op_type="MatMul", name="pv", inputs=[probs_var, v_in], outputs=[out])
-        graph.mark_variable_as_graph_output(out)
-
-        order = []
+        unshaped_attention = self._graph_with([None, None, None])
         inputs = object()
         executor = mock.Mock()
-        executor.tracing_operation_meta.side_effect = lambda **kwargs: order.append(("trace", kwargs["inputs"]))
-        setting = QuantizationSettingFactory.espdl_setting()
-        runner = BaseEspdlQuantizer(graph)
-        with mock.patch.object(
-            BaseQuantizer,
-            "quantize",
-            side_effect=lambda *args, **kwargs: order.append(("super", kwargs["inputs"])),
-        ):
-            runner.quantize(inputs, calib_dataloader=[object()], executor=executor, setting=setting)
-        self.assertEqual(order, [("trace", inputs), ("super", inputs)])
+        _ensure_traced_shapes(unshaped_attention, executor=executor, inputs=inputs)
+        executor.tracing_operation_meta.assert_called_once_with(inputs=inputs)
 
-        classifier = BaseGraph(name="classifier_softmax")
-        cls_in = classifier.create_variable(name="in")
-        classifier.mark_variable_as_graph_input(cls_in)
-        cls_out = classifier.create_variable(name="out")
-        classifier.create_operation(op_type="Softmax", name="sm", inputs=[cls_in], outputs=[cls_out])
-        classifier.mark_variable_as_graph_output(cls_out)
-        cls_executor = mock.Mock()
-        with mock.patch.object(BaseQuantizer, "quantize"):
-            BaseEspdlQuantizer(classifier).quantize(
-                inputs, calib_dataloader=[object()], executor=cls_executor, setting=setting
-            )
-        cls_executor.tracing_operation_meta.assert_not_called()
+        helper_executor = mock.Mock()
+        _ensure_traced_shapes(self._graph_with([None, None, None]), executor=helper_executor, dataloader=[object()])
+        helper_executor.tracing_operation_meta.assert_not_called()
 
         shaped = self._graph_with([[1, 4, 16, 32]] * 3)
         shaped_executor = mock.Mock()
-        with (
-            mock.patch.object(BaseQuantizer, "quantize"),
-            mock.patch("esp_ppq.quantization.quantizer.EspdlQuantizer.finalize_espdl_attention_for_export"),
-        ):
-            BaseEspdlQuantizer(shaped).quantize(
-                inputs, calib_dataloader=None, executor=shaped_executor, setting=setting
-            )
+        _ensure_traced_shapes(shaped, executor=shaped_executor, inputs=inputs)
         shaped_executor.tracing_operation_meta.assert_not_called()
 
-        helper_executor = mock.Mock()
-        _ensure_traced_shapes(graph, executor=helper_executor, dataloader=[object()])
-        helper_executor.tracing_operation_meta.assert_not_called()
-
-        with mock.patch.object(
-            BaseEspdlQuantizer,
-            "target_platform",
-            new_callable=mock.PropertyMock,
-            return_value=TargetPlatform.PPL_CUDA_INT8,
-        ):
-            softmax_only = mock.Mock()
-            with mock.patch.object(BaseQuantizer, "quantize"):
-                BaseEspdlQuantizer(graph).quantize(
-                    inputs, calib_dataloader=[object()], executor=softmax_only, setting=setting
-                )
-            softmax_only.tracing_operation_meta.assert_not_called()
-
-            unshaped_attention = self._graph_with([None, None, None])
-            attention_executor = mock.Mock()
-            with (
-                mock.patch.object(BaseQuantizer, "quantize"),
-                mock.patch("esp_ppq.quantization.quantizer.EspdlQuantizer.finalize_espdl_attention_for_export"),
-            ):
-                BaseEspdlQuantizer(unshaped_attention).quantize(
-                    inputs, calib_dataloader=None, executor=attention_executor, setting=setting
-                )
-            attention_executor.tracing_operation_meta.assert_called_once_with(inputs=inputs)
-
-    def test_prequant_trace_decomposes_oversized_native_attention_without_espdl_kernel(self):
+    def test_format_graph_decomposes_oversized_native_attention_without_espdl_kernel(self):
         from unittest import mock
 
         from esp_ppq.api.setting import QuantizationSettingFactory
         from esp_ppq.core import TargetPlatform
         from esp_ppq.executor import TorchExecutor
+        from esp_ppq.IR import GraphMerger
         from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
 
         dim = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
         sample = torch.randn(1, 2, 4, dim)
-        graph = self._graph_with([None, None, None])
+        graph = self._graph_with([[1, 2, 4, dim]] * 3)
         graph.operations["attn"].platform = TargetPlatform.ESPDL_INT8
+        GraphMerger(graph).fuse_attention()
         quantizer = BaseEspdlQuantizer(graph)
         executor = TorchExecutor(graph=graph, device="cpu")
 
@@ -2434,7 +2277,6 @@ class TestDeployabilityGuard(unittest.TestCase):
             [sample.clone(), sample.clone(), sample.clone()],
         ]
         setting = QuantizationSettingFactory.espdl_setting()
-        setting.espdl_attention_fusion = False
         with mock.patch(
             "esp_ppq.executor.op.torch.default.espdl_attention_forward",
             side_effect=AssertionError("oversized native Attention must not call espdl_attention_forward"),
@@ -2452,15 +2294,16 @@ class TestDeployabilityGuard(unittest.TestCase):
         self.assertTrue(any(op.type == "Softmax" for op in graph.operations.values()))
         self.assertEqual(graph.outputs["out"].shape, [1, 2, 4, dim])
 
-    def test_prequant_trace_handles_downstream_shape_reshape_and_gather_after_oversized_attention(self):
+    def test_format_graph_handles_downstream_shape_reshape_and_gather_after_oversized_attention(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.IR import BaseGraph
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
+        from esp_ppq.executor import TorchExecutor
+        from esp_ppq.IR import BaseGraph, GraphMerger
 
         dim = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
         graph = BaseGraph(name="oversized_attention_tail")
         q, k, v = (graph.create_variable(name=name) for name in ("q", "k", "v"))
         for var in (q, k, v):
+            var.shape = [1, 2, 4, dim]
             graph.mark_variable_as_graph_input(var)
         attention_out = graph.create_variable(name="attention_out")
         shape = graph.create_variable(name="shape")
@@ -2503,79 +2346,47 @@ class TestDeployabilityGuard(unittest.TestCase):
         graph.mark_variable_as_graph_output(out)
 
         sample = torch.randn(1, 2, 4, dim)
-        EspdlExporter.prepare_graph_for_float_export(
-            graph,
-            platform=TargetPlatform.ESPDL_INT8,
-            inputs=[sample, sample.clone(), sample.clone()],
-            device="cpu",
-        )
+        GraphMerger(graph).fuse_attention()
+        TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=[sample, sample.clone(), sample.clone()])
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
         self.assertEqual(attention_out.shape, [1, 2, 4, dim])
         self.assertEqual(shape.shape, [4])
         self.assertEqual(reshaped.shape, [1, 2, 4, dim])
         self.assertEqual(out.shape, [1, 2, dim])
 
-    def test_float_prepare_skips_legalize_without_attention(self):
+    def test_float_prepare_skips_native_preparation_without_attention(self):
         from unittest import mock
 
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.IR import BaseGraph
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
+        from esp_ppq.IR import BaseGraph, GraphMerger
         from esp_ppq.quantization.optim import espdl_attention
 
         graph = BaseGraph(name="mobilenet_like")
         graph.create_operation(op_type="Relu", name="relu")
-        with (
-            mock.patch.object(espdl_attention, "legalize_espdl_attention_graph") as legalize,
-            mock.patch("esp_ppq.parser.espdl_exporter.TorchExecutor") as executor_cls,
-        ):
-            executor_cls.return_value.tracing_operation_meta.return_value = None
-            EspdlExporter.prepare_graph_for_float_export(
-                graph,
-                platform=TargetPlatform.ESPDL_INT8,
-                inputs=torch.zeros(1, 3, 224, 224),
-                device="cpu",
-            )
-            legalize.assert_not_called()
+        with mock.patch.object(espdl_attention, "_prepare_native_espdl_attention_ops") as prepare:
+            GraphMerger(graph).fuse_attention()
+            prepare.assert_not_called()
 
-    @staticmethod
-    def _capture_decompose_logs(check_fn, graph):
-        # NaiveLogger prints directly to the module logger's methods; patching
-        # ``info`` / ``warning`` on the module logger is the least-fragile
-        # way to observe the routing (assertLogs sees nothing because the
-        # logger never reaches Python's logging framework).
-        from unittest import mock
+    def test_oversized_head_dim_reason_names_both_knobs(self):
+        from esp_ppq.executor.op.torch.espdl_attention import espdl_attention_ineligible_reason
 
-        from esp_ppq.quantization.optim import espdl_attention
+        shapes = [[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3
+        graph = self._graph_with(shapes)
+        reason = espdl_attention_ineligible_reason(graph.operations["attn"], shapes)
+        self.assertIn("ESP_DL_ATTENTION_MAX_HEAD_DIM", reason)
+        self.assertIn("ESPDL_ATTENTION_MAX_HEAD_DIM", reason)
+        self.check(graph)
+        self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
 
-        captured = {"info": [], "warning": []}
-        with (
-            mock.patch.object(espdl_attention.logger, "info", side_effect=captured["info"].append),
-            mock.patch.object(espdl_attention.logger, "warning", side_effect=captured["warning"].append),
-        ):
-            check_fn(graph)
-        return captured
+    def test_oversized_lk_reason_names_both_knobs(self):
+        from esp_ppq.executor.op.torch.espdl_attention import espdl_attention_ineligible_reason
 
-    def test_oversized_head_dim_decompose_warns_with_both_knobs(self):
-        # Silent decompose is a UX gotcha: if the device raised
-        # ESP_DL_ATTENTION_MAX_HEAD_DIM to 128 but the export
-        # environment stayed on the default 64, fusion silently drops out.
-        # WARNING + both knob names in the reason lets the user notice and fix.
-        graph = self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3)
-        logs = self._capture_decompose_logs(self.check, graph)
-        self.assertTrue(logs["warning"], "expected a WARNING-level decompose notice")
-        joined = "\n".join(logs["warning"])
-        self.assertIn("expanded to MatMul/Softmax", joined)
-        self.assertIn("ESP_DL_ATTENTION_MAX_HEAD_DIM", joined)
-        self.assertIn("ESPDL_ATTENTION_MAX_HEAD_DIM", joined)
-
-    def test_oversized_lk_decompose_warns_with_both_knobs(self):
-        graph = self._graph_with([[1, 4, ESPDL_ATTENTION_MAX_KV_TOKENS + 1, 32]] * 3)
-        logs = self._capture_decompose_logs(self.check, graph)
-        self.assertTrue(logs["warning"], "expected a WARNING-level decompose notice")
-        joined = "\n".join(logs["warning"])
-        self.assertIn("ESP_DL_ATTENTION_MAX_KV_TOKENS", joined)
-        self.assertIn("ESPDL_ATTENTION_MAX_KV_TOKENS", joined)
+        shapes = [[1, 4, ESPDL_ATTENTION_MAX_KV_TOKENS + 1, 32]] * 3
+        graph = self._graph_with(shapes)
+        reason = espdl_attention_ineligible_reason(graph.operations["attn"], shapes)
+        self.assertIn("ESP_DL_ATTENTION_MAX_KV_TOKENS", reason)
+        self.assertIn("ESPDL_ATTENTION_MAX_KV_TOKENS", reason)
+        self.check(graph)
+        self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
 
 
 def _activate_qk_scales(graph, scale=2**-8):
@@ -2623,35 +2434,27 @@ def _activate_qk_scales(graph, scale=2**-8):
     return graph
 
 
-class TestAttentionFinalizeGate(unittest.TestCase):
-    """Post-calibration ``logit_scale`` check. Shape and platform stay in legalize."""
+class TestAttentionExecutorContract(unittest.TestCase):
+    """Attention follows generic fake quantization and checks usable Q/K scales locally."""
 
     _graph_with = staticmethod(TestDeployabilityGuard._graph_with)
 
-    def setUp(self):
-        from esp_ppq.quantization.optim import finalize_espdl_attention_for_export
+    @staticmethod
+    def _run(graph):
+        from esp_ppq.executor.op.torch.espdl_attention import espdl_attention_forward
 
-        self.gate = finalize_espdl_attention_for_export
+        op = graph.operations["attn"]
+        values = [torch.randn(1, 4, 16, 32) for _ in range(3)]
+        return espdl_attention_forward(op, values)
 
-    def test_accepts_eligible_attention(self):
-        self.gate(_activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3)))
+    def test_accepts_calibrated_attention(self):
+        out = self._run(_activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3)))
+        self.assertEqual(tuple(out[0].shape), (1, 4, 16, 32))
 
-    def test_missing_qk_scale_is_rejected(self):
-        with self.assertRaises(ValueError) as ctx:
-            self.gate(self._graph_with([[1, 4, 16, 32]] * 3))
-        self.assertIn("logit_scale was not checked", str(ctx.exception))
-
-    def test_overflowing_qk_scale_is_rejected(self):
-        graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3), scale=float(2**80))
-        with self.assertRaises(ValueError) as ctx:
-            self.gate(graph)
-        message = str(ctx.exception)
-        self.assertIn("logit_scale", message)
-        self.assertNotIn("was not checked", message)
-
-    def test_unusable_qk_scale_is_rejected(self):
+    def test_missing_or_unusable_scales_use_generic_reference(self):
         from esp_ppq.core import QuantizationPolicy, QuantizationProperty, QuantizationStates
 
+        self.assertEqual(tuple(self._run(self._graph_with([[1, 4, 16, 32]] * 3))[0].shape), (1, 4, 16, 32))
         per_channel = QuantizationPolicy(
             QuantizationProperty.SYMMETRICAL
             + QuantizationProperty.LINEAR
@@ -2666,43 +2469,37 @@ class TestAttentionFinalizeGate(unittest.TestCase):
             with self.subTest(name=name):
                 graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
                 mutate(graph.operations["attn"])
-                with self.assertRaises(ValueError) as ctx:
-                    self.gate(graph)
-                self.assertIn("logit_scale was not checked", str(ctx.exception))
+                self.assertEqual(tuple(self._run(graph)[0].shape), (1, 4, 16, 32))
 
-    def test_ignores_other_op_types(self):
-        from esp_ppq.IR import BaseGraph
+    def test_overflowing_available_qk_scale_is_rejected_by_executor(self):
+        graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3), scale=float(2**80))
+        with self.assertRaises(ValueError) as ctx:
+            self._run(graph)
+        self.assertIn("logit_scale", str(ctx.exception))
 
-        graph = BaseGraph(name="g")
-        graph.create_operation(op_type="MatMul", name="mm")
-        self.gate(graph)
+    def test_mixed_storage_quantization_uses_generic_reference(self):
+        from esp_ppq.core import QuantizationStates
 
-    def test_does_not_repeat_legalize_checks(self):
-        graph = _activate_qk_scales(self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3))
-        self.gate(graph)
-        self.assertTrue(any(op.type == "Attention" for op in graph.operations.values()))
-        self.assertFalse(any(op.type == "MatMul" for op in graph.operations.values()))
+        cases = (
+            ("mixed_v_bits", lambda op: setattr(op.input_quant_config[2], "num_of_bits", 16)),
+            ("mixed_o_bits", lambda op: setattr(op.output_quant_config[0], "num_of_bits", 16)),
+            ("fp32_v_only", lambda op: setattr(op.input_quant_config[2], "state", QuantizationStates.FP32)),
+        )
+        for name, mutate in cases:
+            with self.subTest(name=name):
+                graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
+                mutate(graph.operations["attn"])
+                self.assertEqual(tuple(self._run(graph)[0].shape), (1, 4, 16, 32))
 
-    def test_accepts_explicit_fp32_attention_and_marks_f32_quant_type(self):
+    def test_explicit_fp32_attention_marks_f32_quant_type(self):
         from esp_ppq.core import QuantizationStates, TargetPlatform
         from esp_ppq.parser.espdl.espdl_typedef import EspQuantType
         from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern
-
-        fp32_graph = self._graph_with([[1, 4, 16, 32]] * 3)
-        fp32_graph.operations["attn"].platform = TargetPlatform.FP32
-        self.gate(fp32_graph)
-
-        bad_fp32_graph = self._graph_with([[1, 4, 16, 32]] * 3, {"scale": 0.0})
-        bad_fp32_graph.operations["attn"].platform = TargetPlatform.FP32
-        with self.assertRaises(ValueError) as ctx:
-            self.gate(bad_fp32_graph)
-        self.assertIn("finite, positive, normal float32", str(ctx.exception))
 
         dequant_graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
         attn_op = dequant_graph.operations["attn"]
         for cfg in attn_op.input_quant_config + attn_op.output_quant_config:
             cfg.state = QuantizationStates.FP32
-        self.gate(dequant_graph)
         InsertQuantTypePattern().export(attn_op, dequant_graph)
         self.assertEqual(attn_op.attributes["quant_type"], EspQuantType.F32)
 
@@ -2741,26 +2538,6 @@ class TestAttentionFinalizeGate(unittest.TestCase):
             self.assertTrue(os.path.isfile(espdl_path))
             self.assertGreater(os.path.getsize(espdl_path), 0)
 
-    def test_rejects_mixed_storage_quantization(self):
-        from esp_ppq.core import QuantizationStates
-
-        cases = (
-            ("mixed_v_bits", lambda op: setattr(op.input_quant_config[2], "num_of_bits", 16), "bit-widths must match"),
-            ("mixed_o_bits", lambda op: setattr(op.output_quant_config[0], "num_of_bits", 16), "bit-widths must match"),
-            (
-                "fp32_v_only",
-                lambda op: setattr(op.input_quant_config[2], "state", QuantizationStates.FP32),
-                "logit_scale was not checked",
-            ),
-        )
-        for name, mutate, expected in cases:
-            with self.subTest(name=name):
-                graph = _activate_qk_scales(self._graph_with([[1, 4, 16, 32]] * 3))
-                mutate(graph.operations["attn"])
-                with self.assertRaises(ValueError) as ctx:
-                    self.gate(graph)
-                self.assertIn(expected, str(ctx.exception))
-
 
 class TestAttentionPlatformGate(unittest.TestCase):
     """Every esp-dl chip keeps an eligible fused Attention. Other platforms expand it."""
@@ -2794,8 +2571,8 @@ class TestAttentionPlatformGate(unittest.TestCase):
             self.assertIsNone(espdl_attention_platform_unsupported_reason(TargetPlatform[name]), name)
         reason = espdl_attention_platform_unsupported_reason(TargetPlatform.FP32)
         self.assertIn("FP32", reason)
-        self.assertIn("no esp-dl Attention kernel", reason)
-        self.assertIn("ESP-DL target platform", reason)
+        self.assertIn("no Attention kernel in the current implementation", reason)
+        self.assertNotIn("esp-dl", reason.lower())
         self.assertNotIn("ESP32-P4 only", reason)
 
     def test_target_strings_map_as_expected(self):
@@ -2812,10 +2589,9 @@ class TestAttentionPlatformGate(unittest.TestCase):
         from esp_ppq.core import TargetPlatform
         from esp_ppq.parser.espdl.espdl_typedef import EspQuantType
         from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = self._graph_with([[1, 4, 16, 32]] * 3)
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_W8A16, quantized=True)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_W8A16, quantized=True)
         (op,) = [o for o in graph.operations.values() if o.type == "Attention"]
         op.platform = TargetPlatform.ESPDL_W8A16
         InsertQuantTypePattern().export(op, graph)
@@ -2823,25 +2599,22 @@ class TestAttentionPlatformGate(unittest.TestCase):
 
     def test_eligible_node_is_kept_on_s3_and_c(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         for platform in (TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT16):
             graph = self._graph_with([[1, 4, 16, 32]] * 3)
-            legalize_espdl_attention_graph(graph, platform=platform)
+            _prepare_native_attention_graph(graph, platform=platform)
             self.assertIn("Attention", self._types(graph), platform.name)
 
     def test_eligible_node_is_kept_on_p4(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = self._graph_with([[1, 4, 16, 32]] * 3)
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT16)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT16)
         self.assertIn("Attention", self._types(graph))
 
     def test_expansion_without_the_module_matches_attention_forward(self):
         from esp_ppq.core import TargetPlatform
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         torch.manual_seed(5)
         q = torch.randn(1, 4, 16, 32)
@@ -2852,25 +2625,23 @@ class TestAttentionPlatformGate(unittest.TestCase):
         graph, feed = TestAttentionDecompose._graph(q, k, v, {"scale": 0.2}, mask=mask)
         ordered = [feed[n] for n in graph.inputs.keys()]
         golden = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.FP32)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.FP32)
         self.assertNotIn("Attention", self._types(graph))
         got = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
         torch.testing.assert_close(got, golden, rtol=1e-4, atol=1e-4)
 
     def test_unexpandable_node_raises_with_platform_reason(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = self._graph_with([[1, 4, 16, 32]] * 3, num_inputs=5)
         with self.assertRaises(ValueError) as ctx:
-            legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_C_INT8)
+            _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_C_INT8)
         message = str(ctx.exception)
         self.assertIn("KV cache", message)
         self.assertNotIn("ESPDL_C_INT8", message)
 
     def test_expanded_compute_stays_quantizable(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         def with_const_mask(value):
             graph = self._graph_with([[1, 4, 16, 32]] * 3)
@@ -2899,15 +2670,15 @@ class TestAttentionPlatformGate(unittest.TestCase):
         for make in cases:
             with self.subTest(make=make):
                 graph = make()
-                legalize_espdl_attention_graph(graph, platform=TargetPlatform.FP32, quantized=True)
+                _prepare_native_attention_graph(graph, platform=TargetPlatform.FP32, quantized=True)
                 assert_compute_quantizable(graph)
 
                 graph = make()
-                legalize_espdl_attention_graph(graph, platform=TargetPlatform.FP32)
+                _prepare_native_attention_graph(graph, platform=TargetPlatform.FP32)
                 self.assertNotIn("Attention", self._types(graph))
 
         finite = with_const_mask(torch.zeros(1, 1, 16, 16).masked_fill(~bool_mask, -1e4))
-        legalize_espdl_attention_graph(finite, platform=TargetPlatform.FP32, quantized=True)
+        _prepare_native_attention_graph(finite, platform=TargetPlatform.FP32, quantized=True)
         self.assertNotIn("Attention", self._types(finite))
         for op in finite.operations.values():
             if op.type in {"MatMul", "Softmax", "Add", "Mul"}:
@@ -2915,15 +2686,14 @@ class TestAttentionPlatformGate(unittest.TestCase):
 
         for platform in (TargetPlatform.ESPDL_S3_INT8, TargetPlatform.ESPDL_C_INT8, TargetPlatform.ESPDL_INT8):
             graph = self._graph_with([[1, 4, 16, 32]] * 3, {"is_causal": 1})
-            legalize_espdl_attention_graph(graph, platform=platform, quantized=True)
+            _prepare_native_attention_graph(graph, platform=platform, quantized=True)
             self.assertIn("Attention", self._types(graph), platform.name)
         graph = self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3, {"is_causal": 1})
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_S3_INT8, quantized=True)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_S3_INT8, quantized=True)
         assert_compute_quantizable(graph)
 
     def test_where_folded_inf_mask_stays_fp32_when_expanded(self):
         from esp_ppq.core import DataType, TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3)
         op = graph.operations["attn"]
@@ -2934,20 +2704,13 @@ class TestAttentionPlatformGate(unittest.TestCase):
             torch.zeros(16, 16, dtype=torch.float32),
             torch.full((16, 16), float("-inf")),
         )
-        mask_out = graph.create_variable(name="folded_mask", value=mask, is_parameter=False)
+        mask_out = graph.create_variable(name="folded_mask", value=mask, is_parameter=True)
         mask_out.shape = list(mask.shape)
         mask_out.dtype = DataType.FP32
-        const = graph.create_operation(
-            op_type="Constant",
-            name="folded_mask_const",
-            attributes={"value": mask},
-            platform=TargetPlatform.FP32,
-            inputs=[],
-            outputs=[mask_out],
-        )
-        graph.create_link_with_op(const, op, mask_out)
+        op.inputs.append(mask_out)
+        mask_out.dest_ops.append(op)
 
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
         self.assertNotIn("Attention", self._types(graph))
         adds = [item for item in graph.operations.values() if item.type == "Add"]
         self.assertTrue(adds)
@@ -2957,126 +2720,68 @@ class TestAttentionPlatformGate(unittest.TestCase):
             if item.type in {"MatMul", "Softmax"}:
                 self.assertEqual(item.platform, TargetPlatform.ESPDL_INT8, item.name)
 
-    def test_legalize_keeps_quantized_causal(self):
+    def test_prepare_keeps_quantized_causal(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = self._graph_with([[1, 4, 16, 32]] * 3, {"is_causal": 1})
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_S3_INT16, quantized=True)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_S3_INT16, quantized=True)
         self.assertIn("Attention", self._types(graph))
 
     def test_constant_bool_mask_expansion_cleans_orphan_and_keeps_fp32_add(self):
         from esp_ppq.core import DataType, TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
-        for via_constant_op in (False, True):
-            with self.subTest(via_constant_op=via_constant_op):
-                graph = self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3)
-                op = graph.operations["attn"]
-                op.platform = TargetPlatform.ESPDL_INT8
-                # All-True bool mask converts to all-zero float32 additive mask, so
-                # _nonfinite_mask must inspect the bool mask before _additive_mask detaches Constant.
-                keep = torch.ones(16, 16, dtype=torch.bool)
-                if via_constant_op:
-                    mask_var = graph.create_variable(name="bool_mask", value=None, is_parameter=False)
-                    mask_var.shape = list(keep.shape)
-                    mask_var.dtype = DataType.BOOL
-                    const = graph.create_operation(
-                        op_type="Constant",
-                        name="bool_mask_const",
-                        attributes={"value": keep},
-                        platform=TargetPlatform.FP32,
-                        inputs=[],
-                        outputs=[mask_var],
-                    )
-                    graph.create_link_with_op(const, op, mask_var)
-                else:
-                    mask_var = graph.create_variable(name="bool_mask", value=keep, is_parameter=True)
-                    mask_var.shape = list(keep.shape)
-                    mask_var.dtype = DataType.BOOL
-                    op.inputs.append(mask_var)
-                    mask_var.dest_ops.append(op)
+        graph = self._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3)
+        op = graph.operations["attn"]
+        op.platform = TargetPlatform.ESPDL_INT8
+        keep = torch.ones(16, 16, dtype=torch.bool)
+        mask_var = graph.create_variable(name="bool_mask", value=keep, is_parameter=True)
+        mask_var.shape = list(keep.shape)
+        mask_var.dtype = DataType.BOOL
+        op.inputs.append(mask_var)
+        mask_var.dest_ops.append(op)
 
-                legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
-                self.assertNotIn("Attention", self._types(graph))
-                self.assertNotIn("bool_mask", graph.variables)
-                adds = [item for item in graph.operations.values() if item.type == "Add"]
-                self.assertEqual(len(adds), 1)
-                self.assertEqual(adds[0].platform, TargetPlatform.FP32)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
+        self.assertNotIn("Attention", self._types(graph))
+        self.assertNotIn("bool_mask", graph.variables)
+        adds = [item for item in graph.operations.values() if item.type == "Add"]
+        self.assertEqual(len(adds), 1)
+        self.assertEqual(adds[0].platform, TargetPlatform.FP32)
 
 
 class TestAttentionApiConstraints(unittest.TestCase):
-    """Architecture lint. These tests read source text on purpose.
+    """Verify positive wiring of Attention formatting, quantization, and FP32 export."""
 
-    A rename or a moved call fails them. That is the signal: Attention must
-    stay off the shared quantizer API. Call order is covered separately by
-    ``TestDeployabilityGuard.test_quantize_runs_legalize_then_finalize``.
-    ``inspect.getsource`` on a function wrapped with ``empty_ppq_cache``
-    returns the wrapper, so those checks read the module source instead.
-    """
-
-    def test_attention_passes_live_on_espdl_quantizer_prequant_pipeline(self):
+    def test_attention_fusion_runs_from_graph_merger(self):
         import inspect
 
-        from esp_ppq.quantization.quantizer.base import BaseQuantizer
-        from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
+        from esp_ppq.IR import GraphMerger
+        from esp_ppq.quantization.optim import espdl_attention
 
-        # Attention passes are esp-dl-specific and live on BaseEspdlQuantizer,
-        # not on BaseQuantizer (which is shared with ORT / TRT / OpenVINO / ...).
-        base_source = inspect.getsource(BaseQuantizer.build_prequant_pipeline)
-        self.assertNotIn("legalize_espdl_attention_graph", base_source)
-        self.assertNotIn("EspdlAttentionFusionPass", base_source)
-        base_quantize = inspect.getsource(BaseQuantizer.quantize)
-        self.assertNotIn("legalize_espdl_attention_graph", base_quantize)
+        private_prepare = inspect.getsource(espdl_attention._prepare_native_espdl_attention_ops)
+        self.assertIn("for op in list(attention_ops)", private_prepare)
 
-        espdl_pre = inspect.getsource(BaseEspdlQuantizer.build_prequant_pipeline)
-        self.assertIn("EspdlAttentionLegalizePass", espdl_pre)
-        self.assertIn("EspdlAttentionFusionPass", espdl_pre)
-        self.assertLess(espdl_pre.index("EspdlAttentionLegalizePass"), espdl_pre.index("EspdlAttentionFusionPass"))
-        quant_source = inspect.getsource(BaseEspdlQuantizer.build_quant_pipeline)
-        self.assertNotIn("finalize_espdl_attention_for_export", quant_source)
-        self.assertNotIn("EspdlAttentionFusionPass", quant_source)
+        merger_source = inspect.getsource(GraphMerger.fuse_attention)
+        self.assertIn("format_espdl_attention_graph", merger_source)
 
-    def test_fp32_path_checks_too(self):
+    def test_fp32_path_uses_the_same_preparation_pass(self):
         import inspect
 
         from esp_ppq.api import espdl_interface
-
-        # getsource(espdl_quantize_onnx) returns the empty_ppq_cache wrapper
-        source = inspect.getsource(espdl_interface)
-        before_quantize = source.split("ppq_graph = quantize_onnx_model(")[0]
-        self.assertNotIn("EspdlAttentionFusionPass", before_quantize)
-        self.assertNotIn("legalize_espdl_attention_graph", source)
-        self.assertNotIn("espdl_attention_test_value", source)
-        self.assertNotIn("espdl_embedded_test_value_simulation", source)
-        gen_src = inspect.getsource(espdl_interface.generate_test_value)
-        self.assertIn("executor.forward", gen_src)
         from esp_ppq.api.interface import format_graph
 
+        source = inspect.getsource(espdl_interface)
+        gen_src = inspect.getsource(espdl_interface.generate_test_value)
+        self.assertIn("executor.forward", gen_src)
+
         format_source = inspect.getsource(format_graph)
-        self.assertNotIn("GraphCommandType.FUSE_ATTENTION", format_source)
-        self.assertNotIn("fuse_espdl_attention_graph", format_source)
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
+        self.assertIn("GraphCommandType.FUSE_ATTENTION", format_source)
 
         fp32_branch = source.split("# support TargetPlatform.FP32")[1].split("if not skip_export")[0]
-        self.assertIn("prepare_graph_for_float_export", fp32_branch)
         self.assertIn("load_onnx_graph", fp32_branch)
-        self.assertNotIn("quantize_onnx_model", fp32_branch)
-        float_prep = inspect.getsource(EspdlExporter.prepare_graph_for_float_export)
-        self.assertIn("EspdlAttentionFusionPass", float_prep)
-        self.assertIn("tracing_operation_meta", float_prep)
-        fusion_call = float_prep.index("EspdlAttentionFusionPass()")
-        self.assertLess(float_prep.index("tracing_operation_meta"), fusion_call)
-        self.assertLess(fusion_call, float_prep.index("legalize_espdl_attention_graph("))
-        self.assertIn('op.type == "Attention"', float_prep)
-        self.assertIn("legalize_espdl_attention_graph(", float_prep)
-        self.assertIn("quantized=False", float_prep)
-        self.assertNotIn("finalize_espdl_attention_for_export", float_prep)
-        self.assertNotIn("fuse_primitives", float_prep)
+        self.assertIn("tracing_operation_meta", fp32_branch)
 
-    def test_espdl_quantize_legalizes_before_pipeline(self):
-        import inspect
-
+    def test_espdl_quantize_prepares_before_generic_pipeline(self):
+        from esp_ppq.quantization.quantizer.base import BaseQuantizer
         from esp_ppq.quantization.quantizer.EspdlQuantizer import (
             BaseEspdlQuantizer,
             EspdlCQuantizer,
@@ -3084,21 +2789,8 @@ class TestAttentionApiConstraints(unittest.TestCase):
             EspdlS3Quantizer,
         )
 
-        quantize_source = inspect.getsource(BaseEspdlQuantizer.quantize)
-        self.assertNotIn("EspdlAttentionFusionPass", quantize_source)
-        self.assertNotIn("legalize_espdl_attention_graph", quantize_source)
-        self.assertIn("tracing_operation_meta", quantize_source)
-        self.assertLess(
-            quantize_source.index("tracing_operation_meta"),
-            quantize_source.index("super().quantize"),
-        )
-        self.assertIn("finalize_espdl_attention_for_export", quantize_source)
-        prequant_source = inspect.getsource(BaseEspdlQuantizer.build_prequant_pipeline)
-        self.assertIn("EspdlAttentionFusionPass", prequant_source)
-        self.assertIn("EspdlAttentionLegalizePass", prequant_source)
-        for cls in (EspdlQuantizer, EspdlS3Quantizer, EspdlCQuantizer):
-            self.assertIs(cls.quantize, BaseEspdlQuantizer.quantize, cls.__name__)
-            self.assertIs(cls.build_prequant_pipeline, BaseEspdlQuantizer.build_prequant_pipeline, cls.__name__)
+        for cls in (BaseEspdlQuantizer, EspdlQuantizer, EspdlS3Quantizer, EspdlCQuantizer):
+            self.assertIs(cls.quantize, BaseQuantizer.quantize, cls.__name__)
 
 
 class TestAttentionDecompose(unittest.TestCase):
@@ -3139,12 +2831,11 @@ class TestAttentionDecompose(unittest.TestCase):
 
     def _parity(self, q, k, v, attrs=None, mask=None):
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph, feed = self._graph(q, k, v, attrs, mask)
         ordered = [feed[n] for n in graph.inputs.keys()]
         golden = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
-        legalize_espdl_attention_graph(graph)
+        _prepare_native_attention_graph(graph)
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
         got = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
         torch.testing.assert_close(got, golden, rtol=1e-4, atol=1e-4)
@@ -3173,7 +2864,6 @@ class TestAttentionDecompose(unittest.TestCase):
 
     def test_bnhd_matches_permuted_sdpa(self):
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         torch.manual_seed(3)
         b, n, h, d = 1, 6, 3, ESPDL_ATTENTION_MAX_HEAD_DIM + 1
@@ -3181,7 +2871,7 @@ class TestAttentionDecompose(unittest.TestCase):
         k = q.clone()
         v = q.clone()
         graph, feed = self._graph(q, k, v, {"layout": "BNHD"})
-        legalize_espdl_attention_graph(graph)
+        _prepare_native_attention_graph(graph)
         ordered = [feed[name] for name in graph.inputs.keys()]
         got = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
         q4 = q.permute(0, 2, 1, 3)
@@ -3193,13 +2883,12 @@ class TestAttentionDecompose(unittest.TestCase):
 
     def test_fused_bnhd_matches_permuted_sdpa(self):
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         torch.manual_seed(4)
         b, n, h, d = 1, 8, 4, 32
         q = torch.randn(b, n, h, d)
         graph, feed = self._graph(q, q.clone(), q.clone(), {"layout": "BNHD"})
-        legalize_espdl_attention_graph(graph)
+        _prepare_native_attention_graph(graph)
         self.assertTrue(any(op.type == "Attention" for op in graph.operations.values()))
         ordered = [feed[name] for name in graph.inputs.keys()]
         got = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
@@ -3506,7 +3195,8 @@ class TestConstantMaskFusion(unittest.TestCase):
         self.assertTrue(fused_mask.is_parameter)
         self.assertIn(fused_mask.name, graph.variables)
         self.assertIn(attentions[0], fused_mask.dest_ops)
-        torch.testing.assert_close(fused_mask.value, mask)
+        self.assertEqual(fused_mask.value.dtype, torch.bool)
+        torch.testing.assert_close(fused_mask.value, mask == 0)
         orphans = [
             var.name
             for var in graph.variables.values()
@@ -3551,25 +3241,22 @@ class TestFp32PathFusion(unittest.TestCase):
     def _run(self, mask, platform, fuse=True):
         import os
         import tempfile
+        from unittest import mock
 
         from esp_ppq.api import load_onnx_graph
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch("esp_ppq.api.interface.FORMATTER_FUSE_ATTENTION", fuse),
+        ):
             path = os.path.join(tmp, "m.onnx")
             feed, golden = _primitive_attention_onnx(path, mask)
             graph = load_onnx_graph(path)
             ordered = [feed[n] for n in graph.inputs.keys()]
             executor = TorchExecutor(graph=graph, device="cpu")
             executor.tracing_operation_meta(inputs=ordered)
-            if fuse:
-                fuse_espdl_attention_graph(graph, executor=executor, inputs=ordered)
-            legalize_espdl_attention_graph(graph, platform=platform, quantized=False, executor=executor, inputs=ordered)
-            out = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)[0]
+            out = executor.forward(inputs=ordered)[0]
             torch.testing.assert_close(out, golden, rtol=1e-4, atol=1e-4)
             return [op for op in graph.operations.values() if op.type == "Attention"]
 
@@ -3595,10 +3282,7 @@ class TestFp32PathFusion(unittest.TestCase):
 
     def test_graph_output_mask_and_scale_parameter_remain_intact(self):
         from esp_ppq.core import DataType, TargetPlatform
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
 
         graph = TestDeployabilityGuard._graph_with([[1, 4, 8, 16]] * 3 + [[1, 1, 8, 8]], num_inputs=4)
         mask_var = graph.operations["attn"].inputs[3]
@@ -3607,7 +3291,7 @@ class TestFp32PathFusion(unittest.TestCase):
         mask_var.dtype = DataType.FP32
         graph.mark_variable_as_graph_output(mask_var)
 
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
         self.assertEqual(mask_var.dtype, DataType.FP32)
         self.assertTrue(mask_var.value.is_floating_point())
         self.assertIs(graph.outputs[mask_var.name], mask_var)
@@ -3659,7 +3343,6 @@ class TestFp32PathFusion(unittest.TestCase):
 
     def test_shared_mask_is_not_compacted(self):
         from esp_ppq.core import DataType, TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
 
         graph = TestDeployabilityGuard._graph_with([[1, 4, 16, 32]] * 3)
         op = graph.operations["attn"]
@@ -3668,27 +3351,20 @@ class TestFp32PathFusion(unittest.TestCase):
         graph.create_link_with_op(None, op, var)
         var.shape = list(mask.shape)
         var.dest_ops.append(graph.create_operation(op_type="Identity", name="other"))
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8)
         self.assertEqual(op.inputs[3].dtype, DataType.FP32)
 
 
 class TestFusionDecision(unittest.TestCase):
-    """Fusion judges a match with legalize's rule before touching the graph, and
-    the export summary reports every outcome once."""
+    """Fusion judges a match with the preparation rule before touching the graph."""
 
     @staticmethod
-    def _export_and_legalize(module, feed, platform, output_names=("out",)):
+    def _export_and_prepare(module, feed, platform, output_names=("out",)):
         import os
         import tempfile
-        from unittest import mock
 
         from esp_ppq.api import load_onnx_graph
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim import espdl_attention
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "m.onnx")
@@ -3703,17 +3379,11 @@ class TestFusionDecision(unittest.TestCase):
                     dynamo=False,
                 )
             graph = load_onnx_graph(path)
-        ordered = [feed[n] for n in graph.inputs.keys()]
-        TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=ordered)
-        logs = {"info": [], "warning": []}
-        with (
-            mock.patch.object(espdl_attention.logger, "info", side_effect=logs["info"].append),
-            mock.patch.object(espdl_attention.logger, "warning", side_effect=logs["warning"].append),
-        ):
-            fuse_espdl_attention_graph(graph)
-            legalize_espdl_attention_graph(graph, platform=platform, quantized=False)
+            ordered = [feed[n] for n in graph.inputs.keys()]
+            executor = TorchExecutor(graph=graph, device="cpu")
+            executor.tracing_operation_meta(inputs=ordered)
         outputs = TorchExecutor(graph=graph, device="cpu").forward(inputs=ordered)
-        return graph, logs, outputs
+        return graph, outputs
 
     @staticmethod
     def _build_attention_model(scale=4.0):
@@ -3723,17 +3393,13 @@ class TestFusionDecision(unittest.TestCase):
 
         return M()
 
-    def test_fused_node_is_kept_and_summarised(self):
+    def test_fused_node_is_kept(self):
         from esp_ppq.core import TargetPlatform
 
         torch.manual_seed(0)
         feed = {n: torch.randn(1, 2, 8, 16) for n in "qkv"}
-        graph, logs, _ = self._export_and_legalize(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
+        graph, _ = self._export_and_prepare(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
         self.assertEqual(sum(op.type == "Attention" for op in graph.operations.values()), 1)
-        self.assertEqual(logs["warning"], [])
-        self.assertEqual(len(logs["info"]), 1)
-        self.assertIn("1 Attention kept for the device kernel (1 fused from MatMul/Softmax)", logs["info"][0])
-        self.assertNotIn("expanded", logs["info"][0])
 
     def test_rejected_bnhd_match_leaves_graph_untouched(self):
         from esp_ppq.core import TargetPlatform
@@ -3747,30 +3413,24 @@ class TestFusionDecision(unittest.TestCase):
         B, H, L, D = 1, 2, 8, 16
         feed = {"q": torch.randn(B, H, L, D), "k_bnhd": torch.randn(B, L, H, D), "v": torch.randn(B, H, L, D)}
         golden = M()(*feed.values())
-        graph, _, outputs = self._export_and_legalize(
-            M(), feed, TargetPlatform.ESPDL_INT8, output_names=("out", "scores")
-        )
+        graph, outputs = self._export_and_prepare(M(), feed, TargetPlatform.ESPDL_INT8, output_names=("out", "scores"))
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
         perms = [list(op.attributes["perm"]) for op in graph.operations.values() if op.type == "Transpose"]
         self.assertEqual(perms, [[0, 2, 3, 1]])
         for out, ref in zip(outputs, golden):
             torch.testing.assert_close(out, ref, rtol=1e-4, atol=1e-4)
 
-    def test_oversized_head_dim_is_left_with_actionable_warning(self):
+    def test_oversized_head_dim_is_left_unfused(self):
         from esp_ppq.core import TargetPlatform
 
         torch.manual_seed(0)
         feed = {n: torch.randn(1, 2, 8, ESPDL_ATTENTION_MAX_HEAD_DIM * 2) for n in "qkv"}
-        graph, logs, _ = self._export_and_legalize(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
+        graph, _ = self._export_and_prepare(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
-        self.assertEqual(len(logs["warning"]), 1)
-        self.assertIn("left as MatMul/Softmax", logs["warning"][0])
-        self.assertIn("ESP_DL_ATTENTION_MAX_HEAD_DIM", logs["warning"][0])
-        self.assertIn("ESPDL_ATTENTION_MAX_HEAD_DIM", logs["warning"][0])
+        self.assertTrue(any(op.type == "MatMul" for op in graph.operations.values()))
+        self.assertTrue(any(op.type == "Softmax" for op in graph.operations.values()))
 
-    def test_ceiling_hidden_behind_another_reason_is_info(self):
-        # head_dim is over the ceiling, but the reported reason is the fp16 mask;
-        # raising the knob would not fuse it, so no WARNING.
+    def test_fp16_mask_is_left_unfused(self):
         from esp_ppq.core import TargetPlatform
 
         class M(torch.nn.Module):
@@ -3780,21 +3440,16 @@ class TestFusionDecision(unittest.TestCase):
 
         torch.manual_seed(0)
         feed = {n: torch.randn(1, 2, 8, ESPDL_ATTENTION_MAX_HEAD_DIM * 2, dtype=torch.float16) for n in "qkv"}
-        graph, logs, _ = self._export_and_legalize(M(), feed, TargetPlatform.ESPDL_INT8)
+        graph, _ = self._export_and_prepare(M(), feed, TargetPlatform.ESPDL_INT8)
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
-        self.assertEqual(logs["warning"], [])
-        self.assertIn("attn_mask dtype FP16", "\n".join(logs["info"]))
+        self.assertTrue(any(op.type == "MatMul" for op in graph.operations.values()))
 
     def test_untraced_match_raises_without_shape_trace(self):
         import os
         import tempfile
 
-        from esp_ppq.api import load_onnx_graph
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
+        from esp_ppq.IR import GraphMerger
 
         feed = {n: torch.randn(1, 2, 8, 16) for n in "qkv"}
         with tempfile.TemporaryDirectory() as tmp:
@@ -3809,30 +3464,30 @@ class TestFusionDecision(unittest.TestCase):
                     opset_version=18,
                     dynamo=False,
                 )
-                graph = load_onnx_graph(path)
-            # Without traced shapes, MatMul/Softmax stays unfused (never half-fuses
-            # from static ONNX input value_info).
-            fuse_espdl_attention_graph(graph)
-            legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+            graph = _load_unformatted_attention_graph(path)
+            for var in graph.variables.values():
+                if not var.is_parameter:
+                    var.shape = None
+            # Without shapes, MatMul/Softmax stays unfused.
+            GraphMerger(graph).fuse_attention()
             self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
 
-            # A native Attention without traced shapes raises in legalize.
+            # A native Attention without traced shapes raises during preparation.
             attn_graph = TestDeployabilityGuard._graph_with([None, None, None])
         with self.assertRaises(ValueError) as ctx:
-            legalize_espdl_attention_graph(attn_graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+            _prepare_native_attention_graph(
+                attn_graph,
+                platform=TargetPlatform.ESPDL_INT8,
+                quantized=False,
+            )
         self.assertIn("shapes are still", str(ctx.exception))
 
     def test_untraced_match_is_fused_after_trace(self):
         import os
         import tempfile
 
-        from esp_ppq.api import load_onnx_graph
-        from esp_ppq.core import TargetPlatform
         from esp_ppq.executor import TorchExecutor
-        from esp_ppq.quantization.optim.espdl_attention import (
-            fuse_espdl_attention_graph,
-            legalize_espdl_attention_graph,
-        )
+        from esp_ppq.quantization.optim.espdl_attention import fuse_espdl_attention_graph
 
         feed = {n: torch.randn(1, 2, 8, 16) for n in "qkv"}
         with tempfile.TemporaryDirectory() as tmp:
@@ -3847,57 +3502,41 @@ class TestFusionDecision(unittest.TestCase):
                     opset_version=18,
                     dynamo=False,
                 )
-                graph = load_onnx_graph(path)
+            graph = _load_unformatted_attention_graph(path)
+        for var in graph.variables.values():
+            if not var.is_parameter:
+                var.shape = None
         ordered = [feed[n] for n in graph.inputs.keys()]
         executor = TorchExecutor(graph=graph, device="cpu")
         fuse_espdl_attention_graph(graph, executor=executor, inputs=ordered)
-        legalize_espdl_attention_graph(
-            graph, platform=TargetPlatform.ESPDL_INT8, quantized=False, executor=executor, inputs=ordered
-        )
         self.assertEqual(sum(op.type == "Attention" for op in graph.operations.values()), 1)
 
-    def test_non_ceiling_rejection_is_info_only(self):
+    def test_rank2_match_is_left_unfused(self):
         from esp_ppq.core import TargetPlatform
 
         torch.manual_seed(0)
         feed = {n: torch.randn(8, 16) for n in "qkv"}
-        graph, logs, _ = self._export_and_legalize(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
+        graph, _ = self._export_and_prepare(self._build_attention_model(), feed, TargetPlatform.ESPDL_INT8)
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
-        self.assertEqual(logs["warning"], [])
-        joined = "\n".join(logs["info"])
-        self.assertIn("1 MatMul/Softmax pattern(s) left unfused", joined)
-        self.assertIn("matched attention rank 2 is not 3-D or 4-D", joined)
+        self.assertTrue(any(op.type == "MatMul" for op in graph.operations.values()))
 
-    def test_platform_without_kernel_expands_at_info(self):
-        from unittest import mock
-
+    def test_platform_without_kernel_expands(self):
         from esp_ppq.core import TargetPlatform
-        from esp_ppq.quantization.optim import espdl_attention, legalize_espdl_attention_graph
 
         graph = TestDeployabilityGuard._graph_with([[1, 4, 16, ESPDL_ATTENTION_MAX_HEAD_DIM + 1]] * 3)
-        logs = {"info": [], "warning": []}
-        with (
-            mock.patch.object(espdl_attention.logger, "info", side_effect=logs["info"].append),
-            mock.patch.object(espdl_attention.logger, "warning", side_effect=logs["warning"].append),
-        ):
-            legalize_espdl_attention_graph(graph, platform=TargetPlatform.FP32)
-        self.assertEqual(logs["warning"], [])
-        joined = "\n".join(logs["info"])
-        self.assertIn("0 Attention kept for the device kernel, 1 expanded to MatMul/Softmax", joined)
-        self.assertIn("expanded to MatMul/Softmax (1: attn)", joined)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.FP32)
+        self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
+        self.assertTrue(any(op.type == "MatMul" for op in graph.operations.values()))
+        self.assertTrue(any(op.type == "Softmax" for op in graph.operations.values()))
 
-    def test_graph_without_attention_logs_nothing(self):
-        from unittest import mock
-
+    def test_graph_without_attention_is_unchanged(self):
         from esp_ppq.core import TargetPlatform
         from esp_ppq.IR import BaseGraph
-        from esp_ppq.quantization.optim import espdl_attention, legalize_espdl_attention_graph
 
         graph = BaseGraph(name="g")
         graph.create_operation(op_type="MatMul", name="mm")
-        with mock.patch.object(espdl_attention.logger, "info") as info:
-            legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8)
-        info.assert_not_called()
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8)
+        self.assertEqual([op.type for op in graph.operations.values()], ["MatMul"])
 
 
 class TestMaskStaysFp32(unittest.TestCase):
@@ -3959,23 +3598,49 @@ class TestMaskStaysFp32(unittest.TestCase):
         for tqc in config.input_quantization_config:
             self.assertNotEqual(tqc.state, QuantizationStates.FP32)
 
-    def test_exporter_rejects_quantized_mask(self):
-        from esp_ppq.core import QuantizationStates
+    def test_nonfinite_add_protection_is_local_to_quantize_operation(self):
+        from esp_ppq.core import DataType, TargetPlatform
+        from esp_ppq.IR import QuantableOperation
+        from esp_ppq.quantization.quantizer.EspdlQuantizer import BaseEspdlQuantizer
+
+        graph = TestDeployabilityGuard._graph_with([[1, 4, 16, 32]] * 3)
+        x = graph.create_variable(name="unrelated_x")
+        x.shape, x.dtype = [1], DataType.FP32
+        graph.mark_variable_as_graph_input(x)
+        mask = graph.create_variable(
+            name="unrelated_inf",
+            value=torch.tensor([float("-inf")]),
+            is_parameter=True,
+        )
+        mask.shape, mask.dtype = [1], DataType.FP32
+        out = graph.create_variable(name="unrelated_out")
+        out.shape, out.dtype = [1], DataType.FP32
+        add = graph.create_operation(
+            op_type="Add",
+            name="unrelated_add",
+            platform=TargetPlatform.ESPDL_INT8,
+            inputs=[x, mask],
+            outputs=[out],
+        )
+
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
+        self.assertEqual(add.platform, TargetPlatform.ESPDL_INT8)
+
+        converted = BaseEspdlQuantizer(graph).quantize_operation(add.name)
+        self.assertIs(converted, add)
+        self.assertNotIsInstance(converted, QuantableOperation)
+        self.assertEqual(converted.platform, TargetPlatform.FP32)
+
+    def test_generic_operator_export_does_not_revalidate_mask(self):
         from esp_ppq.parser.espdl_exporter import EspdlExporter
 
         graph = _activate_qk_scales(
             TestDeployabilityGuard._graph_with([[1, 4, 16, 32]] * 3 + [[1, 1, 16, 16]], num_inputs=4)
         )
         op = graph.operations["attn"]
-        exporter = EspdlExporter()
-        with self.assertRaises(ValueError) as ctx:
-            exporter.build_operator_proto(op)
-        self.assertIn("must stay FP32", str(ctx.exception))
+        self.assertIsInstance(EspdlExporter().build_operator_proto(op), int)
 
-        op.input_quant_config[3].state = QuantizationStates.FP32
-        self.assertIsInstance(exporter.build_operator_proto(op), int)
-
-    def test_direct_exporter_preflights_attention_contract(self):
+    def test_direct_exporter_trusts_prepared_attention_graph(self):
         import os
         import tempfile
 
@@ -4007,26 +3672,18 @@ class TestMaskStaysFp32(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             softcap_graph = build_float_graph({"softcap": 1.0})
-            with self.assertRaises(ValueError) as ctx:
-                EspdlExporter().export(
-                    os.path.join(tmp, "softcap.espdl"),
-                    softcap_graph,
-                    export_config=False,
-                )
-            self.assertIn("unsupported attrs ['softcap']", str(ctx.exception))
+            softcap_path = os.path.join(tmp, "softcap.espdl")
+            EspdlExporter().export(softcap_path, softcap_graph, export_config=False)
+            self.assertTrue(os.path.isfile(softcap_path))
             self.assertEqual(softcap_graph.operations["attn"].attributes.get("softcap"), 1.0)
 
             bad_scale_graph = _activate_qk_scales(
                 TestDeployabilityGuard._graph_with([[1, 4, 16, 32]] * 3),
                 scale=float(2**80),
             )
-            with self.assertRaises(ValueError) as ctx:
-                EspdlExporter().export(
-                    os.path.join(tmp, "bad_scale.espdl"),
-                    bad_scale_graph,
-                    export_config=False,
-                )
-            self.assertIn("logit_scale", str(ctx.exception))
+            bad_scale_path = os.path.join(tmp, "bad_scale.espdl")
+            EspdlExporter().export(bad_scale_path, bad_scale_graph, export_config=False)
+            self.assertTrue(os.path.isfile(bad_scale_path))
 
             valid_float_graph = build_float_graph({"is_causal": 1})
             float_path = os.path.join(tmp, "valid_float.espdl")
@@ -4085,25 +3742,19 @@ def _native_attention_block_model(head_dim: int = 8):
 
 
 class TestNativeAttentionMetadataTrace(unittest.TestCase):
-    def test_oversized_opset23_attention_is_legalized_before_real_trace(self):
+    def test_oversized_opset23_attention_is_prepared_before_real_trace(self):
         import os
         import tempfile
 
         from esp_ppq.api import load_onnx_graph
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
+        from esp_ppq.executor import TorchExecutor
 
         head_dim = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "native_attention.onnx")
             onnx.save(_native_attention_block_model(head_dim), path)
             graph = load_onnx_graph(path)
-            EspdlExporter.prepare_graph_for_float_export(
-                graph,
-                platform=TargetPlatform.ESPDL_INT8,
-                inputs=[torch.randn(1, 2, 4, head_dim)],
-                device="cpu",
-            )
+            TorchExecutor(graph=graph, device="cpu").tracing_operation_meta(inputs=[torch.randn(1, 2, 4, head_dim)])
 
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
         self.assertTrue(any(op.type == "MatMul" for op in graph.operations.values()))
@@ -4313,7 +3964,6 @@ class TestReviewBugRegressions(unittest.TestCase):
 
     def test_decompose_blocker_checks_bnhd_and_3d_and_constant_bool_mask(self):
         from esp_ppq.core import DataType, TargetPlatform
-        from esp_ppq.quantization.optim import legalize_espdl_attention_graph
         from esp_ppq.quantization.optim.espdl_attention import _decompose_blocker
 
         # BNHD with batch mismatch must be blocked before decomposition
@@ -4328,36 +3978,69 @@ class TestReviewBugRegressions(unittest.TestCase):
             "not divisible",
             _decompose_blocker(op_3d, [[1, 8, 30], [1, 8, 32], [1, 8, 32]]),
         )
-        # Constant-op bool mask on an expanded Attention must decompose cleanly
+        # Constant parameter bool mask on an expanded Attention must decompose cleanly
         d = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
         q = torch.randn(1, 2, 4, d)
         graph, _ = TestAttentionDecompose._graph(q, q.clone(), q.clone())
         attn = graph.operations["attn"]
         keep = torch.tril(torch.ones(1, 1, 4, 4, dtype=torch.bool))
-        mask_var = graph.create_variable(name="const_bool_mask", value=keep, is_parameter=False)
+        mask_var = graph.create_variable(name="const_bool_mask", value=keep, is_parameter=True)
         mask_var.shape = [1, 1, 4, 4]
         mask_var.dtype = DataType.BOOL
-        const_op = graph.create_operation(
-            op_type="Constant",
-            name="bool_mask_const",
-            attributes={"value": keep},
-            platform=TargetPlatform.FP32,
-            inputs=[],
-            outputs=[mask_var],
-        )
-        graph.create_link_with_op(const_op, attn, mask_var)
-        legalize_espdl_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
+        attn.inputs.append(mask_var)
+        mask_var.dest_ops.append(attn)
+        _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=True)
         self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
 
-    def test_float_export_logs_warning_when_all_candidates_rejected(self):
+    def test_native_bool_mask_dtype_from_onnx_value_info_blocks_unsafe_decompose(self):
         import os
         import tempfile
-        from unittest import mock
+
+        from onnx import TensorProto, helper
+
+        from esp_ppq.api import load_graph
+        from esp_ppq.core import DataType, NetworkFramework, TargetPlatform
+
+        head_dim = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
+        model = helper.make_model(
+            helper.make_graph(
+                [
+                    helper.make_node(
+                        "Attention",
+                        ["q", "k", "v", "m"],
+                        ["y"],
+                        name="attn",
+                        q_num_heads=2,
+                        kv_num_heads=2,
+                    )
+                ],
+                "native_bool_mask_dtype",
+                [
+                    helper.make_tensor_value_info("q", TensorProto.FLOAT, [1, 2, 4, head_dim]),
+                    helper.make_tensor_value_info("k", TensorProto.FLOAT, [1, 2, 4, head_dim]),
+                    helper.make_tensor_value_info("v", TensorProto.FLOAT, [1, 2, 4, head_dim]),
+                    helper.make_tensor_value_info("m", TensorProto.BOOL, [1, 1, 4, 4]),
+                ],
+                [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 2, 4, head_dim])],
+            ),
+            opset_imports=[helper.make_opsetid("", 23)],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "native_bool_mask.onnx")
+            onnx.save(model, path)
+            graph = load_graph(path, from_framework=NetworkFramework.ONNX)
+
+        attn = graph.operations["attn"]
+        self.assertEqual(attn.inputs[3].dtype, DataType.BOOL)
+        with self.assertRaises(ValueError) as ctx:
+            _prepare_native_attention_graph(graph, platform=TargetPlatform.ESPDL_INT8, quantized=False)
+        self.assertIn("runtime bool attn_mask", str(ctx.exception))
+
+    def test_float_export_leaves_oversized_sdpa_unfused(self):
+        import os
+        import tempfile
 
         from esp_ppq.api import load_onnx_graph
-        from esp_ppq.core import TargetPlatform
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
-        from esp_ppq.quantization.optim import espdl_attention
         from esp_ppq.quantization.optim.espdl_attention import _REPORT_KEY
 
         class OversizedSdpa(torch.nn.Module):
@@ -4367,7 +4050,6 @@ class TestReviewBugRegressions(unittest.TestCase):
         d = ESPDL_ATTENTION_MAX_HEAD_DIM + 1
         q = torch.randn(1, 2, 4, d)
         feed = [q, q.clone(), q.clone()]
-        warnings = []
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "m.onnx")
             with _silence_export_logs():
@@ -4380,19 +4062,9 @@ class TestReviewBugRegressions(unittest.TestCase):
                     opset_version=18,
                     dynamo=False,
                 )
-                graph = load_onnx_graph(path)
-            with (
-                mock.patch.object(espdl_attention.logger, "info"),
-                mock.patch.object(espdl_attention.logger, "warning", side_effect=warnings.append),
-            ):
-                EspdlExporter.prepare_graph_for_float_export(
-                    graph,
-                    platform=TargetPlatform.ESPDL_INT8,
-                    inputs=feed,
-                    device="cpu",
-                )
+            graph = load_onnx_graph(path)
         self.assertNotIn(_REPORT_KEY, graph.extension_attrib)
-        self.assertTrue(any("head_dim=" in m for m in warnings), warnings)
+        self.assertFalse(any(op.type == "Attention" for op in graph.operations.values()))
 
     def test_axis_semantics_guards_reject_bnhd_and_non_head_merge(self):
         import os
@@ -4504,8 +4176,7 @@ class TestReviewBugRegressions(unittest.TestCase):
         from esp_ppq.api.setting import QuantizationSettingFactory
         from esp_ppq.core import QuantizationStates, TargetPlatform
         from esp_ppq.IR import BaseGraph
-        from esp_ppq.parser.espdl_exporter import EspdlExporter
-        from esp_ppq.quantization.optim.espdl_attention import _attention_prequant_needs_trace
+        from esp_ppq.quantization.optim.espdl_attention import _attention_shapes_incomplete
         from esp_ppq.quantization.quantizer.EspdlQuantizer import _var_carries_nonfinite_mask
 
         B, L, H, HD = 1, 8, 2, 16
@@ -4578,7 +4249,12 @@ class TestReviewBugRegressions(unittest.TestCase):
                     path = os.path.join(tmp, f"chain_{int(prescale)}.onnx")
                     build_chain_onnx(path, prescale=prescale)
                     loaded = load_onnx_graph(path)
-                    self.assertTrue(_attention_prequant_needs_trace(loaded, TargetPlatform.ESPDL_INT8))
+                    self.assertFalse(_attention_shapes_incomplete(loaded))
+                    unshaped = loaded.copy()
+                    for var in unshaped.variables.values():
+                        if not var.is_parameter:
+                            var.shape = None
+                    self.assertTrue(_attention_shapes_incomplete(unshaped))
                     with _silence_export_logs():
                         quantized = quantize_onnx_model(
                             path,
@@ -4596,11 +4272,8 @@ class TestReviewBugRegressions(unittest.TestCase):
                     self.assertAlmostEqual(attns[0].attributes["scale"], HD**-0.5, places=6)
                     self.assertEqual([op.type for op in quantized.operations.values() if op.type in dead_types], [])
 
-                    float_graph = load_onnx_graph(path)
                     with _silence_export_logs():
-                        EspdlExporter.prepare_graph_for_float_export(
-                            graph=float_graph, platform=TargetPlatform.ESPDL_INT8, inputs=sample, device="cpu"
-                        )
+                        float_graph = load_onnx_graph(path)
                     self.assertEqual(sum(1 for op in float_graph.operations.values() if op.type == "Attention"), 1)
                     self.assertEqual([op.type for op in float_graph.operations.values() if op.type in dead_types], [])
 

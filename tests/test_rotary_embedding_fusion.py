@@ -1,4 +1,4 @@
-"""Tests for RotaryEmbeddingFusionPass, EspdlRotaryEmbeddingLegalizePass, and check_rotary_embedding."""
+"""Tests for format-stage RotaryEmbedding fusion and RotaryEmbedding_forward."""
 
 import inspect
 import os
@@ -12,18 +12,15 @@ from onnx import TensorProto as TP
 from onnx import helper as OH
 
 from esp_ppq import TargetPlatform, TorchExecutor
-from esp_ppq.api import dispatch_graph, load_onnx_graph
+from esp_ppq.api import dispatch_graph, load_graph, load_onnx_graph
 from esp_ppq.api.setting import QuantizationSettingFactory
-from esp_ppq.IR import Variable
-from esp_ppq.quantization.optim import (
-    EspdlRotaryEmbeddingLegalizePass,
-    RotaryEmbeddingFusionPass,
-    check_rotary_embedding,
+from esp_ppq.IR import (
+    GraphCommand,
+    GraphCommandType,
+    GraphFormatter,
+    GraphMerger,
+    Variable,
     halve_rope_cache,
-)
-from esp_ppq.quantization.optim.rotary_embedding_fusion import (
-    _rope_fusion_needs_trace,
-    _rope_prequant_needs_trace,
 )
 
 ROPE = 'RotaryEmbedding'
@@ -363,6 +360,16 @@ def build_not_rope(batch_size, head_count, seq_len, head_dim, tag):
 # Execution helpers
 # ---------------------------------------------------------------------------
 def _load(path):
+    graph = load_graph(path)
+    formatter = GraphFormatter(graph)
+    formatter(GraphCommand(GraphCommandType.FORMAT_CONSTANT_INPUT))
+    formatter(GraphCommand(GraphCommandType.CONVERT_TO_TENSOR))
+    formatter(GraphCommand(GraphCommandType.FORMAT_PARAMETERS))
+    dispatch_graph(graph, platform=TargetPlatform.ESPDL_INT8, dispatcher='conservative')
+    return graph
+
+
+def _load_formatted(path):
     graph = load_onnx_graph(path)
     dispatch_graph(graph, platform=TargetPlatform.ESPDL_INT8, dispatcher='conservative')
     return graph
@@ -383,7 +390,7 @@ def _op_types(graph):
 
 
 def _fuse_and_compare(path, xshape, *, expect_fused=True, seed=0, atol=1e-5):
-    """Load, run, fuse, re-run. Returns (graph, pass_, max_abs_diff).
+    """Load, run, fuse, re-run. Returns (graph, merger, max_abs_diff).
 
     The before/after comparison is the point: a matcher that fires on a
     pattern it should not would still leave a shape-correct graph.
@@ -393,17 +400,21 @@ def _fuse_and_compare(path, xshape, *, expect_fused=True, seed=0, atol=1e-5):
     x = torch.randn(*xshape)
 
     ref = _run(graph, x)
-    pass_ = RotaryEmbeddingFusionPass(verbose=False)
-    executor = _trace(graph, x)
-    pass_.optimize(graph, dataloader=None, executor=executor, inputs=[x])
+    merger = GraphMerger(graph)
+    merger.fuse_rotary_embedding()
 
     fused_present = ROPE in _op_types(graph)
     assert fused_present == expect_fused, f'expected fused={expect_fused}, got ops {_op_types(graph)}'
 
+    formatted = _load_formatted(path)
+    assert (ROPE in _op_types(formatted)) == expect_fused, (
+        f'expected format_graph fused={expect_fused}, got ops {_op_types(formatted)}'
+    )
+
     out = _run(graph, x)
     diff = (ref - out).abs().max().item()
     assert diff < atol, f'numerics changed across fusion: max|diff| = {diff:.3e}'
-    return graph, pass_, diff
+    return graph, merger, diff
 
 
 # ---------------------------------------------------------------------------
@@ -413,10 +424,8 @@ def test_canonical_fusion():
     """Concat([-x2, x1], -1) — the HF-LLaMA / GPT-NeoX form."""
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='canonical')
-    graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
+    graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
 
-    assert pass_.fused_count == 1
-    assert pass_.fused_swapped_count == 0
     # every primitive of the subgraph is gone
     assert not (PRIMITIVE_TYPES & set(_op_types(graph))), _op_types(graph)
 
@@ -427,24 +436,6 @@ def test_canonical_fusion():
 
     os.unlink(path)
     print(f'PASS: test_canonical_fusion (max|diff| = {diff:.2e})')
-
-
-def test_mixed_platform_pattern_is_not_fused():
-    shape = (1, 2, 8, 16)
-    path = build_rotate_half(*shape, order='neg_hi_lo', tag='mixed_platform')
-    try:
-        graph = _load(path)
-        next(op for op in graph.operations.values() if op.type == 'Neg').platform = TargetPlatform.UNSPECIFIED
-        x = torch.randn(*shape)
-        before = _run(graph, x)
-        pass_ = RotaryEmbeddingFusionPass()
-        pass_.optimize(graph, executor=_trace(graph, x), inputs=[x])
-        after = _run(graph, x)
-        assert pass_.fused_count == 0
-        assert ROPE not in _op_types(graph)
-        assert torch.equal(after, before)
-    finally:
-        os.unlink(path)
 
 
 def test_slice_axis_normalization_and_boundaries():
@@ -459,8 +450,7 @@ def test_slice_axis_normalization_and_boundaries():
         slice_axis=3,
     )
     try:
-        _, pass_, _ = _fuse_and_compare(path_pos, shape)
-        assert pass_.fused_count == 1
+        _fuse_and_compare(path_pos, shape)
     finally:
         os.unlink(path_pos)
 
@@ -475,9 +465,7 @@ def test_slice_axis_normalization_and_boundaries():
     try:
         graph = _load(path_wrong)
         graph.inputs['X'].shape = list(shape)
-        pass_ = RotaryEmbeddingFusionPass()
-        pass_.optimize(graph)
-        assert pass_.fused_count == 0
+        GraphMerger(graph).fuse_rotary_embedding()
         assert ROPE not in _op_types(graph)
     finally:
         os.unlink(path_wrong)
@@ -491,8 +479,7 @@ def test_slice_axis_normalization_and_boundaries():
             init = next(t for t in model.graph.initializer if t.name == 'hi_ends')
             init.CopyFrom(onnx.numpy_helper.from_array(np.asarray([end], dtype=np.int64), init.name))
             onnx.save(model, path)
-            _, pass_, _ = _fuse_and_compare(path, shape)
-            assert pass_.fused_count == 1
+            _fuse_and_compare(path, shape)
         finally:
             os.unlink(path)
 
@@ -518,8 +505,7 @@ def test_multi_axis_slice_is_not_absorbed():
                 init.CopyFrom(onnx.numpy_helper.from_array(np.asarray(values[init.name], dtype=np.int64), init.name))
         onnx.checker.check_model(model)
         onnx.save(model, path)
-        _, pass_, _ = _fuse_and_compare(path, shape, expect_fused=False)
-        assert pass_.fused_count == 0
+        _fuse_and_compare(path, shape, expect_fused=False)
     finally:
         os.unlink(path)
 
@@ -543,9 +529,7 @@ def test_invalid_slice_boundaries_are_not_fused(updates, tag):
         onnx.save(model, path)
         graph = _load(path)
         graph.inputs['X'].shape = list(shape)
-        pass_ = RotaryEmbeddingFusionPass()
-        pass_.optimize(graph)
-        assert pass_.fused_count == 0
+        GraphMerger(graph).fuse_rotary_embedding()
         assert ROPE not in _op_types(graph)
     finally:
         os.unlink(path)
@@ -564,9 +548,8 @@ def test_per_batch_static_cache_fusion():
         cos_sin=(cos, sin),
     )
     try:
-        graph, pass_, _ = _fuse_and_compare(path, shape)
+        graph, _, _ = _fuse_and_compare(path, shape)
         rope = next(op for op in graph.operations.values() if op.type == ROPE)
-        assert pass_.fused_count == 1
         assert tuple(rope.inputs[1].value.shape) == (shape[0], shape[2], shape[3] // 2)
     finally:
         os.unlink(path)
@@ -583,8 +566,7 @@ def test_real_pytorch_export_open_ended_slice_fusion(dynamo):
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = _export_torch_half_split_rope(batch_size, head_count, seq_len, head_dim, dynamo=dynamo)
     try:
-        graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        assert pass_.fused_count == 1
+        graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
         assert _op_types(graph).count(ROPE) == 1
         assert not (PRIMITIVE_TYPES & set(_op_types(graph))), _op_types(graph)
     finally:
@@ -638,9 +620,7 @@ def test_real_pytorch_export_split_rotate_half_fusion(mode, dynamo, swapped):
             simplified, ok = simplify(onnx.load(path))
             assert ok
             onnx.save(simplified, path)
-        graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        assert pass_.fused_count == 1
-        assert pass_.fused_swapped_count == (1 if swapped else 0)
+        graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
         assert _op_types(graph) == [ROPE]
     finally:
         if os.path.exists(path):
@@ -690,9 +670,7 @@ def test_invalid_split_rotate_half_is_not_fused(order, splits, axis):
     try:
         graph = _load(path)
         graph.inputs['X'].shape = [batch_size, head_count, seq_len, head_dim]
-        pass_ = RotaryEmbeddingFusionPass()
-        pass_.optimize(graph)
-        assert pass_.fused_count == 0
+        GraphMerger(graph).fuse_rotary_embedding()
         assert ROPE not in _op_types(graph)
     finally:
         if os.path.exists(path):
@@ -704,11 +682,8 @@ def test_real_pytorch_native_rotary_embedding_export():
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = _export_torch_native_rope(batch_size, head_count, seq_len, head_dim)
     try:
-        graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        assert pass_.fused_count == 0
+        graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
         assert _op_types(graph) == [ROPE]
-        errors, _ = check_rotary_embedding(graph, strict=True)
-        assert not errors
     finally:
         if os.path.exists(path):
             os.unlink(path)
@@ -725,10 +700,7 @@ def test_negated_sin_convention_fusion():
     """
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='hi_neg_lo', tag='negsin')
-    graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-
-    assert pass_.fused_count == 1
-    assert pass_.fused_swapped_count == 1, 'should be counted as the swapped variant'
+    graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
 
     # The fused sin cache must be the negation of the canonical one, and the
     # source table must not have been mutated in place.
@@ -758,7 +730,7 @@ def test_partial_rope_wrapper_is_not_absorbed():
     batch_size, head_count, seq_len, head_dim, rotary_dim = 1, 2, 8, 32, 16
     for tag, tail_first in [('partial', False), ('partial_swap', True)]:
         path = build_partial(batch_size, head_count, seq_len, head_dim, rotary_dim, tag=tag, tail_first=tail_first)
-        graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
+        graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
 
         remaining = _op_types(graph)
         assert 'Concat' in remaining and 'Slice' in remaining, f'outer wrapper must survive intact, got {remaining}'
@@ -769,10 +741,6 @@ def test_partial_rope_wrapper_is_not_absorbed():
             'the fused node must consume x_rot directly and rotate all of it'
         )
         assert int(rope.inputs[1].value.shape[-1]) == rotary_dim // 2
-
-        # The fused node is a legal vision-subset node.
-        errors, _ = check_rotary_embedding(graph, strict=True)
-        assert not errors, errors
 
         os.unlink(path)
         print(f'PASS: test_partial_rope_wrapper_is_not_absorbed[{tag}] (max|diff| = {diff:.2e})')
@@ -794,8 +762,7 @@ def test_interleaved_graphs_are_never_fused():
     ]
     for tag, kwargs in cases:
         path = build_interleaved(batch_size, head_count, seq_len, head_dim, tag=tag, **kwargs)
-        _, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
-        assert pass_.fused_count == 0
+        _, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
 
         os.unlink(path)
         print(f'PASS: test_interleaved_graphs_are_never_fused[{tag}] (max|diff| = {diff:.2e})')
@@ -812,9 +779,8 @@ def test_mirrored_concat_is_rejected():
     """
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='lo_neg_hi', tag='mirrored')
-    graph, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
+    graph, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
 
-    assert pass_.fused_count == 0
     assert 'Add' in _op_types(graph), 'primitive subgraph must survive intact'
 
     os.unlink(path)
@@ -833,8 +799,7 @@ def test_per_head_cache_is_rejected():
     path = build_rotate_half(
         batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='perhead', cos_sin=(cos, sin)
     )
-    _, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
-    assert pass_.fused_count == 0
+    _, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
 
     os.unlink(path)
     print(f'PASS: test_per_head_cache_is_rejected (max|diff| = {diff:.2e})')
@@ -851,8 +816,7 @@ def test_unequal_halves_cache_is_rejected():
     path = build_rotate_half(
         batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='badhalves', cos_sin=(cos, sin)
     )
-    _, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
-    assert pass_.fused_count == 0
+    _, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
 
     os.unlink(path)
     print(f'PASS: test_unequal_halves_cache_is_rejected (max|diff| = {diff:.2e})')
@@ -862,8 +826,7 @@ def test_unrelated_add_is_not_matched():
     """A non-RoPE Add with two parameter Muls must not be misidentified."""
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = build_not_rope(batch_size, head_count, seq_len, head_dim, tag='notrope')
-    _, pass_, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
-    assert pass_.fused_count == 0
+    _, _, diff = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim), expect_fused=False)
 
     os.unlink(path)
     print(f'PASS: test_unrelated_add_is_not_matched (max|diff| = {diff:.2e})')
@@ -915,287 +878,68 @@ def test_halve_rope_cache_contract():
     print('PASS: test_halve_rope_cache_contract')
 
 
-# ---------------------------------------------------------------------------
-# Backend support check (module-level function, not a Pass)
-# ---------------------------------------------------------------------------
-def test_support_check_accepts_fused_graph():
+def test_executor_rejects_out_of_subset_configs():
+    """The executor naturally rejects native configurations outside the ESP-DL vision subset."""
+    from esp_ppq.executor.op.torch.espdl_rotary_embedding import espdl_rotary_embedding_forward
+
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
-    path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='supportok')
-    graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-
-    errors, _ = check_rotary_embedding(graph, strict=True)
-    assert not errors
-
-    os.unlink(path)
-    print('PASS: test_support_check_accepts_fused_graph')
-
-
-def test_support_check_simd_hints_vision_shapes():
-    """Vision dimensions divisible by the mixed 8-pair width hit SIMD."""
-    batch_size, head_count, seq_len = 1, 2, 8
-
-    # 1. Standard and mixed-8 dimensions are SIMD-eligible.
-    for tag, head_dim in [
-        ('vit_d32', 32),
-        ('vit_d48', 48),
-        ('vit_d64', 64),
-        ('vit_d80', 80),
-        ('vit_d96', 96),
-    ]:
-        path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag=f'simd_{tag}')
-        graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        errors, hints = check_rotary_embedding(graph, strict=True)
-        assert not errors, errors
-        assert not hints, f'D={head_dim} should be SIMD-eligible, got hints: {hints}'
-        os.unlink(path)
-
-    # 2. half=20 misses both mixed widths, but scalar fallback remains legal.
-    path = build_rotate_half(batch_size, head_count, seq_len, 40, order='neg_hi_lo', tag='simd_d40')
-    graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, 40))
-    errors, hints = check_rotary_embedding(graph, strict=True)
-    assert not errors, 'D=40 must pass the support check (scalar is legal)'
-    assert len(hints) == 1
-    assert 'half=20' in hints[0]
-    os.unlink(path)
-
-    print('PASS: test_support_check_simd_hints_vision_shapes')
-
-
-def _mock_quantize_caches(op, dtype):
-    """Cast this fused RoPE op's cos/sin cache variables to ``dtype`` in
-    place, simulating a post-calibration state. check_rotary_embedding
-    reads Variable.value dtype directly, so this is the smallest hook
-    that flips the SIMD variant selector without re-running calibration."""
-    for slot in (1, 2):
-        v = op.inputs[slot]
-        arr = v.value
-        if arr is None:
-            continue
-        if not isinstance(arr, torch.Tensor):
-            arr = torch.from_numpy(np.asarray(arr))
-        v.value = arr.to(dtype)
-
-
-def test_support_check_int16_cache_hints_track_kernel_gates():
-    """int16 caches now have two SIMD paths on P4:
-       * int16×3  — needs half % 8  == 0
-       * mixed    — needs half % 8  == 0 (only relevant with int8 X)
-    int8 caches still hit only the int8×3 gate."""
-    batch_size, head_count, seq_len = 1, 2, 8
-
-    # 1. int16 caches, half % 8 == 0 → at least one variant is eligible.
-    for tag, head_dim in [('int16_d48', 48), ('int16_d64', 64), ('int16_d80', 80), ('int16_d128', 128)]:
-        path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag=tag)
-        graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        rope = next(op for op in graph.operations.values() if op.type == ROPE)
-        _mock_quantize_caches(rope, torch.int16)
-
-        errors, hints = check_rotary_embedding(graph, strict=True)
-        assert not errors, errors
-        assert not hints, f'D={head_dim} with int16 caches should hit SIMD on both variants, got hints: {hints}'
-        os.unlink(path)
-
-    # 2. int16 caches whose half dimension misses the 8-pair width fall back.
-    for tag, head_dim in [('int16_d40', 40), ('int16_d56', 56)]:
-        path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag=tag)
-        graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        rope = next(op for op in graph.operations.values() if op.type == ROPE)
-        _mock_quantize_caches(rope, torch.int16)
-
-        errors, hints = check_rotary_embedding(graph, strict=True)
-        assert not errors, errors
-        assert len(hints) == 1, hints
-        assert 'int16×3/mixed SIMD gate' in hints[0], hints[0]
-        os.unlink(path)
-
-    # 3. int8 caches with half=24 / half=40 → int8×3 gate hint, no
-    #    mention of int16 (int8 cache never routes to an int16 kernel).
-    for tag, head_dim in [('int8_d48', 48), ('int8_d80', 80)]:
-        path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag=tag)
-        graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-        rope = next(op for op in graph.operations.values() if op.type == ROPE)
-        _mock_quantize_caches(rope, torch.int8)
-
-        errors, hints = check_rotary_embedding(graph, strict=True)
-        assert not errors
-        assert len(hints) == 1, hints
-        assert 'int8×3 SIMD gate' in hints[0], hints[0]
-        assert 'int16' not in hints[0], f'int8-cache hint should not mention int16 kernels; got {hints[0]!r}'
-        os.unlink(path)
-
-    # 4. int8 caches with half=32 (D=64) → SIMD-eligible, no hint.
-    path = build_rotate_half(batch_size, head_count, seq_len, 64, order='neg_hi_lo', tag='int8_d64')
-    graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, 64))
-    rope = next(op for op in graph.operations.values() if op.type == ROPE)
-    _mock_quantize_caches(rope, torch.int8)
-
-    errors, hints = check_rotary_embedding(graph, strict=True)
-    assert not errors and not hints, f'int8 caches with half=32 should hit SIMD, got hints={hints}'
-    os.unlink(path)
-
-    print('PASS: test_support_check_int16_cache_hints_track_kernel_gates')
-
-
-def test_support_check_flags_bad_cache():
-    """A cache whose last dim contradicts rotary_embedding_dim must be caught."""
-    batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
-    path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='supportbad')
-    graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-
-    rope = next(op for op in graph.operations.values() if op.type == ROPE)
-    # half-width is D/2 = 8; claim a rotated width that cannot match it
-    rope.attributes['rotary_embedding_dim'] = 4
-
-    try:
-        check_rotary_embedding(graph, strict=True)
-        raise AssertionError('strict mode should have raised on the bad cache width')
-    except ValueError as e:
-        assert 'RotaryEmbedding' in str(e)
-
-    # warn mode records the same problem without raising
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert errors, 'warn mode should still collect the problem'
-
-    os.unlink(path)
-    print('PASS: test_support_check_flags_bad_cache')
-
-
-def test_support_check_rejects_out_of_subset_configs():
-    """A hand-authored opset-23 node asking for anything the device kernel
-    does not implement must be a hard error, not a soft SIMD hint.
-
-    These four configurations are legal ONNX but outside the ESP-DL vision
-    subset, and the kernel rejects each of them at inference time. Catching
-    them during quantization turns a silent runtime failure into a build
-    error.
-    """
-    batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
+    x = torch.randn(batch_size, head_count, seq_len, head_dim)
 
     def _fresh_rope():
-        """A fused, fully-supported node. PPQ leaves activation shapes unset,
-        so X's shape is filled in here — several subset rules compare an
-        attribute against head_dim (D) and are simply undecidable without it."""
         path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='subset')
         graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
         os.unlink(path)
         rope = next(op for op in graph.operations.values() if op.type == ROPE)
-        rope.inputs[0].shape = [batch_size, head_count, seq_len, head_dim]
-        return graph, rope
-
-    # Baseline: untouched, this node passes.
-    graph, rope = _fresh_rope()
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert not errors, errors
+        cos = torch.as_tensor(rope.inputs[1].value)
+        sin = torch.as_tensor(rope.inputs[2].value)
+        return graph, rope, cos, sin
 
     # 1. GPT-J interleaved layout.
-    graph, rope = _fresh_rope()
+    _, rope, cos, sin = _fresh_rope()
     rope.attributes['interleaved'] = 1
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert any('interleaved' in e for e in errors), errors
+    with pytest.raises(ValueError, match='interleaved=1'):
+        espdl_rotary_embedding_forward(rope, [x, cos, sin])
 
-    # 2. Partial rotation: rotate only the front half of each head. The
-    #    caches shrink to match, so the only complaint must be about
-    #    partial rotation itself.
-    graph, rope = _fresh_rope()
+    # 2. Partial rotation.
+    _, rope, cos, sin = _fresh_rope()
     rope.attributes['rotary_embedding_dim'] = head_dim // 2
-    for slot in (1, 2):
-        rope.inputs[slot].value = rope.inputs[slot].value[..., : head_dim // 4]
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert len(errors) == 1 and 'partial rotation' in errors[0], errors
+    with pytest.raises(ValueError, match='partial rotation is unsupported'):
+        espdl_rotary_embedding_forward(rope, [x, cos[..., : head_dim // 4], sin[..., : head_dim // 4]])
 
-    # 3. Full rotation spelled out explicitly is legal, not partial.
-    graph, rope = _fresh_rope()
+    # 3. Full rotation spelled out explicitly is legal.
+    _, rope, cos, sin = _fresh_rope()
     rope.attributes['rotary_embedding_dim'] = head_dim
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert not errors, errors
+    out = espdl_rotary_embedding_forward(rope, [x, cos, sin])
+    assert out.shape == x.shape
 
     # 4. 3D X [B, L, H*D].
-    graph, rope = _fresh_rope()
-    rope.inputs[0].shape = [batch_size, seq_len, head_count * head_dim]
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert any('4D' in e for e in errors), errors
+    _, rope, cos, sin = _fresh_rope()
+    with pytest.raises(ValueError, match='X must be 4D'):
+        espdl_rotary_embedding_forward(rope, [x.reshape(batch_size, seq_len, head_count * head_dim), cos, sin])
 
     # 5. The spec's optional 4th input (position_ids).
-    graph, rope = _fresh_rope()
-    pos = Variable(
-        name='position_ids', value=np.zeros((batch_size, seq_len), dtype=np.int64), is_parameter=True, dest_ops=[rope]
-    )
-    graph.append_variable(pos)
-    rope.inputs.append(pos)
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert any('position_ids' in e for e in errors), errors
+    _, rope, cos, sin = _fresh_rope()
+    with pytest.raises(ValueError, match='expects exact 3 inputs'):
+        espdl_rotary_embedding_forward(rope, [x, cos, sin, torch.zeros(batch_size, seq_len, dtype=torch.int64)])
 
-    print('PASS: test_support_check_rejects_out_of_subset_configs')
-
-
-def test_fusion_and_legalize_passes_are_separate():
-    """Fusion only rewrites; the always-on legalize pass owns validation."""
-    batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
-    path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='fusion_off')
-    graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
-
-    rope = next(op for op in graph.operations.values() if op.type == ROPE)
-    rope.attributes['rotary_embedding_dim'] = 4  # incompatible with cache last dim
-
-    # A second fusion run neither validates nor legalizes the existing node.
-    fusion_pass = RotaryEmbeddingFusionPass()
-    fusion_pass.optimize(graph, dataloader=None, executor=None)
-    assert rope.type == ROPE
-    assert not hasattr(fusion_pass, 'strict')
-    assert not hasattr(fusion_pass, 'errors')
-
-    legalize_pass = EspdlRotaryEmbeddingLegalizePass(strict=True)
-    try:
-        legalize_pass.optimize(graph, dataloader=None, executor=None)
-    except ValueError as e:
-        assert 'RotaryEmbedding' in str(e)
-    else:
-        raise AssertionError('LegalizePass must reject an unsupported native node')
-
-    # Warn mode still collects the same backend error without raising.
-    legalize_pass = EspdlRotaryEmbeddingLegalizePass(strict=False)
-    legalize_pass.optimize(graph, dataloader=None, executor=None)
-    assert legalize_pass.errors, legalize_pass.errors
-
-    os.unlink(path)
-    print('PASS: test_fusion_and_legalize_passes_are_separate')
+    # 6. Cache last dim mismatch.
+    _, rope, cos, sin = _fresh_rope()
+    with pytest.raises(ValueError, match='cache last dim'):
+        espdl_rotary_embedding_forward(rope, [x, cos[..., :4], sin[..., :4]])
 
 
 # ---------------------------------------------------------------------------
-# Pipeline wiring
+# Format-stage wiring
 # ---------------------------------------------------------------------------
 def test_pass_is_auto_attached():
-    """Fusion is optional; LegalizePass is always attached after it."""
-    from esp_ppq.executor import TorchExecutor as _Exec
-    from esp_ppq.quantization.quantizer import EspdlQuantizer
-
+    """RotaryEmbedding fusion is owned by format_graph (invoked by load_onnx_graph)."""
     batch_size, head_count, seq_len, head_dim = 1, 2, 8, 16
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='pipeline')
-    graph = _load(path)
-
-    setting = QuantizationSettingFactory.espdl_setting()
-    assert setting.rotary_embedding_fusion is True
-    assert setting.rotary_embedding_fusion_setting.strict is True
-
-    quantizer = EspdlQuantizer(graph=graph)
-
-    pipeline = list(quantizer.build_prequant_pipeline(setting, executor=_Exec(graph=graph, device='cpu')))
-    fusion = [p for p in pipeline if isinstance(p, RotaryEmbeddingFusionPass)]
-    legalize = [p for p in pipeline if isinstance(p, EspdlRotaryEmbeddingLegalizePass)]
-    assert len(fusion) == 1
-    assert len(legalize) == 1
-    assert pipeline.index(fusion[0]) < pipeline.index(legalize[0])
-    assert not hasattr(fusion[0], 'strict')
-    assert legalize[0].strict is True
-
-    # Disabling fusion removes only FusionPass; backend legalization remains.
-    setting.rotary_embedding_fusion = False
-    pipeline_off = list(quantizer.build_prequant_pipeline(setting, executor=_Exec(graph=graph, device='cpu')))
-    assert not any(isinstance(p, RotaryEmbeddingFusionPass) for p in pipeline_off)
-    legalize_off = [p for p in pipeline_off if isinstance(p, EspdlRotaryEmbeddingLegalizePass)]
-    assert len(legalize_off) == 1 and legalize_off[0].strict is True
-
-    os.unlink(path)
+    try:
+        graph = load_onnx_graph(path)
+        assert _op_types(graph) == [ROPE]
+    finally:
+        os.unlink(path)
     print('PASS: test_pass_is_auto_attached')
 
 
@@ -1213,10 +957,7 @@ def test_shared_caches_are_deduped():
 
     # 1. Single RoPE layer with distinct cos/sin has nothing to merge.
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='dedupe_single')
-    graph = _load(path)
-    sample = torch.randn(batch_size, head_count, seq_len, head_dim)
-    executor = _trace(graph, sample)
-    RotaryEmbeddingFusionPass().optimize(graph, dataloader=None, executor=executor, inputs=[sample])
+    graph = _load_formatted(path)
 
     rope = next(op for op in graph.operations.values() if op.type == ROPE)
     before = sum(1 for v in graph.variables.values() if v.is_parameter)
@@ -1257,10 +998,7 @@ def test_shared_caches_are_deduped():
         OH.make_node('Add', ['xcos1', 'rsin1'], ['Y']),
     ]
     path2 = _finish(nodes, inits, [batch_size, head_count, seq_len, head_dim], 'Y', 'dedupe_two_layers')
-    graph2 = _load(path2)
-    sample2 = torch.randn(batch_size, head_count, seq_len, head_dim)
-    executor2 = _trace(graph2, sample2)
-    RotaryEmbeddingFusionPass().optimize(graph2, dataloader=None, executor=executor2, inputs=[sample2])
+    graph2 = _load_formatted(path2)
     ropes = [op for op in graph2.operations.values() if op.type == ROPE]
     assert len(ropes) == 2
     assert ropes[0].inputs[1] is not ropes[1].inputs[1]
@@ -1338,9 +1076,8 @@ def test_interior_exclusivity_and_shared_parameter_safety():
     path_out = _save(OH.make_model(g_pb, opset_imports=[OH.make_opsetid('', 17)]), 'interior_out')
     g_out = _load(path_out)
     g_out.inputs['X'].shape = [batch_size, head_count, seq_len, head_dim]
-    p_out = RotaryEmbeddingFusionPass()
-    p_out.optimize(g_out)
-    assert p_out.fused_count == 0
+    GraphMerger(g_out).fuse_rotary_embedding()
+    assert ROPE not in _op_types(g_out)
     os.unlink(path_out)
 
     # 2. Shared cos parameter also feeds an external Mul -> RoPE fuses AND external
@@ -1361,13 +1098,12 @@ def test_interior_exclusivity_and_shared_parameter_safety():
         shared_cos_var.dest_ops.append(ext_mul)
         old_ext_cos.dest_ops.clear()
         g_shared.remove_variable(old_ext_cos)
-    p_shared = RotaryEmbeddingFusionPass()
     # This intentionally shared parameter cannot be deployed to TorchExecutor
     # before fusion (PPQ rejects multi-destination parameters), so inject only
     # the static input metadata the fusion admission gate requires.
     g_shared.inputs['X'].shape = [batch_size, head_count, seq_len, head_dim]
-    p_shared.optimize(g_shared)
-    assert p_shared.fused_count == 1
+    GraphMerger(g_shared).fuse_rotary_embedding()
+    assert ROPE in _op_types(g_shared)
     assert shared_cos_var.value is not None
     assert ext_mul in shared_cos_var.dest_ops
     os.unlink(path_shared)
@@ -1393,8 +1129,7 @@ def test_interior_exclusivity_and_shared_parameter_safety():
         OH.make_node('Add', ['xcos', 'rsin'], ['Y']),
     ]
     path_const = _finish(const_nodes, [], [batch_size, head_count, seq_len, head_dim], 'Y', 'const_rope')
-    g_const, p_const, _ = _fuse_and_compare(path_const, (batch_size, head_count, seq_len, head_dim), expect_fused=True)
-    assert p_const.fused_count == 1
+    g_const, _, _ = _fuse_and_compare(path_const, (batch_size, head_count, seq_len, head_dim), expect_fused=True)
     assert 'Constant' not in _op_types(g_const)
     os.unlink(path_const)
 
@@ -1402,8 +1137,8 @@ def test_interior_exclusivity_and_shared_parameter_safety():
 
 
 def test_2d_and_batch_cache_validation_and_forward():
-    """Verify 2D [L, half] and 3D [B, L, half] caches in RotaryEmbedding_forward
-    and check_rotary_embedding, plus batch/seq mismatch rejection."""
+    """Verify 2D [L, half] and 3D [B, L, half] caches in RotaryEmbedding_forward,
+    plus batch/seq mismatch rejection by the executor."""
     batch_size, head_count, seq_len, head_dim = 2, 2, 8, 16
     path = build_rotate_half(batch_size, head_count, seq_len, head_dim, order='neg_hi_lo', tag='cache2d')
     graph, _, _ = _fuse_and_compare(path, (batch_size, head_count, seq_len, head_dim))
@@ -1414,45 +1149,43 @@ def test_2d_and_batch_cache_validation_and_forward():
     TorchExecutor(graph=graph, device='cpu').tracing_operation_meta(inputs=[x])
     ref = _run(graph, x)
 
-    # 1. 2D [L, half] cache executes and passes check_rotary_embedding.
+    # 1. 2D [L, half] cache executes cleanly.
     cos_3d = rope.inputs[1].value.clone()
     sin_3d = rope.inputs[2].value.clone()
     rope.inputs[1].value = cos_3d.squeeze(0)
     rope.inputs[2].value = sin_3d.squeeze(0)
-    errors, _ = check_rotary_embedding(graph, strict=True)
-    assert not errors
     out_2d = _run(graph, x)
     assert (ref - out_2d).abs().max().item() < 1e-6
 
-    # 2. 3D [B, L, half] per-batch cache executes and passes check_rotary_embedding.
+    # 2. 3D [B, L, half] per-batch cache executes cleanly.
     rope.inputs[1].value = cos_3d.expand(batch_size, -1, -1).contiguous()
     rope.inputs[2].value = sin_3d.expand(batch_size, -1, -1).contiguous()
-    errors, _ = check_rotary_embedding(graph, strict=True)
-    assert not errors
     out_b = _run(graph, x)
     assert (ref - out_b).abs().max().item() < 1e-6
 
-    # 3. Cache batch mismatch (cb=3 != B=2 and != 1) is caught by check_rotary_embedding.
+    # 3. Cache batch mismatch (cb=3 != B=2 and != 1) is caught by the executor.
     rope.inputs[1].value = cos_3d.expand(3, -1, -1).contiguous()
     rope.inputs[2].value = sin_3d.expand(3, -1, -1).contiguous()
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert any('cache batch' in e for e in errors), errors
+    with pytest.raises(RuntimeError) as exc_info:
+        _run(graph, x)
+    assert 'cache batch' in str(exc_info.value.__cause__)
 
-    # 4. Cache sequence mismatch (seq=4 != L=8) is caught by check_rotary_embedding.
+    # 4. Cache sequence mismatch (seq=4 != L=8) is caught by the executor.
     rope.inputs[1].value = cos_3d[:, :4, :].contiguous()
     rope.inputs[2].value = sin_3d[:, :4, :].contiguous()
-    errors, _ = check_rotary_embedding(graph, strict=False)
-    assert any('cache sequence' in e for e in errors), errors
+    with pytest.raises(RuntimeError) as exc_info:
+        _run(graph, x)
+    assert 'cache sequence' in str(exc_info.value.__cause__)
 
     print('PASS: test_2d_and_batch_cache_validation_and_forward')
 
 
 def test_shape_awareness_and_float_export():
-    """Verify that prequant tracing and EspdlExporter.prepare_graph_for_float_export
-    correctly skip 3D X and fuse 4D X."""
+    """Verify that format_graph skips 3D X and fuses 4D X, and float/quantized
+    export preserve the fused RotaryEmbedding node."""
     from esp_ppq.parser.espdl_exporter import EspdlExporter
 
-    # 1. 3D X [B, L, D] must be skipped automatically when traced via executor/inputs.
+    # 1. 3D X [B, L, D] must be skipped automatically during format_graph.
     batch_size, seq_len, head_dim = 1, 8, 16
     half = head_dim // 2
     f = _freqs(seq_len, half)
@@ -1476,29 +1209,21 @@ def test_shape_awareness_and_float_export():
         OH.make_node('Add', ['xcos', 'rsin'], ['Y']),
     ]
     path_3d = _finish(nodes, inits, [batch_size, seq_len, head_dim], 'Y', 'rope_3d')
-    g_3d = _load(path_3d)
-    p_3d = RotaryEmbeddingFusionPass()
-    p_3d.optimize(
-        g_3d, executor=TorchExecutor(graph=g_3d, device='cpu'), inputs=[torch.randn(batch_size, seq_len, head_dim)]
-    )
-    assert p_3d.fused_count == 0
+    g_3d = load_onnx_graph(path_3d)
+    assert ROPE not in _op_types(g_3d)
     os.unlink(path_3d)
 
-    # 2. prepare_graph_for_float_export fuses 4D RoPE on the float export path.
+    # 2. load_onnx_graph (format_graph) fuses 4D RoPE directly.
     head_count = 2
     path_4d = build_rotate_half(batch_size, head_count, seq_len, 32, order='neg_hi_lo', tag='float_export')
     g_4d = load_onnx_graph(path_4d)
+    assert any(op.type == ROPE for op in g_4d.operations.values())
     sample = [torch.randn(batch_size, head_count, seq_len, 32)]
-    EspdlExporter.prepare_graph_for_float_export(
-        graph=g_4d,
-        platform=TargetPlatform.ESPDL_INT8,
-        inputs=sample,
-        device='cpu',
-    )
+    TorchExecutor(graph=g_4d, device='cpu').tracing_operation_meta(inputs=sample)
     assert any(op.type == ROPE for op in g_4d.operations.values())
 
-    # 3. End-to-end quantize_onnx_model on ESPDL_INT8 fuses RoPE, calibrates,
-    #    and runs post-calibration SIMD exponent hint checks.
+    # 3. End-to-end quantization fuses RoPE and constructs its cache
+    #    quantization configuration during the normal calibration pipeline.
     from esp_ppq.api import quantize_onnx_model
 
     q_graph = quantize_onnx_model(
@@ -1519,9 +1244,8 @@ def test_shape_awareness_and_float_export():
     assert sin_cfg.dominated_by == cos_cfg, "cos/sin caches must share one exponent"
     assert torch.equal(cos_cfg.scale, sin_cfg.scale)
 
-    # 4. The final export gate sees the calibrated RoPE contract before
-    # parameter baking. A successful FlatBuffer write proves that its
-    # int8-X/int16-cache/int8-Y contract survives the exporter patterns.
+    # 4. The generic exporter serializes the calibrated RoPE through the
+    # standard operator and parameter patterns.
     espdl_path = path_4d + ".espdl"
     EspdlExporter().export(file_path=espdl_path, graph=q_graph, export_config=False)
     assert os.path.isfile(espdl_path) and os.path.getsize(espdl_path) > 0
@@ -1533,13 +1257,12 @@ def test_shape_awareness_and_float_export():
 
 
 def test_fusion_trace_requires_only_equivalence_shape_metadata():
-    """Fusion needs X shape; prequant separately traces dtype for Legalize."""
+    """Fusion only needs X shape; intermediate and output metadata are not required."""
     shape = (1, 2, 8, 16)
     path = build_rotate_half(*shape, order='neg_hi_lo', tag='trace_add_output')
     try:
         graph = _load(path)
         _trace(graph, torch.randn(*shape))
-        x = graph.inputs['X']
         y = graph.outputs['Y']
         assert y.shape is not None and y.dtype is not None
 
@@ -1552,18 +1275,8 @@ def test_fusion_trace_requires_only_equivalence_shape_metadata():
                     output._dtype = None
         y.shape = None
         y._dtype = None
-        assert not _rope_fusion_needs_trace(graph)
 
-        # The configured prequant pipeline still traces once because the
-        # fused node's X/Y dtype is required by the following LegalizePass.
-        assert _rope_prequant_needs_trace(graph, do_fusion=True)
-        assert not _rope_prequant_needs_trace(graph, do_fusion=False)
-
-        # Once prospective X/Y dtypes are known, no intermediate metadata is
-        # required. Fusion restores Y shape from the proven X geometry.
-        y._dtype = x.dtype
-        assert not _rope_prequant_needs_trace(graph, do_fusion=True)
-        RotaryEmbeddingFusionPass().optimize(graph)
+        GraphMerger(graph).fuse_rotary_embedding()
         assert any(op.type == ROPE for op in graph.operations.values())
         assert y.shape == list(shape)
     finally:
@@ -1580,12 +1293,7 @@ if __name__ == '__main__':
     test_unequal_halves_cache_is_rejected()
     test_unrelated_add_is_not_matched()
     test_halve_rope_cache_contract()
-    test_support_check_accepts_fused_graph()
-    test_support_check_simd_hints_vision_shapes()
-    test_support_check_int16_cache_hints_track_kernel_gates()
-    test_support_check_flags_bad_cache()
-    test_support_check_rejects_out_of_subset_configs()
-    test_fusion_and_legalize_passes_are_separate()
+    test_executor_rejects_out_of_subset_configs()
     test_pass_is_auto_attached()
     test_shared_caches_are_deduped()
     test_interior_exclusivity_and_shared_parameter_safety()

@@ -134,12 +134,6 @@ class HardwareEmulator(torch.autograd.Function):
 
     ``backward`` uses the smooth ideal activation gradient so the op stays
     trainable under QAT (straight-through-style estimator).
-
-    Each operation owns its own table, stored on the op object itself. There is
-    no process-wide table cache: one keyed on ``id(op)`` silently served a
-    freed op's table to whichever op was later allocated at the same address,
-    which corrupted the exported test values of every model quantized after the
-    first one in a batch run.
     """
 
     @staticmethod
@@ -165,14 +159,7 @@ class HardwareEmulator(torch.autograd.Function):
 
     @staticmethod
     def _get_table(math_fn, op_context, in_scale, out_scale, step, rounding):
-        """Return the LUT table owned by ``op_context``.
-
-        The table is stored on the operation itself rather than in a global
-        cache, so it lives and dies with the op and can never be handed to a
-        different one. The fingerprint makes the table follow the scales, which
-        are trainable under QAT. Ops that cannot hold attributes (plain
-        ``object()`` in tests) simply rebuild every call.
-        """
+        """Return the LUT table cached on ``op_context``, rebuilding when scales change."""
         fingerprint = (int(step), _as_scalar(in_scale), _as_scalar(out_scale), rounding)
         cached = getattr(op_context, _TABLE_SLOT, None)
         if cached is not None and cached[0] == fingerprint:

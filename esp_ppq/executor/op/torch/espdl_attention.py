@@ -16,6 +16,7 @@ from esp_ppq.log import NaiveLogger
 
 logger = NaiveLogger.get_logger('PPQ')
 
+
 # ``#ifndef`` defaults in esp-dl ``ESP_DL_ATTENTION_MAX_*``. Env overrides here
 # must be rebuilt into the firmware with the matching compile definition.
 ESPDL_ATTENTION_DEFAULT_MAX_HEAD_DIM = 64
@@ -23,26 +24,7 @@ ESPDL_ATTENTION_DEFAULT_MAX_KV_TOKENS = 2048
 
 
 def _resolve_max_head_dim() -> int:
-    """Ceiling on head_dim the fused kernel accepts.
-
-    Vision users deploying ViT-L / DINOv3-L / DiT / SD3 (head_dim=128)
-    must:
-
-    1. build the device with the compile definition
-       ``ESP_DL_ATTENTION_MAX_HEAD_DIM=128`` so the C++ scratch dimensions grow, and
-    2. set ``ESPDL_ATTENTION_MAX_HEAD_DIM=128`` in the export environment
-       so the eligibility pass here stops decomposing D=128 nodes.
-
-    Default 64 matches the historical vision workload (ViT-Ti/S/B,
-    DINOv2, LTDETRv2, ECViT — all head_dim ∈ {32, 48, 64}); raising the
-    Python bound above the device bound causes ``Attention::deserialize``
-    to reject the node at load time, so keep the two in lockstep.
-
-    The fallback when the env var is unset must stay equal to
-    ``ESP_DL_ATTENTION_MAX_HEAD_DIM``'s ``#ifndef`` default in
-    ``dl_base_attention.hpp``.
-    """
-
+    """Resolve the head_dim ceiling accepted by the fused Attention kernel."""
     raw = os.environ.get("ESPDL_ATTENTION_MAX_HEAD_DIM")
     if raw is None:
         return ESPDL_ATTENTION_DEFAULT_MAX_HEAD_DIM
@@ -65,19 +47,7 @@ def _resolve_max_head_dim() -> int:
 
 
 def _resolve_max_kv_tokens() -> int:
-    """Ceiling on Lk (key/value sequence length) the fused kernel accepts.
-
-    Mirrors the device ``ESP_DL_ATTENTION_MAX_KV_TOKENS``, a pure admission
-    bound on the device (no buffer is sized from it).
-    ``validate_attention_shapes`` rejects any node above the device value
-    from inside ``Attention::deserialize``, i.e. the whole model fails to
-    load — so the bound has to be enforced here, at fusion time, where the
-    node can still be left as MatMul/Softmax primitives.
-
-    Set ``ESPDL_ATTENTION_MAX_KV_TOKENS`` in the export environment to the
-    same number as the device build whenever either is moved off 2048.
-    """
-
+    """Resolve the key/value sequence length ceiling accepted by the fused Attention kernel."""
     raw = os.environ.get("ESPDL_ATTENTION_MAX_KV_TOKENS")
     if raw is None:
         return ESPDL_ATTENTION_DEFAULT_MAX_KV_TOKENS
@@ -130,27 +100,9 @@ _ATTENTION_EMULATED_PLATFORMS = frozenset(
 
 
 def set_espdl_attention_simulation_enabled(enabled: bool) -> None:
-    """Force the device emulator on, even when ``op.platform`` is not a P4 target.
-
-    Calibration does not need this. ``espdl_attention_forward`` already uses the
-    emulator once Q/K/V/O scales are activated on a P4 platform, and stays on the
-    fp32 reference while those scales are still being collected.
-    """
+    """Force the P4 device emulator on regardless of ``op.platform``."""
     global _ESPDL_ATTENTION_SIMULATION_ENABLED
     _ESPDL_ATTENTION_SIMULATION_ENABLED = bool(enabled)
-
-
-def _espdl_attention_simulation_enabled() -> bool:
-    if _ESPDL_ATTENTION_SIMULATION_ENABLED:
-        return True
-    return os.environ.get(_ENV_DEVICE_EMULATE_KEY, "0") in ("1", "true", "True")
-
-
-def _attention_use_device_emulator(op: Operation) -> bool:
-    """P4 Attention with a finished quant config, or an explicit test override."""
-    if getattr(op, "platform", None) in _ATTENTION_EMULATED_PLATFORMS:
-        return True
-    return _espdl_attention_simulation_enabled()
 
 
 # Device computes in fp32; round scalars with ``_fp32`` so Python fp64 does not drift 1 ULP.
@@ -182,12 +134,7 @@ _INT8_EXP_LUT_CACHE: dict = {}
 
 
 def _float_exp_lut() -> torch.Tensor:
-    """Cached fp32 ``exp(-i * step)`` LUT (1025 entries; mirrors C++ ``AttentionFloatExpLut``).
-
-    Bits are a frozen table shared with esp-dl, not rebuilt from local libm.
-    glibc vs newlib ``expf`` differ by ~1 ULP on a few entries, which is
-    enough to flip an int8 output sitting on a requantization boundary.
-    """
+    """Cached fp32 ``exp(-i * step)`` LUT (1025 entries; mirrors C++ ``AttentionFloatExpLut``)."""
     global _FLOAT_EXP_LUT_CACHE
     if _FLOAT_EXP_LUT_CACHE is None:
         import numpy as np
@@ -245,25 +192,6 @@ def _float_exp_lut_lookup_precise(x: torch.Tensor) -> torch.Tensor:
     return val
 
 
-def _int16_dot_shift(n: int) -> int:
-    """``int16_dot_shift(n)``: smallest s with 2^s >= n."""
-    shift = 0
-    while (1 << shift) < n:
-        shift += 1
-    return shift
-
-
-def _shift_round_half_even(values: torch.Tensor, shift: int) -> torch.Tensor:
-    """Mirrors C++ ``shift_round_half_even`` (arithmetic shift, half-to-even)."""
-    if shift <= 0:
-        return values
-    floor_q = values >> shift
-    rem = values - (floor_q << shift)
-    half = values.new_tensor(1 << (shift - 1), dtype=values.dtype)
-    increment = (rem > half) | ((rem == half) & ((floor_q & 1) != 0))
-    return floor_q + increment.to(values.dtype)
-
-
 def _build_int8_exp_lut(logit_scale: float) -> Tuple[torch.Tensor, int, int]:
     """512-entry int8-path exp LUT (values in [0, 127]) for one ``logit_scale``.
 
@@ -297,14 +225,9 @@ def _build_int8_exp_lut(logit_scale: float) -> Tuple[torch.Tensor, int, int]:
     return table, shift, sat
 
 
-def _round_half_even(x: torch.Tensor) -> torch.Tensor:
-    """Half-to-even (matches P4 ``fcvt.w.s rne`` / PIE vxrm default)."""
-    return torch.round(x)
-
-
 def _fake_quant_to_int(x_fp32: torch.Tensor, scale: float, qmin: int, qmax: int) -> torch.Tensor:
     """Recover int representation of a fake-quantized fp32 tensor."""
-    return _round_half_even(x_fp32 / scale).clamp(qmin, qmax).to(torch.int32)
+    return torch.round(x_fp32 / scale).clamp(qmin, qmax).to(torch.int32)
 
 
 def _simulate_espdl_int8_attention(
@@ -382,7 +305,7 @@ def _simulate_espdl_int8_attention(
         to_dots = torch.tensor(_fp32(1.0 / logit_scale_f32), dtype=torch.float32, device=device)
         scaled = torch.where(mask_drop, torch.zeros_like(mask_f32), mask_f32) * to_dots
         scaled = scaled.clamp(-_MASK_DOTS_CLAMP, _MASK_DOTS_CLAMP)
-        mask_bias = _round_half_even(scaled).to(torch.int64)
+        mask_bias = torch.round(scaled).to(torch.int64)
 
     # CUDA has no int32 matmul; fp32+TF32 can lose bits.
     dots_full = torch.matmul(q_i8.to(torch.float64), k_i8.to(torch.float64).transpose(-1, -2)).round().to(torch.int32)
@@ -461,7 +384,7 @@ def _simulate_espdl_int8_attention(
                 torch.zeros_like(l_sum),
             )
             val = acc.to(torch.float32) * inv_l.unsqueeze(-1) * inv_o_scale_tensor
-            out_int8[b, h] = _round_half_even(val).clamp(-128, 127).to(torch.int8)
+            out_int8[b, h] = torch.round(val).clamp(-128, 127).to(torch.int8)
 
     if permute_back:
         out_int8 = out_int8.transpose(1, 2).contiguous()
@@ -521,7 +444,9 @@ def _simulate_espdl_int16_attention(
     o_scale_f32 = _fp32(o_scale)
     softmax_scale_f32 = _fp32(scale)
     logit_scale_f32 = _fp32(_fp32(softmax_scale_f32 * q_scale_f32) * k_scale_f32)
-    shift = _int16_dot_shift(head_dim)
+    shift = 0
+    while (1 << shift) < head_dim:
+        shift += 1
     dot_scale_f32 = _fp32(logit_scale_f32 * float(1 << shift))
     pv_fixed = float(1 << _PV_S16_BITS)
     pv_scale_f32 = _fp32(v_scale_f32 / pv_fixed)
@@ -537,7 +462,14 @@ def _simulate_espdl_int16_attention(
         )
 
     dots_full = torch.matmul(q_i16.to(torch.float64), k_i16.to(torch.float64).transpose(-1, -2)).round().to(torch.int64)
-    shifted = _shift_round_half_even(dots_full, shift)
+    if shift > 0:
+        floor_q = dots_full >> shift
+        rem = dots_full - (floor_q << shift)
+        half = dots_full.new_tensor(1 << (shift - 1), dtype=dots_full.dtype)
+        increment = (rem > half) | ((rem == half) & ((floor_q & 1) != 0))
+        shifted = floor_q + increment.to(dots_full.dtype)
+    else:
+        shifted = dots_full
     scores_full = shifted.to(torch.float32) * dot_scale_f32
 
     out_int16 = torch.empty((batch_size, num_heads, query_length, head_dim), dtype=torch.int16, device=device)
@@ -583,7 +515,7 @@ def _simulate_espdl_int16_attention(
 
             inv_l = torch.where(l_sum > 0, 1.0 / l_sum, torch.zeros_like(l_sum))
             val = acc * inv_l.unsqueeze(-1) * inv_o_scale_tensor
-            out_int16[b, h] = _round_half_even(val).clamp(-32768, 32767).to(torch.int16)
+            out_int16[b, h] = torch.round(val).clamp(-32768, 32767).to(torch.int16)
 
     if permute_back:
         out_int16 = out_int16.transpose(1, 2).contiguous()
@@ -641,44 +573,6 @@ def _extract_sym_scale(config, num_of_bits: Optional[int] = None) -> Optional[fl
     return val
 
 
-def _scales_still_being_calibrated(configs) -> bool:
-    """True when Q/K/V/O scales are not activated yet, so calibration stays on fp32."""
-    try:
-        from esp_ppq.core.quant import QuantizationStates
-    except ImportError:
-        return True
-    ready = {
-        QuantizationStates.ACTIVATED,
-        QuantizationStates.PASSIVE,
-        QuantizationStates.OVERLAPPED,
-        QuantizationStates.BAKED,
-        QuantizationStates.PASSIVE_BAKED,
-    }
-    saw = False
-    for config in configs:
-        if config is None:
-            continue
-        if getattr(config, "dominated_by", None) is not None:
-            config = config.dominated_by
-        saw = True
-        if getattr(config, "state", None) not in ready:
-            return True
-    return not saw
-
-
-def _extract_int8_sym_scale(config) -> Optional[float]:
-    """Positive fp32 int8 sym per-tensor scale from ``config``, or ``None``."""
-    return _extract_sym_scale(config, num_of_bits=8)
-
-
-def _device_dequant_scale_from_ppq_scale(scale: float) -> float:
-    """Mirror ``QuantVariableToIntPattern``: exponent = int(log2(scale)), dequant = 2^exponent."""
-    import numpy as np
-
-    exponent = int(np.log2(np.asarray(scale)))
-    return float(np.ldexp(np.float32(1.0), exponent))
-
-
 def _decode_layout(raw) -> str:
     """Normalize a ``layout`` attribute (bytes or str) to ASCII upper case."""
     if isinstance(raw, bytes):
@@ -715,21 +609,8 @@ def _attr_as_number(value):
     return value
 
 
-def _attr_equals_default(value, default) -> bool:
-    actual = _attr_as_number(value)
-    try:
-        return float(actual) == float(default)
-    except (TypeError, ValueError):
-        return False
-
-
 def espdl_attention_attributes_ineligible_reason(attrs) -> str:
-    """Why ``attrs`` are outside the fused subset, or ``''`` if they are OK.
-
-    Default-valued ONNX keys (``softcap=0``, ``qk_matmul_output_mode=0``,
-    sliding-window ``-1``) are treated as absent. Unknown or non-default
-    keys fail closed so a later spec field cannot be silently ignored.
-    """
+    """Return why ``attrs`` are outside the fused Attention subset, or ``''``."""
     attrs = attrs or {}
     if "qkv_hidden_sizes" in attrs:
         return "com.microsoft.Attention keeps its own runtime"
@@ -739,8 +620,11 @@ def espdl_attention_attributes_ineligible_reason(attrs) -> str:
         if key in _ATTENTION_FUSED_ATTRS or key in _ATTENTION_INFRA_ATTRS:
             continue
         if key in ESPDL_ATTENTION_DEFAULT_NOOP_ATTRS:
-            if _attr_equals_default(value, ESPDL_ATTENTION_DEFAULT_NOOP_ATTRS[key]):
-                continue
+            try:
+                if float(_attr_as_number(value)) == float(ESPDL_ATTENTION_DEFAULT_NOOP_ATTRS[key]):
+                    continue
+            except (TypeError, ValueError):
+                pass
             non_default.append(key)
             continue
         unknown.append(key)
@@ -755,13 +639,7 @@ _FLOAT32_MAX = 3.4028234663852886e38
 
 
 def espdl_attention_scale_ineligible_reason(scale) -> str:
-    """Why an explicit ``scale`` cannot run on the device, or ``''``.
-
-    The int8 kernel runs softmax on raw integer dots and takes the row maximum
-    in dot units, which is the score maximum only for a positive scale, and
-    a subnormal's reciprocal overflows. ``Attention::deserialize`` rejects the
-    same float32 values for every dtype.
-    """
+    """Return why an explicit ``scale`` cannot run on the device, or ``''``."""
     if scale is None:
         return ""
     try:
@@ -779,19 +657,14 @@ def espdl_attention_logit_scale_ineligible_reason(
     k_scale: Optional[float],
     head_dim: int,
 ) -> str:
-    """Why ``scale * 2^q_exp * 2^k_exp`` cannot run on the device, or ``''``.
-
-    Matches ``attention_check_inputs()`` after the exporter has turned PPQ
-    scales into integer exponents. Uncalibrated (missing) Q/K scales are
-    skipped; the caller decides whether that is still too early to judge.
-    """
+    """Return why ``scale * 2^q_exp * 2^k_exp`` cannot run on the device, or ``''``."""
     if q_scale is None or k_scale is None:
         return ""
+    import numpy as np
+
     if scale is None:
         if head_dim <= 0:
             return f"head_dim={head_dim} cannot form 1/sqrt(D)"
-        import numpy as np
-
         softmax_scale = float(np.float32(1.0) / np.float32(np.sqrt(np.float32(head_dim))))
     else:
         reason = espdl_attention_scale_ineligible_reason(scale)
@@ -799,11 +672,10 @@ def espdl_attention_logit_scale_ineligible_reason(
             return reason
         softmax_scale = float(scale)
     try:
-        q_dequant = _device_dequant_scale_from_ppq_scale(float(q_scale))
-        k_dequant = _device_dequant_scale_from_ppq_scale(float(k_scale))
+        q_dequant = float(np.ldexp(np.float32(1.0), int(np.log2(np.asarray(float(q_scale))))))
+        k_dequant = float(np.ldexp(np.float32(1.0), int(np.log2(np.asarray(float(k_scale))))))
     except (TypeError, ValueError, OverflowError):
         return "Q/K dequant scales cannot be converted to device exponents"
-    import numpy as np
 
     with np.errstate(over="ignore"):
         logit = _fp32(_fp32(_fp32(softmax_scale) * _fp32(q_dequant)) * _fp32(k_dequant))
@@ -812,54 +684,11 @@ def espdl_attention_logit_scale_ineligible_reason(
     return ""
 
 
-def _is_explicit_fp32_attention(op: Operation) -> bool:
-    """True when ``op`` is an explicit FP32 Attention node in a quantized or float graph."""
-    try:
-        from esp_ppq.core.quant import QuantizationStates
-    except ImportError:
-        return getattr(op, "platform", None) == TargetPlatform.FP32
-
-    in_cfg = list(getattr(op, "input_quant_config", None) or ())
-    out_cfg = list(getattr(op, "output_quant_config", None) or ())
-    if not in_cfg and not out_cfg:
-        return getattr(op, "platform", None) == TargetPlatform.FP32
-    if len(in_cfg) < 3 or len(out_cfg) < 1:
-        return False
-    if len(in_cfg) > 3 and getattr(in_cfg[3], "state", None) != QuantizationStates.FP32:
-        return False
-    return all(getattr(cfg, "state", None) == QuantizationStates.FP32 for cfg in (*in_cfg[:3], out_cfg[0]))
-
-
-def espdl_attention_op_logit_scale_ineligible_reason(
-    op: Operation, head_dim: int, *, require_scales: bool = False
-) -> str:
-    """Read Q/K quantization configs on ``op`` and apply the logit_scale rule.
-
-    Missing or unusable scales return ``''`` unless ``require_scales`` is set.
-    Calibration still executes Attention before scales exist. The
-    post-calibration export check passes ``require_scales=True``.
-    """
-    if _is_explicit_fp32_attention(op):
-        scale = op.attributes.get("scale")
-        if scale is not None:
-            return espdl_attention_scale_ineligible_reason(scale)
-        if require_scales and head_dim <= 0:
-            return f"head_dim={head_dim} cannot form 1/sqrt(D)"
-        return ""
+def espdl_attention_op_logit_scale_ineligible_reason(op: Operation, head_dim: int) -> str:
+    """Check the device logit scale when calibrated Q/K scales are available."""
     in_cfg = getattr(op, "input_quant_config", None) or []
     q_scale = _extract_sym_scale(in_cfg[0]) if len(in_cfg) > 0 else None
     k_scale = _extract_sym_scale(in_cfg[1]) if len(in_cfg) > 1 else None
-    if require_scales:
-        out_cfg = getattr(op, "output_quant_config", None) or []
-        qkvo = [*in_cfg[:3], *out_cfg[:1]]
-        if len(qkvo) < 4 or any(_extract_sym_scale(cfg) is None for cfg in qkvo):
-            return (
-                "Q/K/V/O quantization scales are missing or are not activated "
-                "symmetric per-tensor int8/int16, so logit_scale was not checked"
-            )
-        bits = {int(getattr(getattr(cfg, "dominated_by", cfg), "num_of_bits", 0)) for cfg in qkvo}
-        if len(bits) != 1:
-            return "Q/K/V/O quantization bit-widths must match"
     return espdl_attention_logit_scale_ineligible_reason(op.attributes.get("scale"), q_scale, k_scale, head_dim)
 
 
@@ -893,22 +722,7 @@ def espdl_attention_mask_ineligible_reason(
     lq: int,
     lk: int,
 ) -> str:
-    """Why ``mask_shape`` cannot be an additive bias on ``[b, h_q, lq, lk]``.
-
-    Mirrors ``attention_check_mask_dims`` in ``dl_base_attention.cpp``: the
-    mask axes are right-aligned onto the score tensor and each must be either
-    1 or the full extent.
-
-    Rank above 4 is rejected even when every extra leading axis is 1.
-    Broadcasting cannot lower rank, so ``scores[B,H,Lq,Lk] + mask[1,1,1,1,Lq,Lk]``
-    is rank 6 under ONNX rules; squeezing the mask would make the device
-    compute a rank-4 result where the fp32 reference computes a rank-6 one.
-
-    Empty string also for ``mask_shape is None``. That value means either no
-    mask or a connected mask whose shape has not been traced yet, so this
-    helper does not reject it. Legalize rejects a connected mask whose shape
-    is still unknown after tracing; an absent fourth input stays a real "no mask".
-    """
+    """Return why ``mask_shape`` cannot broadcast onto ``[b, h_q, lq, lk]``, or ``''``."""
     if mask_shape is None:
         return ""
     dims = list(mask_shape)
@@ -934,26 +748,6 @@ def espdl_attention_mask_ineligible_reason(
 ESPDL_ATTENTION_MASK_DTYPES = frozenset({DataType.FP32, DataType.BOOL})
 
 
-def espdl_attention_mask_dtype_ineligible_reason(mask_dtype: Optional[DataType]) -> str:
-    """Why ``mask_dtype`` cannot feed the device ``attn_mask``.
-
-    Same contract as ONNX Attention / PyTorch SDPA / TensorRT ``IAttention``:
-    a bool mask (``True`` = attend) or a float additive bias. Integer masks
-    have no additive meaning there, and a quantized one cannot hold ``-inf``,
-    so ``attention_check_mask_dims`` in ``dl_base_attention.cpp`` refuses them.
-    """
-    if mask_dtype is None or mask_dtype in ESPDL_ATTENTION_MASK_DTYPES:
-        return ""
-    name = getattr(mask_dtype, "name", str(mask_dtype))
-    return f"attn_mask dtype {name} is unsupported; export a bool (True = attend) or fp32 additive mask"
-
-
-def _attention_mask_dtype(op: Operation) -> Optional[DataType]:
-    if op.num_of_input < 4 or op.inputs[3] is None:
-        return None
-    return op.inputs[3].dtype
-
-
 def espdl_attention_shapes_eligible(
     qkv_shapes: Sequence[Optional[Sequence[int]]],
     layout: str = "BHND",
@@ -961,17 +755,6 @@ def espdl_attention_shapes_eligible(
 ) -> bool:
     """Shape half of the admission test, callable without an ``Operation``."""
     return not espdl_attention_shapes_ineligible_reason(qkv_shapes, layout=layout, mask_shape=mask_shape)
-
-
-def _attention_mask_shape(op: Operation) -> Optional[Sequence[int]]:
-    """Shape of the optional 4th input, or None when absent / unshaped."""
-    if op.num_of_input < 4:
-        return None
-    mask = op.inputs[3]
-    if mask is None:
-        return None
-    shape = getattr(mask, "shape", None)
-    return None if shape is None else list(shape)
 
 
 def espdl_attention_eligible(op: Operation, qkv_shapes: Sequence[Optional[Sequence[int]]]) -> bool:
@@ -1025,52 +808,12 @@ def espdl_attention_shapes_ineligible_reason(
     return espdl_attention_mask_ineligible_reason(mask_shape, q_shape[0], h_q, q_shape[seq_axis], lk)
 
 
-def _static_shape_int(dim) -> Optional[int]:
-    """Return ``dim`` when it is a static integer axis, else ``None``."""
-    if isinstance(dim, bool) or not isinstance(dim, numbers.Integral):
-        return None
-    return int(dim)
-
-
-def _parse_declared_head_count(key: str, value) -> Tuple[Optional[int], str]:
-    """Parse one head-count attribute.
-
-    ``(None, "")`` means the attribute is the ONNX default ``0`` and the head
-    count should be read from the 4-D shape. Any other failure is an error
-    string and a ``None`` count.
-    """
-    actual = _attr_as_number(value)
-    if isinstance(actual, bool) or not isinstance(actual, numbers.Real):
-        return None, f"{key}={value!r} is not a positive integer"
-    if isinstance(actual, numbers.Integral):
-        count = int(actual)
-    else:
-        as_float = float(actual)
-        if not as_float.is_integer():
-            return None, f"{key}={value!r} is not a positive integer"
-        count = int(as_float)
-    if count == 0:
-        return None, ""
-    if count < 0:
-        return None, f"{key}={count} is not a positive integer"
-    return count, ""
-
-
 def espdl_attention_head_attrs_ineligible_reason(
     attrs,
     qkv_shapes: Sequence[Optional[Sequence[int]]],
     layout: str = "BHND",
 ) -> str:
-    """Why 4-D ``q_num_heads`` / ``kv_num_heads`` disagree with the head axis.
-
-    Device export drops both attributes and the kernel reads ``Hq`` / ``Hkv``
-    from the tensor shape. A missing attribute, or the ONNX default ``0``,
-    means "use the shape". A positive value must equal that axis, otherwise
-    the node would be exported under a different head count than the one its
-    attribute names. 3-D and non-static shapes are not judged here: 3-D nodes
-    need the attributes to recover the head axis, and an unshaped node has
-    nothing to compare against.
-    """
+    """Validate ``q_num_heads`` / ``kv_num_heads`` against 4-D Q/K/V head axes."""
     attrs = attrs or {}
     if "q_num_heads" not in attrs and "kv_num_heads" not in attrs:
         return ""
@@ -1079,20 +822,29 @@ def espdl_attention_head_attrs_ineligible_reason(
         if key not in attrs or attrs[key] is None:
             declared.append(None)
             continue
-        count, error = _parse_declared_head_count(key, attrs[key])
-        if error:
-            return error
-        declared.append(count)
+        raw_val = attrs[key]
+        actual = _attr_as_number(raw_val)
+        if isinstance(actual, bool) or not isinstance(actual, numbers.Real):
+            return f"{key}={raw_val!r} is not a positive integer"
+        if isinstance(actual, numbers.Integral):
+            count = int(actual)
+        else:
+            as_float = float(actual)
+            if not as_float.is_integer():
+                return f"{key}={raw_val!r} is not a positive integer"
+            count = int(as_float)
+        if count < 0:
+            return f"{key}={count} is not a positive integer"
+        declared.append(None if count == 0 else count)
     if not qkv_shapes or len(qkv_shapes) < 3:
         return ""
     shapes = []
     for shape in qkv_shapes[:3]:
         if shape is None or len(shape) != 4:
             return ""
-        parsed = [_static_shape_int(dim) for dim in shape]
-        if any(dim is None for dim in parsed):
+        if any(isinstance(dim, bool) or not isinstance(dim, numbers.Integral) for dim in shape):
             return ""
-        shapes.append(parsed)
+        shapes.append([int(dim) for dim in shape])
     decoded = _decode_layout(layout) or "BHND"
     head_axis, _ = _layout_head_seq_axes(decoded)
     q_count, kv_count = declared
@@ -1119,11 +871,7 @@ def espdl_attention_ineligible_reason_from_parts(
     mask_shape: Optional[Sequence[int]] = None,
     mask_dtype: Optional[DataType] = None,
 ) -> str:
-    """Why an Attention with these parts cannot run on the device, or ``''``.
-
-    The single device admission rule. It takes the parts rather than an
-    ``Operation`` so a primitive subgraph can be judged before it is fused.
-    """
+    """Return why an Attention with these parts cannot run on the device, or ``''``."""
     attrs = attrs or {}
     attr_reason = espdl_attention_attributes_ineligible_reason(attrs)
     if attr_reason:
@@ -1136,9 +884,9 @@ def espdl_attention_ineligible_reason_from_parts(
     layout = _decode_layout(attrs.get("layout", "BHND"))
     if layout not in ESPDL_ATTENTION_LAYOUTS:
         return f"layout={layout!r} is unsupported; use BHND or BNHD"
-    dtype_reason = espdl_attention_mask_dtype_ineligible_reason(mask_dtype)
-    if dtype_reason:
-        return dtype_reason
+    if mask_dtype is not None and mask_dtype not in ESPDL_ATTENTION_MASK_DTYPES:
+        name = getattr(mask_dtype, "name", str(mask_dtype))
+        return f"attn_mask dtype {name} is unsupported; export a bool (True = attend) or fp32 additive mask"
     shape_reason = espdl_attention_shapes_ineligible_reason(qkv_shapes, layout=layout, mask_shape=mask_shape)
     if shape_reason:
         return shape_reason
@@ -1147,12 +895,15 @@ def espdl_attention_ineligible_reason_from_parts(
 
 def espdl_attention_ineligible_reason(op: Operation, qkv_shapes: Sequence[Optional[Sequence[int]]]) -> str:
     """Human-readable reason paired with espdl_attention_eligible."""
+    mask = op.inputs[3] if op.num_of_input >= 4 else None
+    mask_shape = None if mask is None or getattr(mask, "shape", None) is None else list(mask.shape)
+    mask_dtype = None if mask is None else mask.dtype
     return espdl_attention_ineligible_reason_from_parts(
         op.attributes,
         op.num_of_input,
         qkv_shapes,
-        mask_shape=_attention_mask_shape(op),
-        mask_dtype=_attention_mask_dtype(op),
+        mask_shape=mask_shape,
+        mask_dtype=mask_dtype,
     )
 
 
@@ -1182,13 +933,7 @@ def _emulator_mask(
     l_k: int,
     device: torch.device,
 ) -> "torch.Tensor | None":
-    """``attn_mask`` with the causal frontier folded in, for ``_simulate_espdl_int8_attention``.
-
-    Mirrors the device order: causal slots become the masked sentinel first and
-    ``attention_mask_dots`` leaves them alone, so a causal slot is ``-inf``
-    whatever the mask holds there. ``tril()`` is the ONNX no-past upper-left
-    causal mask for both square and rectangular score matrices.
-    """
+    """Fold the causal mask into ``attn_mask`` for the integer emulators."""
     if not is_causal:
         return None if attn_mask is None else attn_mask.contiguous()
     keep = torch.ones(l_q, l_k, dtype=torch.bool, device=device).tril()
@@ -1314,14 +1059,6 @@ def espdl_attention_forward(
     Outputs
         Y (differentiable) : T
             Same shape and layout as Q. Wrapped in a one-element list.
-
-    Args:
-        op (Operation): [description]
-        values (List[torch.Tensor]): [description]
-        ctx (TorchBackendContext, optional): [description]. Defaults to None.
-
-    Returns:
-        List[torch.Tensor]: [description]
     """
     if len(values) < 3:
         raise ValueError(f"Attention {op.name} expects at least 3 inputs (Q, K, V), got {len(values)}")
@@ -1367,21 +1104,21 @@ def espdl_attention_forward(
             if mask_reason:
                 raise ValueError(f"Attention {op.name}: {mask_reason}")
 
-    if _attention_use_device_emulator(op) and q.ndim == 4 and k.ndim == 4 and v.ndim == 4:
+    use_emulator = (
+        getattr(op, "platform", None) in _ATTENTION_EMULATED_PLATFORMS
+        or _ESPDL_ATTENTION_SIMULATION_ENABLED
+        or os.environ.get(_ENV_DEVICE_EMULATE_KEY, "0") in ("1", "true", "True")
+    )
+    if use_emulator and q.ndim == 4 and k.ndim == 4 and v.ndim == 4:
         canonical_q, canonical_k = q, k
-        skip_reason = None
         head_dim = int(canonical_q.shape[-1])
-        d_pad = (head_dim + 15) & ~15
         head_axis, seq_axis = _layout_head_seq_axes(layout)
         h_q = int(canonical_q.shape[head_axis])
         h_kv = int(canonical_k.shape[head_axis])
         l_q = int(canonical_q.shape[seq_axis])
         l_k = int(canonical_k.shape[seq_axis])
-        if h_kv <= 0 or h_q % h_kv != 0:
-            skip_reason = f"Hq({h_q}) not a positive multiple of Hkv({h_kv})"
-        elif not (0 < head_dim <= ESPDL_ATTENTION_MAX_HEAD_DIM):
-            skip_reason = f"head_dim={head_dim} outside 1..{ESPDL_ATTENTION_MAX_HEAD_DIM} — device int8 SIMD path off"
-        if skip_reason is None:
+        can_emulate = h_kv > 0 and h_q % h_kv == 0 and 0 < head_dim <= ESPDL_ATTENTION_MAX_HEAD_DIM
+        if can_emulate:
             in_cfg = getattr(op, "input_quant_config", None) or []
             out_cfg = getattr(op, "output_quant_config", None) or []
 
@@ -1404,12 +1141,6 @@ def espdl_attention_forward(
             q8, k8, v8, o8 = _scales(8)
             q16, k16, v16, o16 = _scales(16)
             if None not in (q8, k8, v8, o8):
-                logger.info(
-                    f"Attention {op.name}: device-int8 emulator "
-                    f"(head_dim={head_dim} D_pad={d_pad} acc=int32 Hq={h_q} Hkv={h_kv} "
-                    f"Lq={l_q} Lk={l_k} causal={int(is_causal)} "
-                    f"scale={scale:.6g} q_s={q8:.6g} k_s={k8:.6g} v_s={v8:.6g} o_s={o8:.6g})"
-                )
                 out = _simulate_espdl_int8_attention(
                     q.float().contiguous(),
                     k.float().contiguous(),
@@ -1424,13 +1155,6 @@ def espdl_attention_forward(
                 )
                 return [out.to(dtype=orig_dtype)]
             if None not in (q16, k16, v16, o16):
-                d_pad16 = (head_dim + 7) & ~7
-                logger.info(
-                    f"Attention {op.name}: device-int16 emulator "
-                    f"(head_dim={head_dim} D_pad={d_pad16} Hq={h_q} Hkv={h_kv} "
-                    f"Lq={l_q} Lk={l_k} causal={int(is_causal)} "
-                    f"scale={scale:.6g} q_s={q16:.6g} k_s={k16:.6g} v_s={v16:.6g} o_s={o16:.6g})"
-                )
                 out = _simulate_espdl_int16_attention(
                     q.float().contiguous(),
                     k.float().contiguous(),
@@ -1444,19 +1168,6 @@ def espdl_attention_forward(
                     attn_mask=emu_mask,
                 )
                 return [out.to(dtype=orig_dtype)]
-            skip_reason = "not int8/int16 symmetric per-tensor on Q/K/V/O"
-        if skip_reason is not None and not (
-            skip_reason.startswith("not int8/int16") and _scales_still_being_calibrated(list(in_cfg) + list(out_cfg))
-        ):
-            # head_dim-range skips are informational; anything else means the fast
-            # path won't match at runtime and the fp32 golden will drift.
-            level = logger.info if skip_reason.startswith("head_dim=") else logger.warning
-            level(
-                f"Attention {op.name}: device emulator disabled for this node "
-                f"({skip_reason}); embedded .espdl test values will come from "
-                f"the fp32 reference instead of the tiled int8/int16 fast path. The "
-                f"on-device runtime is unaffected."
-            )
 
     out = _espdl_attention_reference(
         q.float().contiguous(),

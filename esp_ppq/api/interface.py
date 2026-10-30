@@ -10,10 +10,13 @@ from esp_ppq.api.setting import DispatchingTable, QuantizationSetting, Quantizat
 from esp_ppq.core import PPQ_CONFIG, NetworkFramework, TargetPlatform, empty_ppq_cache, ppq_warning
 from esp_ppq.core.common import (
     FORMATTER_FORMAT_CONSTANT_INPUT,
+    FORMATTER_FUSE_ATTENTION,
     FORMATTER_FUSE_BIAS_ADD,
     FORMATTER_FUSE_BN,
+    FORMATTER_FUSE_INVERSE_SIGMOID,
     FORMATTER_FUSE_LP_NORMALIZATION,
     FORMATTER_FUSE_RMSNORM,
+    FORMATTER_FUSE_ROTARY_EMBEDDING,
     FORMATTER_FUSE_SWISH,
     FORMATTER_REMOVE_IDENTITY,
     FORMATTER_REMOVE_ISOLATED,
@@ -550,6 +553,7 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
         formatter(GraphCommand(GraphCommandType.FORMAT_CONSTANT_INPUT))
     formatter(GraphCommand(GraphCommandType.CONVERT_TO_TENSOR))
     formatter(GraphCommand(GraphCommandType.FORMAT_PARAMETERS))
+    formatter(GraphCommand(GraphCommandType.FORMAT_RNN_OUTPUT_ARITY))
 
     if FORMATTER_FUSE_BIAS_ADD:
         formatter(GraphCommand(GraphCommandType.FUSE_BIAS_ADD))
@@ -563,11 +567,17 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
     if FORMATTER_FUSE_SWISH:
         formatter(GraphCommand(GraphCommandType.FUSE_SWISH))
 
+    if FORMATTER_FUSE_INVERSE_SIGMOID:
+        formatter(GraphCommand(GraphCommandType.FUSE_INVERSE_SIGMOID))
+
     if FORMATTER_FUSE_RMSNORM:
         formatter(GraphCommand(GraphCommandType.FUSE_RMSNORM))
 
     if FORMATTER_FUSE_LP_NORMALIZATION:
         formatter(GraphCommand(GraphCommandType.FUSE_LP_NORMALIZATION))
+
+    if FORMATTER_FUSE_ROTARY_EMBEDDING:
+        formatter(GraphCommand(GraphCommandType.FUSE_ROTARY_EMBEDDING))
 
     formatter(GraphCommand(GraphCommandType.FORMAT_CAST))
     formatter(GraphCommand(GraphCommandType.FORMAT_SLICE))
@@ -577,6 +587,9 @@ def format_graph(graph: BaseGraph) -> BaseGraph:
 
     if FORMATTER_REMOVE_IDENTITY:
         formatter(GraphCommand(GraphCommandType.REMOVE_IDENTITY))
+
+    if FORMATTER_FUSE_ATTENTION:
+        formatter(GraphCommand(GraphCommandType.FUSE_ATTENTION))
 
     if FORMATTER_REMOVE_ISOLATED:
         formatter(GraphCommand(GraphCommandType.DELETE_ISOLATED))

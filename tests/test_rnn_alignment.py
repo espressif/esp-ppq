@@ -4,19 +4,24 @@ import pytest
 import torch
 from onnx import TensorProto, checker, helper, numpy_helper
 
+from esp_ppq.api import load_onnx_graph
 from esp_ppq.core import (
     NetworkFramework,
     QuantizationStates,
     TargetPlatform,
 )
 from esp_ppq.executor import TorchExecutor
-from esp_ppq.IR import BaseGraph
+from esp_ppq.IR import BaseGraph, GraphCommand, GraphCommandType, GraphFormatter
 from esp_ppq.lib.quant import Quantizer
 from esp_ppq.parser import espdl_exporter
 from esp_ppq.parser.espdl_exporter import EspdlExporter
 from esp_ppq.parser.onnx_exporter import OnnxExporter
 from esp_ppq.parser.onnx_parser import OnnxParser
-from esp_ppq.quantization.optim import QuantAlignmentPass, RNNArityNormalizationPass
+from esp_ppq.quantization.optim import QuantAlignmentPass
+
+
+def _normalize_rnn_outputs(graph):
+    GraphFormatter(graph)(GraphCommand(GraphCommandType.FORMAT_RNN_OUTPUT_ARITY))
 
 
 def _make_quantized_rnn(op_type, num_inputs, num_outputs):
@@ -31,7 +36,7 @@ def _make_quantized_rnn(op_type, num_inputs, num_outputs):
         inputs=inputs,
         outputs=outputs,
     )
-    RNNArityNormalizationPass().optimize(graph)
+    _normalize_rnn_outputs(graph)
     operation = Quantizer(TargetPlatform.ESPDL_INT8, graph).quantize_operation(op_type)
     return graph, operation
 
@@ -70,24 +75,31 @@ def test_onnx_parser_strips_trailing_empty_inputs_and_preserves_interior_ones(
         ("LSTM", ["Y", "YH"], 3),
     ],
 )
-def test_rnn_arity_normalization_restores_trailing_optional_output_slots(
-    tmp_path, op_type, node_outputs, expected_arity
-):
+def test_format_graph_restores_trailing_optional_rnn_output_slots(tmp_path, op_type, node_outputs, expected_arity):
     node = helper.make_node(op_type, ["X", "W", "R"], node_outputs, name="rnn")
     model = helper.make_model(
-        helper.make_graph([node], f"{op_type}_graph", [], []),
+        helper.make_graph(
+            [node],
+            f"{op_type}_graph",
+            [],
+            [helper.make_tensor_value_info(node_outputs[0], TensorProto.FLOAT, None)],
+        ),
         opset_imports=[helper.make_opsetid("", 14)],
     )
     model_path = tmp_path / f"{op_type.lower()}_outputs.onnx"
     model_path.write_bytes(model.SerializeToString())
 
-    graph = OnnxParser().build(str(model_path))
-    RNNArityNormalizationPass().optimize(graph)
+    graph = load_onnx_graph(str(model_path))
     operation = graph.operations["rnn"]
 
+    assert [variable.name for variable in operation.inputs] == ["X", "W", "R"]
     assert operation.num_of_output == expected_arity
     assert [variable.name for variable in operation.outputs[: len(node_outputs)]] == node_outputs
     assert all(variable.name for variable in operation.outputs[len(node_outputs) :])
+
+    output_names = [variable.name for variable in operation.outputs]
+    _normalize_rnn_outputs(graph)
+    assert [variable.name for variable in operation.outputs] == output_names
 
     operation = Quantizer(TargetPlatform.ESPDL_INT8, graph).quantize_operation(
         "rnn", platform=TargetPlatform.ESPDL_INT8
@@ -155,7 +167,7 @@ def test_missing_rnn_outputs_are_unique_and_do_not_create_cycles(tmp_path):
     model_path.write_bytes(model.SerializeToString())
 
     graph = OnnxParser().build(str(model_path))
-    RNNArityNormalizationPass().optimize(graph)
+    _normalize_rnn_outputs(graph)
     gru0, gru1 = graph.operations["gru0"], graph.operations["gru1"]
     output_sinks = [gru0.outputs[0], gru1.outputs[0]]
 
@@ -165,7 +177,7 @@ def test_missing_rnn_outputs_are_unique_and_do_not_create_cycles(tmp_path):
     assert {operation.name for operation in graph.topological_sort()} == {"gru0", "gru1"}
 
 
-def test_rnn_arity_normalization_rejects_invalid_output_arity_or_post_quant_mutation():
+def test_rnn_output_formatter_rejects_invalid_arity_or_post_quant_mutation():
     graph = BaseGraph(name="gru_invalid", built_from=NetworkFramework.ONNX)
     graph.create_operation(
         op_type="GRU",
@@ -175,7 +187,7 @@ def test_rnn_arity_normalization_rejects_invalid_output_arity_or_post_quant_muta
         outputs=[graph.create_variable(name=f"out_{i}") for i in range(3)],
     )
     with pytest.raises(ValueError, match="expected at most 2 outputs"):
-        RNNArityNormalizationPass().optimize(graph)
+        _normalize_rnn_outputs(graph)
 
     quant_graph = BaseGraph(name="gru_post_quant", built_from=NetworkFramework.ONNX)
     quant_graph.create_operation(
@@ -187,7 +199,7 @@ def test_rnn_arity_normalization_rejects_invalid_output_arity_or_post_quant_muta
     )
     Quantizer(TargetPlatform.ESPDL_INT8, quant_graph).quantize_operation("gru")
     with pytest.raises(ValueError, match="cannot normalize outputs after quantization"):
-        RNNArityNormalizationPass().optimize(quant_graph)
+        _normalize_rnn_outputs(quant_graph)
 
 
 def test_onnx_parser_strips_trailing_empty_slots_but_keeps_interior_ones(tmp_path):
@@ -270,7 +282,7 @@ def test_omitted_rnn_outputs_use_named_sinks_in_onnx_and_espdl_export(
     model_path.write_bytes(model.SerializeToString())
 
     graph = OnnxParser().build(str(model_path))
-    RNNArityNormalizationPass().optimize(graph)
+    _normalize_rnn_outputs(graph)
     operation = graph.operations[operation_name]
     output_sinks = [var for var in operation.outputs if var.name != "YH"]
     assert len(output_sinks) == (1 if op_type == "GRU" else 2)
@@ -337,7 +349,7 @@ def test_omitted_trailing_rnn_inputs_execute_correctly(tmp_path):
     model_path.write_bytes(model.SerializeToString())
 
     graph = OnnxParser().build(str(model_path))
-    RNNArityNormalizationPass().optimize(graph)
+    _normalize_rnn_outputs(graph)
     operation = graph.operations["gru"]
     assert operation.num_of_input == 3
     assert operation.num_of_output == 2
@@ -358,7 +370,7 @@ def test_empty_input_placeholders_are_not_exported_as_quantized_tensors(tmp_path
     model_path.write_bytes(model.SerializeToString())
 
     graph = OnnxParser().build(str(model_path))
-    RNNArityNormalizationPass().optimize(graph)
+    _normalize_rnn_outputs(graph)
     operation = Quantizer(TargetPlatform.ESPDL_INT8, graph).quantize_operation(
         "gru", platform=TargetPlatform.ESPDL_INT8
     )

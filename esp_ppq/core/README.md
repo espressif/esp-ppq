@@ -194,6 +194,10 @@ PPQ 全局控制常量被定义在 esp_ppq.core.common.py 文件中，用户可�
 
 13. FORMATTER_FUSE_LP_NORMALIZATION - 是否将分解的 Lp norm 子图合并为单个 `LpNormalization` 节点。
 
-14. PASSIVE_OPERATIONS - 一个集合，如果一个算子的类型出现在该集合中，PPQ 对该算子执行输入-输出联合定点。即保证该算子的输入变量与输出变量共享 Scale，如果算子有多个输入-输出变量，该操作只影响第一个输入和第一个输出变量。
+14. FORMATTER_FUSE_INVERSE_SIGMOID - 是否将分解的 DETR `inverse_sigmoid` 子图合并为单个 `InverseSigmoid` 节点。
 
-Attention 故意不属于这些全局 `FORMATTER_*` 开关：基础 `MatMul -> Softmax -> MatMul` 的融合只在 ESP-DL 的 prequant 或 FP32 prepare 路径、且完成 shape trace 后进行。可通过 `QuantizationSetting.espdl_attention_fusion=False` 关闭基础图模式融合；输入图已有的原生 `Attention` 仍会被合法化。
+15. FORMATTER_FUSE_ROTARY_EMBEDDING - 是否将分解的 `rotate_half` RoPE 子图合并为单个 `RotaryEmbedding` 节点。
+
+16. FORMATTER_FUSE_ATTENTION - 是否将分解的 `MatMul -> Softmax -> MatMul` 注意力子图合并为单个 `Attention` 节点，并将超限的原生 `Attention` 安全拆解为 `MatMul/Softmax` 子图。
+
+17. PASSIVE_OPERATIONS - 一个集合，如果一个算子的类型出现在该集合中，PPQ 对该算子执行输入-输出联合定点。即保证该算子的输入变量与输出变量共享 Scale，如果算子有多个输入-输出变量，该操作只影响第一个输入和第一个输出变量。

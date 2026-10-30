@@ -1,5 +1,4 @@
 import json
-import operator
 import os
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -12,11 +11,9 @@ from esp_ppq.core import (
     PPQ_CONFIG,
     DataType,
     QuantizationStates,
-    TargetPlatform,
     convert_any_to_numpy,
     convert_any_to_torch_tensor,
 )
-from esp_ppq.executor import TorchExecutor
 from esp_ppq.IR import BaseGraph, GraphExporter, Operation, OperationExporter, Variable
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.log import NaiveLogger
@@ -61,25 +58,6 @@ def convert_value(value: Union[int, float, np.ndarray, torch.Tensor]) -> Any:
         if value is None:
             return value  # SOI config has Nona as its scale and
         return value.tolist()
-
-
-def _lower_espdl_topk_attributes(attributes) -> dict:
-    lowered = dict(attributes)
-    for name in ("axis", "largest", "sorted"):
-        if name not in lowered:
-            continue
-        value = lowered[name]
-        if isinstance(value, torch.Tensor):
-            if value.numel() != 1:
-                raise ValueError(f"TopK attribute {name} must be a scalar integer, got shape {list(value.shape)}")
-            value = value.item()
-        if isinstance(value, bool):
-            raise ValueError(f"TopK attribute {name} must be a scalar integer, got {lowered[name]!r}")
-        try:
-            lowered[name] = operator.index(value)
-        except TypeError as error:
-            raise ValueError(f"TopK attribute {name} must be a scalar integer, got {lowered[name]!r}") from error
-    return lowered
 
 
 def set_streaming_input_shape(origin_shape, shape, perm) -> None:
@@ -215,67 +193,6 @@ def dedupe_espdl_shareable_parameters(
 class EspdlExporter(GraphExporter):
     """Export computational graphs into the ESP-DL FlatBuffer format."""
 
-    @staticmethod
-    def prepare_graph_for_float_export(
-        graph: BaseGraph,
-        platform: TargetPlatform,
-        inputs: Any,
-        device: str = "cpu",
-        setting: Any = None,
-    ) -> BaseGraph:
-        """Trace, run ESP-DL-specific fusions, and legalize supported ops for FP32 export."""
-        from esp_ppq.api.setting import QuantizationSettingFactory
-        from esp_ppq.quantization.optim import (
-            EspdlRotaryEmbeddingLegalizePass,
-            InverseSigmoidFusionPass,
-            RNNArityNormalizationPass,
-            RotaryEmbeddingFusionPass,
-            finalize_espdl_inverse_sigmoid_for_export,
-        )
-        from esp_ppq.quantization.optim.espdl_attention import (
-            EspdlAttentionFusionPass,
-            _log_attention_report,
-            espdl_attention_platform_unsupported_reason,
-            legalize_espdl_attention_graph,
-        )
-        from esp_ppq.quantization.quantizer.EspdlQuantizer import finalize_espdl_topk_for_export
-
-        if setting is None:
-            setting = QuantizationSettingFactory.espdl_setting()
-
-        RNNArityNormalizationPass().optimize(graph)
-
-        executor = TorchExecutor(graph=graph, device=device)
-        executor.tracing_operation_meta(inputs=inputs)
-
-        if setting.espdl_attention_fusion and espdl_attention_platform_unsupported_reason(platform) is None:
-            EspdlAttentionFusionPass().optimize(graph, executor=executor, inputs=inputs)
-        if any(op.type == "Attention" for op in graph.operations.values()):
-            legalize_espdl_attention_graph(graph, platform=platform, quantized=False, executor=executor, inputs=inputs)
-        else:
-            _log_attention_report(graph)
-
-        rope_setting = setting.rotary_embedding_fusion_setting
-        rope_verbose = bool(rope_setting.verbose)
-        rope_strict = bool(rope_setting.strict)
-        if setting.rotary_embedding_fusion:
-            RotaryEmbeddingFusionPass(verbose=rope_verbose).optimize(graph, executor=executor, inputs=inputs)
-        EspdlRotaryEmbeddingLegalizePass(
-            platform=platform,
-            strict=rope_strict,
-            verbose=rope_verbose,
-        ).optimize(graph, executor=executor, inputs=inputs)
-        if setting.inverse_sigmoid_fusion:
-            InverseSigmoidFusionPass().optimize(graph)
-
-        # Fusion passes can replace nodes. Refresh metadata for test-value
-        # generation and the exporter that consumes this graph next.
-        executor = TorchExecutor(graph=graph, device=device)
-        executor.tracing_operation_meta(inputs=inputs)
-        finalize_espdl_inverse_sigmoid_for_export(graph)
-        finalize_espdl_topk_for_export(graph)
-        return graph
-
     def __init__(self) -> None:
         super().__init__()
 
@@ -332,31 +249,6 @@ class EspdlExporter(GraphExporter):
 
         # Clone the graph so export passes and parameter baking do not mutate the caller's graph.
         graph = graph.copy()
-
-        from esp_ppq.quantization.optim import (
-            finalize_espdl_attention_for_export,
-            finalize_espdl_inverse_sigmoid_for_export,
-            finalize_espdl_rotary_embedding_for_export,
-            legalize_espdl_attention_graph,
-            legalize_espdl_rotary_embedding_graph,
-        )
-        from esp_ppq.quantization.quantizer.EspdlQuantizer import finalize_espdl_topk_for_export
-
-        finalize_espdl_inverse_sigmoid_for_export(graph)
-        finalize_espdl_topk_for_export(graph)
-        if any(op.type == "Attention" for op in graph.operations.values()):
-            has_quantized_attention = any(
-                op.type == "Attention" and isinstance(op, QuantableOperation) for op in graph.operations.values()
-            )
-            legalize_espdl_attention_graph(graph, quantized=has_quantized_attention)
-            if any(
-                op.type == "Attention" and (isinstance(op, QuantableOperation) or op.platform == TargetPlatform.FP32)
-                for op in graph.operations.values()
-            ):
-                finalize_espdl_attention_for_export(graph)
-
-        legalize_espdl_rotary_embedding_graph(graph)
-        finalize_espdl_rotary_embedding_for_export(graph, strict=True)
 
         # In prepare stage, run all graph pattern
         # fuse Conv and Relu and insert quant node if necessary
@@ -464,13 +356,6 @@ class EspdlExporter(GraphExporter):
             BaseGraph: Processed Graph
         """
         self.convert_operation_from_opset11_to_opset18(graph)
-        for const_op in [op for op in graph.operations.values() if op.type == "Constant"]:
-            if len(const_op.outputs) == 1 and "value" in const_op.attributes:
-                output_var = const_op.outputs[0]
-                output_var._is_parameter = True
-                output_var.value = const_op.attributes["value"]
-                graph.remove_operation(removing_op=const_op)
-
         for op in [op for op in graph.operations.values() if op.type == "Constant"]:
             assert len(op.outputs) == 1, (
                 f"Constant operation {op.name} has more than 1 output, Is there a network parsing error?"
@@ -718,24 +603,7 @@ class EspdlExporter(GraphExporter):
         Convert PPQ Op to Onnx Operation
         An Op consumes zero or more Tensors, and produces zero or more Tensors.
         """
-        if operation.type == "Attention":
-            from esp_ppq.executor.op.torch.espdl_attention import lower_espdl_attention_attributes
-
-            if (
-                isinstance(operation, QuantableOperation)
-                and operation.num_of_input > 3
-                and operation.input_quant_config[3].state != QuantizationStates.FP32
-            ):
-                raise ValueError(
-                    f"Attention '{operation.name}': attn_mask (input 3) must stay FP32, got "
-                    f"{operation.input_quant_config[3].state.name}. int8/int16 cannot represent "
-                    f"-inf / large-negative mask entries."
-                )
-            attributes = lower_espdl_attention_attributes(operation.attributes)
-        elif operation.type == "TopK":
-            attributes = _lower_espdl_topk_attributes(operation.attributes)
-        else:
-            attributes = operation.attributes
+        attributes = operation.attributes
         for key in attributes:
             value = attributes[key]
             if isinstance(value, DataType):

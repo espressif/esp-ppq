@@ -104,42 +104,6 @@ def Abs_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCont
     return x.abs()
 
 
-def _is_microsoft_attention(op: Operation, values: List[torch.Tensor]) -> bool:
-    """Heuristic: packed-QKV ``com.microsoft.Attention`` vs ``ai.onnx::Attention``."""
-    attrs = op.attributes or {}
-    if 'qkv_hidden_sizes' in attrs:
-        return True
-    if 'q_num_heads' in attrs or 'kv_num_heads' in attrs:
-        return False
-    try:
-        k_var = op.inputs[1] if len(op.inputs) > 1 else None
-        if k_var is not None and getattr(k_var, 'is_parameter', False):
-            w = values[1] if len(values) > 1 else None
-            if w is not None and w.ndim == 2:  # MSFT packs [in_hidden, 3*hidden]
-                return True
-    except Exception:
-        pass
-    return False
-
-
-def _microsoft_hidden_size(op: Operation, qkv_hidden_sizes, weight: torch.Tensor) -> int:
-    """Reduce the ``qkv_hidden_sizes`` INTS attribute to one common size."""
-    packed_hidden = int(weight.shape[-1]) // 3
-    if qkv_hidden_sizes is None:
-        return packed_hidden
-    if isinstance(qkv_hidden_sizes, (list, tuple)):
-        sizes = [int(s) for s in qkv_hidden_sizes]
-        if not sizes:
-            return packed_hidden
-        if len(sizes) != 3 or len(set(sizes)) != 1:
-            raise NotImplementedError(
-                f'com.microsoft.Attention {op.name}: asymmetric qkv_hidden_sizes {sizes} is not implemented.'
-            )
-        return sizes[0]
-    size = int(qkv_hidden_sizes)
-    return size if size > 0 else packed_hidden
-
-
 def _microsoft_attention_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
@@ -170,14 +134,6 @@ def _microsoft_attention_forward(
     Outputs
         output (differentiable) : T
             Output tensor of shape [batch, sequence, hidden].
-
-    Args:
-        op (Operation): [description]
-        values (List[torch.Tensor]): [description]
-        ctx (TorchBackendContext, optional): [description]. Defaults to None.
-
-    Returns:
-        torch.Tensor: [description]
     """
     ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=3, max_num_of_input=6)
     num_heads = GET_ATTRIBUTE_FROM_OPERATION(op=op, attribute='num_heads', compulsive=True)
@@ -194,9 +150,25 @@ def _microsoft_attention_forward(
     if mask_index is not None or past is not None:
         raise NotImplementedError('com.microsoft.Attention with mask_index / past is not implemented.')
 
+    packed_hidden = int(weight.shape[-1]) // 3
+    if qkv_hidden_sizes is None:
+        HIDDEN_SIZE = packed_hidden
+    elif isinstance(qkv_hidden_sizes, (list, tuple)):
+        sizes = [int(s) for s in qkv_hidden_sizes]
+        if not sizes:
+            HIDDEN_SIZE = packed_hidden
+        elif len(sizes) != 3 or len(set(sizes)) != 1:
+            raise NotImplementedError(
+                f'com.microsoft.Attention {op.name}: asymmetric qkv_hidden_sizes {sizes} is not implemented.'
+            )
+        else:
+            HIDDEN_SIZE = sizes[0]
+    else:
+        size = int(qkv_hidden_sizes)
+        HIDDEN_SIZE = size if size > 0 else packed_hidden
+
     BATCHSIZE = input.shape[0]
     NUM_OF_HEADS = num_heads
-    HIDDEN_SIZE = _microsoft_hidden_size(op, qkv_hidden_sizes, weight)
     HEAD_SIZE = HIDDEN_SIZE // NUM_OF_HEADS
 
     qkv = torch.matmul(input, weight) + bias
@@ -261,14 +233,6 @@ def _onnx23_attention_forward(
     Outputs
         Y (differentiable) : T
             Same rank as Q.
-
-    Args:
-        op (Operation): [description]
-        values (List[torch.Tensor]): [description]
-        ctx (TorchBackendContext, optional): [description]. Defaults to None.
-
-    Returns:
-        torch.Tensor: [description]
     """
     import math as _math
 
@@ -399,60 +363,18 @@ def _onnx23_attention_forward(
 def Attention_forward(
     op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs
 ) -> torch.Tensor:
-    """Computes scaled dot-product attention.
-
-    com.microsoft.Attention (packed QKV) and the fused device subset are
-    handled by their own forwards. Everything else uses the opset-23 path.
-
-    Attributes
-        is_causal : int (default is 0)
-            When 1, apply an upper-left causal mask (key index j <= query index i)
-            before the additive mask.
-        kv_num_heads : int (default is 0)
-            Number of key and value heads.
-        q_num_heads : int (default is 0)
-            Number of query heads.
-        qk_matmul_output_mode : int (default is 0)
-            Only 0 is implemented.
-        scale : float
-            Multiplier of QK^T. The default is 1/sqrt(head_dim).
-        softcap : float (default is 0.0)
-            Only 0 is implemented.
-        layout : string (default is BHND)
-            BHND or BNHD. 4-D BNHD is transposed to BHND for the score.
-        quant_type : string
-            S8, S16 or F32. Read by the fused device path.
-
-    Inputs (3 - 7)
-        Q (differentiable) : T
-            Query. 4-D BHND is [batch, heads, sequence, head_dim].
-            4-D BNHD is [batch, sequence, heads, head_dim].
-        K (differentiable) : T
-            Key.
-        V (differentiable) : T
-            Value.
-        attn_mask (optional, differentiable) : T
-            Bool mask (True keeps the score) or a float additive mask.
-        past_key (optional) : T
-            Not implemented.
-        past_value (optional) : T
-            Not implemented.
-        nonpad_kv_seqlen (optional) : T
-            Not implemented.
-
-    Outputs
-        Y (differentiable) : T
-            Same rank and layout as Q.
-
-    Args:
-        op (Operation): [description]
-        values (List[torch.Tensor]): [description]
-        ctx (TorchBackendContext, optional): [description]. Defaults to None.
-
-    Returns:
-        torch.Tensor: [description]
-    """
-    if _is_microsoft_attention(op, values):
+    """Dispatch Attention to com.microsoft.Attention, ESP-DL Attention, or ai.onnx::Attention."""
+    attrs = op.attributes or {}
+    is_msft = 'qkv_hidden_sizes' in attrs or (
+        'q_num_heads' not in attrs
+        and 'kv_num_heads' not in attrs
+        and len(op.inputs) > 1
+        and getattr(op.inputs[1], 'is_parameter', False)
+        and len(values) > 1
+        and values[1] is not None
+        and getattr(values[1], 'ndim', None) == 2
+    )
+    if is_msft:
         return _microsoft_attention_forward(op, values, ctx, **kwargs)
     if espdl_attention_eligible(op, [tuple(v.shape) for v in values[:3]]):
         return espdl_attention_forward(op, values, ctx, **kwargs)
@@ -946,14 +868,6 @@ def MultiHeadAttention_forward(
     Outputs
         output (differentiable) : T
             Attention output.
-
-    Args:
-        op (Operation): [description]
-        values (List[torch.Tensor]): [description]
-        ctx (TorchBackendContext, optional): [description]. Defaults to None.
-
-    Returns:
-        torch.Tensor: [description]
     """
     if len(values) != 11:
         raise NotImplementedError('Not implement simplified MultiHeadAttention')
@@ -4814,21 +4728,11 @@ def Swish_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendCo
 DEFAULT_INVERSE_SIGMOID_EPS = 1e-5
 
 
-def _inverse_sigmoid_eps_f32(eps) -> float:
-    """Canonicalize ``eps`` to the float32 bit pattern the device stores."""
-    return float(torch.as_tensor(float(eps), dtype=torch.float32).item())
-
-
 def inverse_sigmoid_reference(x: torch.Tensor, eps: float) -> torch.Tensor:
-    """FP32 reference for the DETR ``InverseSigmoid`` operator.
-
-    Not ``torch.logit``: that clamps into ``[eps, 1 - eps]``, while this
-    clamps to ``[0, 1]`` first and then floors numerator and denominator
-    independently.
-    """
+    """FP32 reference for ``InverseSigmoid``: clip to ``[0, 1]``, then ``log(max(x, eps) / max(1 - x, eps))``."""
     if x.dtype != torch.float32:
         raise TypeError(f'InverseSigmoid reference requires float32 input, got {x.dtype}')
-    eps32 = _inverse_sigmoid_eps_f32(eps)
+    eps32 = float(torch.as_tensor(float(eps), dtype=torch.float32).item())
     xc = x.clamp(min=0.0, max=1.0)
     num = xc.clamp(min=eps32)
     denom = (1.0 - xc).clamp(min=eps32)
@@ -4841,14 +4745,12 @@ def InverseSigmoid_forward(
     """Inverse sigmoid after clip to ``[0, 1]``."""
     ASSERT_NUM_OF_INPUT(op=op, values=values, min_num_of_input=1, max_num_of_input=1)
     [x] = values
-    if getattr(op.inputs[0], '_dtype', op.inputs[0].dtype) != DataType.FP32:
-        raise TypeError(f'InverseSigmoid {op.name}: logical input dtype must be FP32')
-    if getattr(op.outputs[0], '_dtype', op.outputs[0].dtype) != DataType.FP32:
-        raise TypeError(f'InverseSigmoid {op.name}: logical output dtype must be FP32')
     if x.dtype not in (torch.float32, torch.float64):
         raise TypeError(f'InverseSigmoid {op.name}: unsupported execution dtype {x.dtype}')
     orig_dtype = x.dtype
-    eps = _inverse_sigmoid_eps_f32(op.attributes.get('eps', DEFAULT_INVERSE_SIGMOID_EPS))
+    eps = float(
+        torch.as_tensor(float(op.attributes.get('eps', DEFAULT_INVERSE_SIGMOID_EPS)), dtype=torch.float32).item()
+    )
     if not 0.0 < eps < 1.0:
         raise ValueError(f'InverseSigmoid {op.name}: eps={eps} out of range (0, 1)')
     return inverse_sigmoid_reference(x.float().contiguous(), eps).to(dtype=orig_dtype)
