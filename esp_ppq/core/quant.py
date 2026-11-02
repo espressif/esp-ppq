@@ -154,6 +154,40 @@ class TargetPlatform(Enum):
         }
 
 
+ESPDL_P4_PLATFORMS = frozenset(
+    {
+        TargetPlatform.ESPDL_INT8,
+        TargetPlatform.ESPDL_INT16,
+        TargetPlatform.ESPDL_H_PRE_INT16,
+        TargetPlatform.ESPDL_W8A16,
+    }
+)
+ESPDL_S3_PLATFORMS = frozenset(
+    {
+        TargetPlatform.ESPDL_S3_INT8,
+        TargetPlatform.ESPDL_S3_INT16,
+        TargetPlatform.ESPDL_S3_H_PRE_INT16,
+        TargetPlatform.ESPDL_S3_W8A16,
+    }
+)
+ESPDL_C_PLATFORMS = frozenset(
+    {
+        TargetPlatform.ESPDL_C_INT8,
+        TargetPlatform.ESPDL_C_INT16,
+        TargetPlatform.ESPDL_C_H_PRE_INT16,
+        TargetPlatform.ESPDL_C_W8A16,
+    }
+)
+ESPDL_QUANT_PLATFORMS = ESPDL_P4_PLATFORMS | ESPDL_S3_PLATFORMS | ESPDL_C_PLATFORMS
+ESPDL_S8_PLATFORMS = frozenset(
+    {
+        TargetPlatform.ESPDL_INT8,
+        TargetPlatform.ESPDL_S3_INT8,
+        TargetPlatform.ESPDL_C_INT8,
+    }
+)
+
+
 class RoundingPolicy(Enum):
     """RoundingPolicy is a core setting for PPQ quantization calculation. It
     defines rounding behaviour inside quantization calculation.

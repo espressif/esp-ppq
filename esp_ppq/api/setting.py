@@ -295,10 +295,11 @@ class QuantizationFusionSetting:
 class LUTOptimizationSetting:
     """ESP-DL INT16 LUT activation fusion settings.
 
-    Only effective on ESP-DL INT16 platforms (ESPDL_INT16 / ESPDL_S3_INT16).
-    When enabled, calibrated unary ``y = f(x)`` activations (Swish/SiLU, Sigmoid,
-    Tanh, ...) are rewritten into bit-exact ``LUT`` ops so that the Python
-    simulation matches what the device computes with its step-sub-sampled LUT.
+    Effective for any ESP-DL quantizer. A unary activation is rewritten only
+    when that operator's own input and output are 16-bit, including an op
+    promoted onto INT16 / W8A16 inside an INT8 graph. Swish/SiLU, Sigmoid,
+    Tanh, and the other listed types become bit-exact ``LUT`` ops so the
+    Python simulation matches the device's step-sub-sampled table.
     """
 
     def __setattr__(self, name: str, value) -> None:
@@ -326,8 +327,8 @@ class LUTOptimizationSetting:
         # the exported table step always matches the simulated step.
         self.step = 32
 
-        # 需要融合的算子类型列表；None 表示自动检测所有满足 y=f(x) 的算子。
-        # List of op types to fuse; None means auto-detect every eligible y=f(x) op.
+        # 需要融合的算子类型列表。传给 pass 的 None 会变成空列表，一个都不融合。
+        # Op types to fuse. None passed to the pass becomes an empty list and fuses nothing.
         self.target_ops = [
             "Swish",
             "SiLU",
@@ -513,8 +514,11 @@ class QuantizationSetting:
         self.fusion = True
         self.fusion_setting = QuantizationFusionSetting()
 
-        # ESP-DL INT16 LUT 激活融合 (仅在 ESP-DL INT16 平台生效)。
-        # ESP-DL INT16 LUT activation fusion (only effective on ESP-DL INT16 platforms).
+        # ESP-DL LUT 激活融合（作用于自身输入输出均为 16 位的算子；
+        # INT8 图中被提升到 INT16 / W8A16 的算子同样适用）。
+        # ESP-DL LUT activation fusion. Applies to an operator whose own input
+        # and output are 16-bit, including one promoted onto INT16 / W8A16
+        # inside an INT8 graph.
         self.lut_optimization = True
         self.lut_optimization_setting = LUTOptimizationSetting()
 

@@ -3,15 +3,19 @@ from typing import Dict, Iterable
 import torch
 
 from esp_ppq.core import (
+    ESPDL_QUANT_PLATFORMS,
     GRU_QUANT_EXPONENT,
     LSTM_QUANT_EXPONENT,
     QuantizationProperty,
     QuantizationStates,
     QuantizationVisibility,
+    TargetPlatform,
     ppq_warning,
 )
 from esp_ppq.executor import BaseGraphExecutor, TorchExecutor
 from esp_ppq.IR import BaseGraph, QuantableOperation
+from esp_ppq.parser.espdl.espdl_typedef import QUANT_EXCLUDE_OP_SET, QUANT_OP_SET
+from esp_ppq.parser.espdl.export_patterns import EspdlQuantHelper
 from esp_ppq.quantization.observer import OperationObserver
 
 from .base import QuantizationOptimizationPass
@@ -30,6 +34,30 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
 
         Clip min & Clip max in Clip, must has a scale = input scale
 
+            Every platform still aligns a Clip bound with ``master_by``. The checks
+            below apply only when ``op.platform`` is an ESP-DL quant platform,
+            because that integer Clip compares raw codes:
+
+                - static and uniquely-consumed constants can be remapped to input scale
+                  by setting master_by, with bit width and clamp range aligned to the
+                  Clip output so simulation and export clamp at the same integer code.
+                - a runtime bound whose producer already writes the Clip input grid is
+                  kept. Export inserts no conversion, so this stays allowed when the
+                  bound visibility is INTERNAL.
+                - a runtime bound on another grid is kept only when export will insert
+                  QuantizeLinear or RequantizeLinear. This pass writes master_by, the
+                  output bit range, and its visibility into the bound config, then calls
+                  EspdlQuantHelper.TQC_Exportable_Check. INTERNAL visibility, an
+                  activation grid with no scale/offset, or an illegal aligned INT8 range
+                  fails that check and is rejected. The producer must also be one the
+                  export patterns rewrite: not a graph input, and not an op in
+                  QUANT_OP_SET or QUANT_EXCLUDE_OP_SET. A graph input has no producer
+                  to rewrite and is rejected.
+                - shared constants (dest_ops > 1) are always rejected. esp-dl export
+                  requires each parameter to have one consumer, so a shared bound
+                  fails there even when its scale already matches the input.
+                  Integer Clip compares raw codes and can not requantize bounds online.
+
         Pading Value, must has a scale = input scale
 
     ### Parameters:
@@ -38,7 +66,10 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
 
             Whether to process clip min, max
 
-            If not processed, clip min, max will has their state = QuantizationState.FP32
+            If not processed, clip min, max will has their state = QuantizationState.FP32.
+            esp-dl export then rejects an integer Clip kernel: the simulator clamps the
+            float bound, while the device reads it as a code. Keep
+            quantize_passive_parameter enabled for that export.
 
     * process_bias(bool)
 
@@ -96,6 +127,116 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
                 QuantizationStates.BAKED,
                 QuantizationStates.OVERLAPPED,
             }
+
+        def share_scale(left: torch.Tensor, right: torch.Tensor) -> bool:
+            # atol=0 keeps distant power-of-two scales apart; the default 1e-8
+            # would call 2**-27 and 2**-28 the same grid.
+            if left is None or right is None:
+                return False
+            left_scale = torch.as_tensor(left)
+            right_scale = torch.as_tensor(right)
+            return torch.allclose(left_scale, right_scale, atol=0.0)
+
+        def espdl_clip_compares_raw_codes(op) -> bool:
+            return getattr(op, 'platform', None) in ESPDL_QUANT_PLATFORMS
+
+        runtime_integer_states = {
+            QuantizationStates.ACTIVATED,
+            QuantizationStates.PASSIVE,
+            QuantizationStates.BAKED,
+            QuantizationStates.PASSIVE_BAKED,
+            QuantizationStates.OVERLAPPED,
+        }
+
+        def runtime_bound_can_be_aligned_during_export(
+            var, config, master, aligned_bits, aligned_min, aligned_max
+        ) -> bool:
+            """Whether export will insert QuantizeLinear or RequantizeLinear for this bound.
+
+            Exportability is EspdlQuantHelper.TQC_Exportable_Check on the config this
+            pass is about to commit. The bound is restored afterwards; the caller
+            writes it only when the whole Clip is accepted. Producer exclusion is
+            QUANT_OP_SET | QUANT_EXCLUDE_OP_SET, the same sets InsertQuantNodePattern
+            and InsertRequantNodePattern consult.
+            """
+            producer = var.source_op
+            if producer is None:
+                return False
+            if getattr(producer, "type", None) in (QUANT_OP_SET | QUANT_EXCLUDE_OP_SET):
+                return False
+
+            saved = (
+                config._dominator,
+                config.state,
+                config.num_of_bits,
+                config.quant_min,
+                config.quant_max,
+                config.visibility,
+            )
+            try:
+                config.master_by = master
+                config.num_of_bits = aligned_bits
+                config.quant_min = aligned_min
+                config.quant_max = aligned_max
+                config.visibility = self.clip_visiblity
+                if not EspdlQuantHelper.TQC_Exportable_Check(TQC=config, bounded_var=var):
+                    return False
+                if not isinstance(producer, QuantableOperation):
+                    # InsertQuantNodePattern quantizes regular FP32 operation outputs.
+                    return True
+                if var not in producer.outputs:
+                    return False
+
+                produced_config = producer.output_quant_config[producer.outputs.index(var)]
+                # InsertQuantNodePattern recognizes this exact state and can add a
+                # QuantizeLinear node using the rewritten Clip-side config.
+                if produced_config.state == QuantizationStates.FP32:
+                    return True
+
+                # InsertRequantNodePattern reads an existing integer grid. These states
+                # are the ones that still hold those codes; this is not a second
+                # exportability check. An INTERNAL producer can still be requantized.
+                produced = produced_config.dominated_by
+                return (
+                    produced_config.state in runtime_integer_states
+                    and produced.state in runtime_integer_states
+                    and isinstance(produced.scale, torch.Tensor)
+                    and isinstance(produced.offset, torch.Tensor)
+                    and produced.policy.has_property(QuantizationProperty.LINEAR)
+                    and int(produced.num_of_bits) in (8, 16)
+                )
+            finally:
+                (
+                    config._dominator,
+                    config.state,
+                    config.num_of_bits,
+                    config.quant_min,
+                    config.quant_max,
+                    config.visibility,
+                ) = saved
+
+        def runtime_bound_grid_mismatch_reason(var, i_cfg):
+            # esp-dl Clip compares integer codes already stored in the runtime bound.
+            # Those codes come from the producer output, not this Clip input config.
+            producer = var.source_op
+            if not isinstance(producer, QuantableOperation) or var not in producer.outputs:
+                return "has no quantized producer output"
+            produced_config = producer.output_quant_config[producer.outputs.index(var)]
+            produced = produced_config.dominated_by
+            if produced_config.state == QuantizationStates.FP32 or produced.state == QuantizationStates.FP32:
+                return "producer output is FP32 and has no quantized codes"
+            input_grid = i_cfg.dominated_by
+            if produced.scale is None or produced.offset is None:
+                return "producer output has no quantized scale/offset"
+            if produced_config.state not in runtime_integer_states or produced.state not in runtime_integer_states:
+                return f"producer output state {produced_config.state.name} has no quantized codes"
+            if not share_scale(produced.scale, input_grid.scale) or not share_scale(produced.offset, input_grid.offset):
+                return "producer output does not share the input scale/offset"
+            produced_bits = int(produced.num_of_bits)
+            input_bits = int(input_grid.num_of_bits)
+            if produced_bits != input_bits:
+                return f"producer output bit width {produced_bits} differs from Clip input bit width {input_bits}"
+            return None
 
         for op in graph.operations.values():
             if not isinstance(op, QuantableOperation):
@@ -178,14 +319,55 @@ class PassiveParameterQuantizePass(QuantizationOptimizationPass):
             if op.type in {'Clip'} and self.process_clip:
                 # inputs are [input value, min[optional], max[optional]]
                 i_cfg = op.config.input_quantization_config[0]
+                o_cfg = op.config.output_quantization_config[0] if op.config.output_quantization_config else i_cfg
 
                 if not check_state(i_cfg.state):
                     raise PermissionError(
                         f'Can not quantize clip value of layer {op.name}, cause input has not been correctly quantized.'
                     )
 
-                for config in op.config.input_quantization_config[1:]:
+                in_dom = i_cfg.dominated_by
+                out_dom = o_cfg.dominated_by
+                if espdl_clip_compares_raw_codes(op) and out_dom.state == QuantizationStates.FP32:
+                    raise ValueError(
+                        f'Clip {op.name} on esp-dl requires a quantized activation output (8 or 16-bit), '
+                        'but output is FP32. Keep this op on FP32 platform, or calibrate and activate output '
+                        'quantization first.'
+                    )
+                if espdl_clip_compares_raw_codes(op) and int(in_dom.num_of_bits) != int(out_dom.num_of_bits):
+                    raise ValueError(
+                        f'Clip {op.name} on esp-dl requires input and output activations to share one bit width '
+                        f'(8 or 16), got input {int(in_dom.num_of_bits)} and output {int(out_dom.num_of_bits)}.'
+                    )
+
+                bound_vars = list(op.inputs)[1:]
+                for index, config in enumerate(op.config.input_quantization_config[1:]):
+                    var = bound_vars[index] if index < len(bound_vars) else None
+                    if var is not None and var.name != '' and espdl_clip_compares_raw_codes(op):
+                        if var.value is None:
+                            reason = runtime_bound_grid_mismatch_reason(var, i_cfg)
+                            if reason is not None and not runtime_bound_can_be_aligned_during_export(
+                                var,
+                                config,
+                                i_cfg,
+                                out_dom.num_of_bits,
+                                out_dom.quant_min,
+                                out_dom.quant_max,
+                            ):
+                                raise PermissionError(
+                                    f'Can not quantize clip value of layer {op.name}, '
+                                    f'cause {var.name} (runtime tensor) {reason}.'
+                                )
+                        elif len(var.dest_ops) > 1:
+                            raise PermissionError(
+                                f'Can not quantize clip value of layer {op.name}, '
+                                f'cause {var.name} (shared constant) is used by more than one operation.'
+                            )
                     config.master_by = i_cfg
+                    if espdl_clip_compares_raw_codes(op):
+                        config.num_of_bits = out_dom.num_of_bits
+                        config.quant_min = out_dom.quant_min
+                        config.quant_max = out_dom.quant_max
                     config.visibility = self.clip_visiblity
 
             if op.type in {'Pad'} and self.process_pad:

@@ -10,9 +10,11 @@ from typing import List, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 
-from esp_ppq.core import DataType, TargetPlatform
+from esp_ppq.core import ESPDL_P4_PLATFORMS, DataType, TargetPlatform
 from esp_ppq.IR import Operation
 from esp_ppq.log import NaiveLogger
+
+from .base import ste_keep_emulated_forward
 
 logger = NaiveLogger.get_logger('PPQ')
 
@@ -89,14 +91,7 @@ ESPDL_ATTENTION_DEFAULT_NOOP_ATTRS = {
 _ENV_DEVICE_EMULATE_KEY = "ESPDL_ATTENTION_DEVICE_EMULATE"
 _ESPDL_ATTENTION_SIMULATION_ENABLED = False
 # P4 kernels the Python emulator models. S3/C stay on the fp32 reference.
-_ATTENTION_EMULATED_PLATFORMS = frozenset(
-    {
-        TargetPlatform.ESPDL_INT8,
-        TargetPlatform.ESPDL_INT16,
-        TargetPlatform.ESPDL_H_PRE_INT16,
-        TargetPlatform.ESPDL_W8A16,
-    }
-)
+_ATTENTION_EMULATED_PLATFORMS = ESPDL_P4_PLATFORMS
 
 
 def set_espdl_attention_simulation_enabled(enabled: bool) -> None:
@@ -1000,6 +995,18 @@ def _espdl_attention_reference(
 
     normalized_mask, sdpa_causal = compose_causal_into_mask(normalized_mask, bool(is_causal), q, k)
 
+    # An all -inf row has softmax NaN on some torch builds. Give SDPA a finite
+    # mask for that row, then put back the 0 the device stores.
+    fully_masked = None
+    if normalized_mask is not None:
+        neg_inf = torch.isneginf(normalized_mask)
+        if bool(neg_inf.any()):
+            fully_masked = neg_inf.all(dim=-1, keepdim=True)
+            if bool(fully_masked.any()):
+                normalized_mask = normalized_mask.masked_fill(fully_masked, 0)
+            else:
+                fully_masked = None
+
     out = F.scaled_dot_product_attention(
         q,
         k,
@@ -1009,9 +1016,42 @@ def _espdl_attention_reference(
         is_causal=sdpa_causal,
         scale=scale,
     )
+    if fully_masked is not None:
+        # torch.where sends a zero gradient on fully_masked rows while SDPA backward still runs.
+        out = torch.where(fully_masked, torch.zeros_like(out), out)
     if permute_back:
         out = out.transpose(1, 2).contiguous()
     return out
+
+
+def _attention_with_float_backward(
+    emulated: torch.Tensor,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    attn_mask: Optional[torch.Tensor],
+    scale: float,
+    is_causal: bool,
+    layout: str,
+    orig_dtype: torch.dtype,
+) -> List[torch.Tensor]:
+    """Keep the integer forward value and route backward through fp32 SDPA."""
+    emulated = emulated.to(dtype=orig_dtype)
+    needs_grad = torch.is_grad_enabled() and any(
+        tensor is not None and tensor.requires_grad for tensor in (q, k, v, attn_mask)
+    )
+    if not needs_grad:
+        return [emulated]
+    reference = _espdl_attention_reference(
+        q.float().contiguous(),
+        k.float().contiguous(),
+        v.float().contiguous(),
+        None if attn_mask is None else attn_mask.contiguous(),
+        scale,
+        is_causal,
+        layout=layout,
+    ).to(dtype=orig_dtype)
+    return [ste_keep_emulated_forward(emulated, reference)]
 
 
 def espdl_attention_forward(
@@ -1141,33 +1181,35 @@ def espdl_attention_forward(
             q8, k8, v8, o8 = _scales(8)
             q16, k16, v16, o16 = _scales(16)
             if None not in (q8, k8, v8, o8):
-                out = _simulate_espdl_int8_attention(
-                    q.float().contiguous(),
-                    k.float().contiguous(),
-                    v.float().contiguous(),
-                    scale_for_emulator,
-                    q8,
-                    k8,
-                    v8,
-                    o8,
-                    layout=layout,
-                    attn_mask=emu_mask,
-                )
-                return [out.to(dtype=orig_dtype)]
+                with torch.no_grad():
+                    out = _simulate_espdl_int8_attention(
+                        q.float().contiguous(),
+                        k.float().contiguous(),
+                        v.float().contiguous(),
+                        scale_for_emulator,
+                        q8,
+                        k8,
+                        v8,
+                        o8,
+                        layout=layout,
+                        attn_mask=emu_mask,
+                    )
+                return _attention_with_float_backward(out, q, k, v, attn_mask, scale, is_causal, layout, orig_dtype)
             if None not in (q16, k16, v16, o16):
-                out = _simulate_espdl_int16_attention(
-                    q.float().contiguous(),
-                    k.float().contiguous(),
-                    v.float().contiguous(),
-                    scale_for_emulator,
-                    q16,
-                    k16,
-                    v16,
-                    o16,
-                    layout=layout,
-                    attn_mask=emu_mask,
-                )
-                return [out.to(dtype=orig_dtype)]
+                with torch.no_grad():
+                    out = _simulate_espdl_int16_attention(
+                        q.float().contiguous(),
+                        k.float().contiguous(),
+                        v.float().contiguous(),
+                        scale_for_emulator,
+                        q16,
+                        k16,
+                        v16,
+                        o16,
+                        layout=layout,
+                        attn_mask=emu_mask,
+                    )
+                return _attention_with_float_backward(out, q, k, v, attn_mask, scale, is_causal, layout, orig_dtype)
 
     out = _espdl_attention_reference(
         q.float().contiguous(),

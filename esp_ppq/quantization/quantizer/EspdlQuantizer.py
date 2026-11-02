@@ -223,10 +223,6 @@ class BaseEspdlQuantizer(BaseQuantizer):
         elif operation.type in {"Softmax", "LogSoftmax"}:
             base_quant_config.output_quantization_config[0].state = QuantizationStates.FP32
         elif operation.type == "TopK":
-            if operation.num_of_input > 1:
-                base_quant_config.input_quantization_config[1].state = QuantizationStates.FP32
-            if operation.num_of_output > 1:
-                base_quant_config.output_quantization_config[1].state = QuantizationStates.FP32
             if operation.num_of_input > 0 and operation.num_of_output > 0:
                 base_quant_config.output_quantization_config[
                     0
@@ -317,16 +313,14 @@ class BaseEspdlQuantizer(BaseQuantizer):
             tqc.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = _kl_hist_bins(bits)
 
     def build_quant_pipeline(self, setting: QuantizationSetting) -> QuantizationOptimizationPipeline:
-        """Build the standard quant pipeline and, on ESP-DL INT16 platforms,
-        append the bit-exact LUT activation fusion pass by default.
+        """Append the LUT fusion pass when ``setting.lut_optimization`` is on.
 
-        The pass is controlled by ``setting.lut_optimization`` (default on) and
-        ``setting.lut_optimization_setting`` (exposes ``step`` / ``target_ops``).
-        On non-INT16-LUT platforms it is simply not added.
+        The pass fuses only its target ops, and only when that op's input and
+        output are 16-bit on an ESP-DL quantized platform.
         """
         pipeline = super().build_quant_pipeline(setting)
 
-        if self._num_of_bits == 16 and setting.lut_optimization:
+        if setting.lut_optimization:
             lut_setting = setting.lut_optimization_setting
             pipeline.append_optimization_to_pipeline(
                 EspdlLUTFusionPass(target_ops=lut_setting.target_ops, lut_step=lut_setting.step)

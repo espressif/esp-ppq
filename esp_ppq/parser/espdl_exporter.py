@@ -234,7 +234,12 @@ class EspdlExporter(GraphExporter):
                         'output_n_name': np.ndarray
                     },
                 }
-            int16_lut_step (int): -1: do not add lut for int16, otherwise add lut for int16 with given step
+            int16_lut_step (int): Step for an INT16 node that exports a lookup
+                table without an ``int16_lut_step`` attribute (an unfused ``LUT``
+                or ``Gelu``, or a scalar-slope ``PRelu`` that falls back to a
+                table). Any node that exports an INT16 table requires a positive
+                power-of-two step (<= 65536). Relu and Clip do not read this
+                argument.
             metadata_props (Dict[str, str]): metadata properties
             streaming_custom_passes: a single pass or a list of passes used to customize the
                 graph during streaming conversion. Each pass is either a
@@ -247,7 +252,8 @@ class EspdlExporter(GraphExporter):
 
         ExporterPatternInfo().reset()
 
-        # Clone the graph so export passes and parameter baking do not mutate the caller's graph.
+        # Export passes and parameter baking run on this copy. A step already
+        # stored by EspdlLUTFusionPass stays on the caller's graph.
         graph = graph.copy()
 
         # In prepare stage, run all graph pattern

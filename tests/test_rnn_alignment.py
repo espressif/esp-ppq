@@ -14,6 +14,8 @@ from esp_ppq.executor import TorchExecutor
 from esp_ppq.IR import BaseGraph, GraphCommand, GraphCommandType, GraphFormatter
 from esp_ppq.lib.quant import Quantizer
 from esp_ppq.parser import espdl_exporter
+from esp_ppq.parser.espdl.espdl_typedef import EspQuantType
+from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern
 from esp_ppq.parser.espdl_exporter import EspdlExporter
 from esp_ppq.parser.onnx_exporter import OnnxExporter
 from esp_ppq.parser.onnx_parser import OnnxParser
@@ -152,6 +154,22 @@ def test_rnn_alignment_aligns_explicit_initial_hidden_state(op_type, num_inputs,
         cell_output = operation.config.output_quantization_config[2]
         assert cell_input.master_by is cell_input
         assert cell_output.master_by is cell_output
+
+
+@pytest.mark.parametrize(
+    ("op_type", "num_inputs", "num_outputs", "expected_quant_type"),
+    [
+        ("GRU", 6, 2, EspQuantType.S8),
+        ("LSTM", 7, 3, EspQuantType.S8),
+        ("LSTM", 4, 3, EspQuantType.S8),
+    ],
+)
+def test_int8_rnn_export_quant_type_ignores_16bit_cell_tensors(op_type, num_inputs, num_outputs, expected_quant_type):
+    graph, operation = _make_quantized_rnn(op_type, num_inputs, num_outputs)
+    QuantAlignmentPass().optimize(graph)
+
+    InsertQuantTypePattern().export(operation, graph)
+    assert operation.attributes["quant_type"] == expected_quant_type
 
 
 def test_missing_rnn_outputs_are_unique_and_do_not_create_cycles(tmp_path):

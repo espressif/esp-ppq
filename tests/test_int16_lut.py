@@ -4,9 +4,11 @@ Tests for the ESP-DL INT16 LUT activation optimization and export pass.
 Covered behavior:
 
   * EspdlLUTFusionPass rewrites unary y=f(x) activations (Swish/SiLU, Sigmoid,
-    Tanh, ...) into ``LUT`` ops on INT16 ESP-DL platforms, and is enabled by
-    default through ``QuantizationSetting.lut_optimization``.
-  * The pass is a no-op on INT8 (and when disabled via the setting).
+    Tanh, ...) into ``LUT`` ops when that operator's own input and output are
+    16-bit. It is enabled by default through ``QuantizationSetting.lut_optimization``.
+  * An INT8 operator is left unchanged. An INT8 quantizer still fuses an
+    operator that was dispatched onto an INT16 platform. The pass is also a
+    no-op when disabled via the setting.
   * The ``step`` knob exposed in ``QuantizationSetting.lut_optimization_setting``
     flows down to every fused op.
   * The bit-exact HardwareEmulator matches a reference reimplementation of the
@@ -149,8 +151,31 @@ def test_lut_fusion_default_int16():
 # ===================================================================
 def test_lut_no_fusion_int8():
     graph = _quantize(num_of_bits=8)
-    assert not _lut_ops(graph), "LUT fusion must not run on INT8 platforms"
+    assert not _lut_ops(graph), "INT8 activations must not be rewritten to LUT"
     print("PASS: test_lut_no_fusion_int8")
+
+
+def test_lut_fusion_follows_op_bitwidth():
+    """An INT8 quantizer still fuses an operator dispatched onto INT16."""
+    from esp_ppq.api.espdl_interface import get_target_platform
+
+    setting = QuantizationSettingFactory.espdl_setting()
+    setting.dispatching_table.append("/act2/Sigmoid", get_target_platform("esp32p4", 16))
+    graph = _quantize(num_of_bits=8, setting=setting)
+    lut_ops = _lut_ops(graph)
+
+    assert len(lut_ops) == 1, f"Expected only the promoted Sigmoid to fuse, got {lut_ops}"
+    fused = lut_ops[0]
+    assert fused.name == "/act2/Sigmoid"
+    assert fused.attributes.get("original_op_type") == "Sigmoid"
+    assert fused.attributes.get("int16_lut_step") == 32
+    assert fused.input_quant_config[0].num_of_bits == 16
+    assert fused.output_quant_config[0].num_of_bits == 16
+
+    int8_left = [op for op in graph.operations.values() if op.type in {"Swish", "Tanh", "Sigmoid"}]
+    assert int8_left, "INT8 activations should remain in the graph"
+    assert all(op.input_quant_config[0].num_of_bits == 8 for op in int8_left)
+    print("PASS: test_lut_fusion_follows_op_bitwidth")
 
 
 # ===================================================================
@@ -406,6 +431,7 @@ def test_build_lut_proto_serializes_shared_table_once(monkeypatch):
 if __name__ == "__main__":
     test_lut_fusion_default_int16()
     test_lut_no_fusion_int8()
+    test_lut_fusion_follows_op_bitwidth()
     test_lut_fusion_disabled()
     test_lut_step_setting()
     test_lut_emulator_bit_exact()

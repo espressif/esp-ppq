@@ -1,44 +1,16 @@
 """ESP-DL INT16 LUT fusion pass.
 
-Rewrites calibrated *unary element-wise* operations - anything shaped like
-``y = f(x)`` (Swish/SiLU, Sigmoid, Tanh, Relu, Elu, Erf, Gelu, HardSwish, Exp,
-Log, Sqrt, Sin, ...) - into ``LUT`` operations so that:
-
-1. The exported ``.espdl`` model uses the hardware-accelerated ``LUT`` module on
-   ESP32-P4 / ESP32-S3 (the per-element INT16 activation modules in esp-dl do
-   *not* consume a LUT - only the dedicated ``LUT`` module does).
-2. esp-ppq's simulation becomes bit-exact with the device, because ``LUT`` ops
-   are executed through the integer :class:`~esp_ppq.executor.op.torch.espdl_lut.HardwareEmulator`.
-
-Run this pass *after* calibration (it is a post-quantization pass)::
-
-    from esp_ppq.quantization.optim import EspdlLUTFusionPass
-
-    # Auto-detect every eligible y = f(x) op (default):
-    EspdlLUTFusionPass(lut_step=32).optimize(graph=graph)
-
-    # Or restrict to specific op types:
-    EspdlLUTFusionPass(target_ops=["Swish"], lut_step=32).optimize(graph=graph)
-
-Eligibility for auto-detection (``target_ops=None``): an op is fused iff it is
-``y = f(x)`` - **exactly one input variable and one output variable, no extra
-parameter inputs** (attributes such as ``alpha``/``beta`` are fine) - it is a
-known point-wise activation/math op, and it has a math implementation esp-ppq
-can evaluate (needed to build the LUT table at export time).
-
-The ``lut_step`` used here must match the ``int16_lut_step`` passed to the
-exporter (the fusion pass stamps the step on each op so the exporter can pick it
-up automatically).
+Rewrites unary ops listed in ``target_ops`` into ``LUT`` after calibration.
+The pass stores ``int16_lut_step`` on each fused op. Simulation and export
+both read that stamp. Relu, Clip, and PRelu are not in the default list.
 """
 
 from typing import List, Optional
 
-from esp_ppq.core import TargetPlatform
+from esp_ppq.core import ESPDL_QUANT_PLATFORMS, TargetPlatform
 from esp_ppq.IR import BaseGraph, Operation
 
 from .base import QuantizationOptimizationPass
-
-_NON_FUSABLE_TYPES = {"PRelu", "Clip", "Cast", "Identity", "LUT"}
 
 
 class EspdlLUTFusionPass(QuantizationOptimizationPass):
@@ -52,12 +24,8 @@ class EspdlLUTFusionPass(QuantizationOptimizationPass):
     ):
         """
         Args:
-            target_ops: Explicit list of op types to fuse. When ``None`` (default)
-                the pass auto-detects **every** eligible ``y = f(x)`` op in the
-                graph. When a list is given, only those op types are considered,
-                but the structural / safety checks below still apply.
-            lut_step: LUT sub-sampling step (must match the exporter's
-                ``int16_lut_step``).
+            target_ops: Op types to fuse. ``None`` fuses nothing.
+            lut_step: Sub-sampling step written to ``int16_lut_step``.
             verbose: Print per-op fusion decisions.
         """
         super().__init__(name="ESPDL LUT Fusion Pass")
@@ -74,28 +42,38 @@ class EspdlLUTFusionPass(QuantizationOptimizationPass):
         return DEFAULT_BACKEND_TABLE.get(op_type) is not None
 
     def verify_compatibility(self, op: Operation) -> bool:
-        """Return True if ``op`` may be fused into an INT16 LUT.
+        """Return True if this operator itself is a 16-bit INT16 LUT candidate.
 
-        Requires a 16-bit ESP-DL platform, a calibrated quantization config and
-        16-bit input precision (the LUT fast path is INT16-only).
+        ``op.platform`` confirms that the operator targets an ESP-DL quantized
+        platform; ``config.num_of_bits`` checks that both the activation input
+        and output are 16-bit.
         """
+        if getattr(op, "platform", None) not in ESPDL_QUANT_PLATFORMS:
+            if self.verbose:
+                print(f"[ESPDL LUT] Skipping {op.name}: platform {op.platform} is not an ESP-DL quantized platform.")
+            return False
         if not hasattr(op, "config") or op.config is None:
             if self.verbose:
                 print(f"[ESPDL LUT] Skipping {op.name}: operation is not quantized (no TQC).")
             return False
+        if not op.input_quant_config or not op.output_quant_config:
+            if self.verbose:
+                print(f"[ESPDL LUT] Skipping {op.name}: missing input or output quantization config.")
+            return False
 
-        if op.input_quant_config[0].num_of_bits != 16:
+        in_bits = op.input_quant_config[0].dominated_by.num_of_bits
+        out_bits = op.output_quant_config[0].dominated_by.num_of_bits
+        if in_bits != 16 or out_bits != 16:
             if self.verbose:
                 print(
-                    f"[ESPDL LUT] Skipping {op.name}: input is "
-                    f"{op.input_quant_config[0].num_of_bits}-bit, LUT requires 16-bit."
+                    f"[ESPDL LUT] Skipping {op.name}: activation is "
+                    f"in={in_bits}-bit out={out_bits}-bit, LUT requires 16-bit on both."
                 )
             return False
 
         return True
 
     def _should_fuse(self, op: Operation) -> bool:
-        # Op-type filter: the point-wise universe (plus any user-provided extras).
         if op.type not in self.target_ops:
             return False
 

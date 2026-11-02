@@ -92,3 +92,18 @@ def VALUE_TO_EXECUTING_DEVICE(
         else:
             values[idx] = value.to(device)
     return values
+
+
+def ste_keep_emulated_forward(emulated: torch.Tensor, reference: torch.Tensor) -> torch.Tensor:
+    """Keep ``emulated`` in forward while routing backward through ``reference``.
+
+    ``reference - reference.detach()`` turns non-finite entries into NaN
+    (for example ``inf - inf``). Replace those entries with ``emulated`` so
+    the forward value stays device-exact in grad mode.
+    """
+    ste_reference = torch.where(
+        torch.isfinite(reference),
+        reference,
+        emulated.detach().to(dtype=reference.dtype),
+    )
+    return emulated + (ste_reference - ste_reference.detach())
