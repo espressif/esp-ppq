@@ -1214,6 +1214,20 @@ class TestInt8EmulatorCausal(unittest.TestCase):
             torch.randn(1, h, lk, d, generator=g),
         )
 
+    def test_causal_without_mask_backward_matches_reference(self):
+        from esp_ppq.executor.op.torch.espdl_attention import _espdl_attention_reference
+
+        q, k, v = (tensor.requires_grad_(True) for tensor in self._qkv(5, lq=16, lk=16))
+        op = self._op({"is_causal": 1, "scale": self.SCALE})
+        out = self._forward(op, [q, k, v])
+        grads = torch.autograd.grad(out.sum(), [q, k, v])
+        references = [tensor.detach().requires_grad_(True) for tensor in (q, k, v)]
+        reference = _espdl_attention_reference(*references, None, self.SCALE, True, layout="BHND")
+        reference_grads = torch.autograd.grad(reference.sum(), references)
+        for got, want in zip(grads, reference_grads):
+            self.assertTrue(torch.allclose(got, want))
+        self.assertFalse(torch.equal(grads[0], torch.zeros_like(grads[0])))
+
     def test_square_causal_matches_lower_triangular_mask(self):
         q, k, v = self._qkv(0)
         out = self._forward(self._op({"is_causal": 1}), [q, k, v])
@@ -1251,6 +1265,131 @@ class TestInt8EmulatorCausal(unittest.TestCase):
                 out = self._forward(self._op({"is_causal": 1}), [q, k, v])
                 keep = torch.ones(lq, lk, dtype=torch.bool).tril()
                 self.assertTrue(torch.equal(out, self._emu(q, k, v, keep)))
+
+
+class TestInt8SteNonFiniteReference(unittest.TestCase):
+    """STE keeps the integer forward when fp32 SDPA reference is non-finite."""
+
+    S = 0.0234375  # 3/128
+    SCALE = 0.125
+
+    def _op(self, num_inputs=3):
+        from types import SimpleNamespace
+
+        from esp_ppq.core.quant import QuantizationStates
+
+        cfg = SimpleNamespace(
+            dominated_by=None,
+            state=QuantizationStates.ACTIVATED,
+            policy=SimpleNamespace(has_property=lambda _prop: True),
+            num_of_bits=8,
+            scale=torch.tensor(self.S),
+        )
+        op = _attention_op({"scale": self.SCALE}, num_inputs=num_inputs)
+        op.input_quant_config = [cfg] * num_inputs
+        op.output_quant_config = [cfg]
+        return op
+
+    def test_grad_mode_keeps_emulated_forward_when_reference_has_nonfinite(self):
+        from esp_ppq.executor.op.torch.espdl_attention import (
+            _emulator_mask,
+            _espdl_attention_reference,
+            _simulate_espdl_int8_attention,
+            espdl_attention_forward,
+            set_espdl_attention_simulation_enabled,
+        )
+
+        g = torch.Generator().manual_seed(7)
+        q = torch.randn(1, 2, 6, 16, generator=g, requires_grad=True)
+        k = torch.randn(1, 2, 6, 16, generator=g, requires_grad=True)
+        v = torch.randn(1, 2, 6, 16, generator=g, requires_grad=True)
+        mask = torch.zeros(1, 1, 6, 6)
+        mask[..., 2, 3] = float("inf")
+
+        with torch.no_grad():
+            reference = _espdl_attention_reference(
+                q.detach().float(),
+                k.detach().float(),
+                v.detach().float(),
+                mask,
+                scale=self.SCALE,
+                is_causal=False,
+                layout="BHND",
+            )
+        self.assertTrue(torch.isnan(reference).any(), "test setup must trigger non-finite fp32 reference")
+
+        set_espdl_attention_simulation_enabled(True)
+        try:
+            out = espdl_attention_forward(self._op(num_inputs=4), [q, k, v, mask])[0]
+        finally:
+            set_espdl_attention_simulation_enabled(False)
+
+        emu_mask = _emulator_mask(mask, False, 6, 6, q.device)
+        with torch.no_grad():
+            expected = _simulate_espdl_int8_attention(
+                q.detach().float(),
+                k.detach().float(),
+                v.detach().float(),
+                self.SCALE,
+                self.S,
+                self.S,
+                self.S,
+                self.S,
+                "BHND",
+                attn_mask=emu_mask,
+            ).to(dtype=q.dtype)
+
+        self.assertTrue(torch.isfinite(expected).all())
+        self.assertTrue(torch.isfinite(out).all())
+        self.assertTrue(torch.equal(out.detach(), expected))
+
+        out.sum().backward()
+        self.assertIsNotNone(q.grad)
+
+        # The STE guard protects the emulated *forward* only. The fp32
+        # reference is the NaN source: an additive +inf mask makes SDPA
+        # compute inf - inf inside softmax, and backward through those rows
+        # stays NaN exactly as torch's own scaled_dot_product_attention.
+        # Real pipelines fold masks with -inf, which never creates such rows.
+        # Pin that contract instead of implying a clean gradient: the STE
+        # path keeps the reference's NaN rows and adds no new ones.
+        ref_q = q.detach().clone().requires_grad_(True)
+        ref_k = k.detach().clone().requires_grad_(True)
+        ref_v = v.detach().clone().requires_grad_(True)
+        reference = _espdl_attention_reference(
+            ref_q.float(),
+            ref_k.float(),
+            ref_v.float(),
+            mask,
+            scale=self.SCALE,
+            is_causal=False,
+            layout="BHND",
+        )
+        reference.sum().backward()
+        self.assertTrue(torch.isnan(reference).any())
+        self.assertTrue(torch.equal(torch.isnan(q.grad), torch.isnan(ref_q.grad)))
+        self.assertTrue(torch.equal(torch.isnan(k.grad), torch.isnan(ref_k.grad)))
+        self.assertTrue(torch.equal(torch.isnan(v.grad), torch.isnan(ref_v.grad)))
+
+    def test_reference_zeros_only_all_neg_inf_rows(self):
+        from esp_ppq.executor.op.torch.espdl_attention import _espdl_attention_reference
+
+        g = torch.Generator().manual_seed(11)
+        q = torch.randn(1, 1, 4, 8, generator=g)
+        k = torch.randn(1, 1, 4, 8, generator=g)
+        v = torch.randn(1, 1, 4, 8, generator=g)
+        scale = 8**-0.5
+        neg = torch.zeros(1, 1, 4, 4)
+        neg[0, 0, 1, :] = float("-inf")
+        pos = torch.zeros(1, 1, 4, 4)
+        pos[0, 0, 1, :] = float("inf")
+
+        neg_out = _espdl_attention_reference(q, k, v, neg, scale=scale, is_causal=False, layout="BHND")
+        pos_out = _espdl_attention_reference(q, k, v, pos, scale=scale, is_causal=False, layout="BHND")
+
+        self.assertTrue(torch.all(neg_out[:, :, 1] == 0))
+        self.assertTrue(torch.isnan(pos_out[:, :, 1]).all())
+        self.assertTrue(torch.isfinite(pos_out[:, :, 0]).all())
 
 
 class TestInt16Emulator(unittest.TestCase):
@@ -1309,6 +1448,45 @@ class TestInt16Emulator(unittest.TestCase):
         self.assertTrue(torch.all(out[:, :, 3] == 0))
         self.assertTrue(torch.any(out[:, :, 2] != 0))
 
+    def test_fully_masked_row_keeps_device_value_and_finite_grad(self):
+        from types import SimpleNamespace
+
+        from esp_ppq.core.quant import QuantizationStates
+        from esp_ppq.executor.op.torch.espdl_attention import (
+            espdl_attention_forward,
+            set_espdl_attention_simulation_enabled,
+        )
+
+        q, k, v = (tensor.requires_grad_(True) for tensor in self._qkv(2))
+        mask = torch.zeros(1, 1, 16, 32)
+        mask[0, 0, 3, :] = float("-inf")
+        mask.requires_grad_(True)
+        cfg = SimpleNamespace(
+            dominated_by=None,
+            state=QuantizationStates.ACTIVATED,
+            policy=SimpleNamespace(has_property=lambda _prop: True),
+            num_of_bits=16,
+            scale=torch.tensor(self.S),
+        )
+        op = _attention_op(num_inputs=4)
+        op.input_quant_config = [cfg, cfg, cfg, cfg]
+        op.output_quant_config = [cfg]
+        values = [q, k, v, mask]
+        set_espdl_attention_simulation_enabled(True)
+        try:
+            with torch.no_grad():
+                device_value = espdl_attention_forward(op, [tensor.detach() for tensor in values])[0]
+            out = espdl_attention_forward(op, values)[0]
+        finally:
+            set_espdl_attention_simulation_enabled(False)
+        self.assertTrue(torch.equal(out, device_value))
+        self.assertTrue(torch.all(out[:, :, 3] == 0))
+        grads = torch.autograd.grad(out.sum(), values)
+        for grad in grads:
+            self.assertTrue(torch.isfinite(grad).all())
+        self.assertTrue(torch.all(grads[0][:, :, 3] == 0))
+        self.assertTrue(torch.any(grads[0][:, :, 2] != 0))
+
     def test_rectangular_causal_is_upper_left(self):
         for lq, lk in ((8, 20), (20, 8)):
             with self.subTest(lq=lq, lk=lk):
@@ -1344,6 +1522,55 @@ class TestInt16Emulator(unittest.TestCase):
         finally:
             set_espdl_attention_simulation_enabled(False)
         self.assertTrue(torch.equal(out, self._emu(q, k, v)))
+
+    def test_forward_keeps_device_values_and_float_backward(self):
+        from types import SimpleNamespace
+
+        from esp_ppq.core.quant import QuantizationStates
+        from esp_ppq.executor.op.torch.espdl_attention import (
+            _espdl_attention_reference,
+            espdl_attention_forward,
+            set_espdl_attention_simulation_enabled,
+        )
+
+        # Causal, BNHD, an explicit scale, and a non-zero additive mask. A
+        # zero mask with default attributes cannot tell a wrong reference apart.
+        scale = 0.125
+        q, k, v = self._qkv(4, lq=16, lk=16)
+        q, k, v = (tensor.transpose(1, 2).contiguous() for tensor in (q, k, v))
+        generator = torch.Generator().manual_seed(7)
+        mask = torch.randn(1, 1, 16, 16, generator=generator)
+        mask[..., 0] = 0.0
+        q, k, v, mask = (tensor.requires_grad_(True) for tensor in (q, k, v, mask))
+        cfg = SimpleNamespace(
+            dominated_by=None,
+            state=QuantizationStates.ACTIVATED,
+            policy=SimpleNamespace(has_property=lambda _prop: True),
+            num_of_bits=16,
+            scale=torch.tensor(self.S),
+        )
+        op = _attention_op({"is_causal": 1, "layout": "BNHD", "scale": scale}, num_inputs=4)
+        op.input_quant_config = [cfg, cfg, cfg, cfg]
+        op.output_quant_config = [cfg]
+        values = [q, k, v, mask]
+        set_espdl_attention_simulation_enabled(True)
+        try:
+            with torch.no_grad():
+                device_value = espdl_attention_forward(op, [tensor.detach() for tensor in values])[0]
+            out = espdl_attention_forward(op, values)[0]
+        finally:
+            set_espdl_attention_simulation_enabled(False)
+        self.assertTrue(torch.equal(out, device_value))
+        grads = torch.autograd.grad(out.sum(), values)
+        references = [tensor.detach().requires_grad_(True) for tensor in values]
+        reference = _espdl_attention_reference(*references[:3], references[3], scale, True, layout="BNHD")
+        reference_grads = torch.autograd.grad(reference.sum(), references)
+        for got, want in zip(grads, reference_grads):
+            self.assertTrue(torch.allclose(got, want))
+        wrong_scale = [tensor.detach().requires_grad_(True) for tensor in values]
+        wrong = _espdl_attention_reference(*wrong_scale[:3], wrong_scale[3], scale * 2, True, layout="BNHD")
+        wrong_grads = torch.autograd.grad(wrong.sum(), wrong_scale)
+        self.assertFalse(torch.allclose(grads[0], wrong_grads[0]))
 
 
 class TestRuntimeMaskContract(unittest.TestCase):

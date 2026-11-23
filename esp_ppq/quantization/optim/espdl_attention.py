@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import torch
 
-from esp_ppq.core import DataType, TargetPlatform
+from esp_ppq.core import ESPDL_QUANT_PLATFORMS, DataType, TargetPlatform
 from esp_ppq.executor.op.torch.espdl_attention import (
     _decode_layout,
     _layout_head_seq_axes,
@@ -28,28 +28,10 @@ logger = NaiveLogger.get_logger('PPQ')
 
 ATTENTION = "Attention"
 
-# ESP-DL platforms supporting fused Attention.
-ESPDL_ATTENTION_PLATFORMS = frozenset(
-    {
-        TargetPlatform.ESPDL_INT8,
-        TargetPlatform.ESPDL_INT16,
-        TargetPlatform.ESPDL_H_PRE_INT16,
-        TargetPlatform.ESPDL_W8A16,
-        TargetPlatform.ESPDL_S3_INT8,
-        TargetPlatform.ESPDL_S3_INT16,
-        TargetPlatform.ESPDL_S3_H_PRE_INT16,
-        TargetPlatform.ESPDL_S3_W8A16,
-        TargetPlatform.ESPDL_C_INT8,
-        TargetPlatform.ESPDL_C_INT16,
-        TargetPlatform.ESPDL_C_H_PRE_INT16,
-        TargetPlatform.ESPDL_C_W8A16,
-    }
-)
-
 
 def espdl_attention_platform_unsupported_reason(platform: Optional[TargetPlatform]) -> Optional[str]:
     """None if ``platform`` can run a fused Attention node (``None`` = unspecified)."""
-    if platform is None or platform in ESPDL_ATTENTION_PLATFORMS:
+    if platform is None or platform in ESPDL_QUANT_PLATFORMS:
         return None
     return f"platform {platform.name} has no Attention kernel in the current implementation"
 
@@ -624,6 +606,14 @@ def _rewrite_where_masks_to_add(graph: BaseGraph) -> int:
         logger.debug(
             f'[espdl-attention-fusion] detected {misses} MatMul->[scale?]->Where(mask)'
             f'->Softmax->MatMul pattern(s) that could not be constant-folded'
+        )
+        # INFO, not DEBUG: an unfolded Where keeps an op that esp-dl can not
+        # run, and only the user can fix the export. Restored after the
+        # format_graph refactor dropped the report summary printer.
+        logger.info(
+            '[espdl-attention] a Where(mask) before Softmax folds into the Attention only when its '
+            '``cond`` and ``-inf`` side are static constants (esp-dl has no Where kernel); re-export '
+            'with ``attn_mask`` as an additive float tensor to enable fusion'
         )
     return rewired
 

@@ -71,6 +71,11 @@ from .defs import (
 )
 from .ffi import CUDA
 from .quant import (
+    ESPDL_C_PLATFORMS,
+    ESPDL_P4_PLATFORMS,
+    ESPDL_QUANT_PLATFORMS,
+    ESPDL_S3_PLATFORMS,
+    ESPDL_S8_PLATFORMS,
     ChannelwiseTensorQuantizationConfig,
     NetworkFramework,
     OperationQuantizationConfig,

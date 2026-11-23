@@ -19,8 +19,11 @@ from esp_ppq.core import (
 )
 from esp_ppq.executor.op.torch.default import TopK_forward
 from esp_ppq.IR import BaseGraph, Operation, Opset
+from esp_ppq.IR.quantize import QuantableOperation
+from esp_ppq.parser.espdl.espdl_typedef import EspQuantType
+from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern
 from esp_ppq.parser.espdl_exporter import EspdlExporter
-from esp_ppq.quantization.quantizer.EspdlQuantizer import EspdlQuantizer
+from esp_ppq.quantization.quantizer.EspdlQuantizer import EspdlInt16Quantizer, EspdlQuantizer
 
 
 def _topk_graph(
@@ -210,6 +213,24 @@ def test_topk_quantizer_does_not_impose_device_contract():
     config = EspdlQuantizer(graph).init_quantize_config(op)
 
     assert config.input_quantization_config[1].state == QuantizationStates.FP32
+
+
+@pytest.mark.parametrize(
+    ("platform", "quantizer_cls", "expected_quant_type"),
+    [
+        (TargetPlatform.ESPDL_INT8, EspdlQuantizer, EspQuantType.S8),
+        (TargetPlatform.ESPDL_INT16, EspdlInt16Quantizer, EspQuantType.S16),
+    ],
+)
+def test_topk_quant_type_follows_values_and_ignores_fp32_indices(platform, quantizer_cls, expected_quant_type):
+    graph, op = _topk_graph(platform=platform)
+    config = quantizer_cls(graph).init_quantize_config(op)
+    assert config.input_quantization_config[1].state == QuantizationStates.FP32
+    assert config.output_quantization_config[1].state == QuantizationStates.FP32
+    quantized = QuantableOperation(convert_from=op, quantize_config=config, platform=platform)
+
+    InsertQuantTypePattern().export(quantized, graph)
+    assert quantized.attributes["quant_type"] == expected_quant_type
 
 
 def test_topk_quantizer_aligns_values_even_across_upstream_platforms():

@@ -9,6 +9,7 @@ from esp_ppq.core import (
     DataType,
     OperationQuantizationConfig,
     QuantizationStates,
+    QuantizationVisibility,
     RoundingPolicy,
 )
 from esp_ppq.executor.op.torch.espdl_rotary_embedding import (
@@ -22,6 +23,9 @@ from esp_ppq.IR import BaseGraph
 from esp_ppq.IR.base.opdef import RotaryEmbedding_Socket
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.lib import LinearQuantizationConfig
+from esp_ppq.lib.quant import Quantizer
+from esp_ppq.parser.espdl.espdl_typedef import EspQuantType, ExporterPatternInfo
+from esp_ppq.parser.espdl.export_patterns import InsertQuantTypePattern, QuantVariableToIntPattern
 from esp_ppq.quantization.quantizer import EspdlQuantizer
 
 
@@ -97,6 +101,17 @@ def _make_quantized_rope(
     return graph, quantized
 
 
+def _replace_operation(graph: BaseGraph, op: QuantableOperation):
+    plain = graph.operations[op.name]
+    graph.operations[op.name] = op
+    for var in op.inputs + op.outputs:
+        if var.source_op is plain:
+            var.source_op = op
+        for index, dest in enumerate(var.dest_ops):
+            if dest is plain:
+                var.dest_ops[index] = op
+
+
 def test_rope_dynamic_cache_promotion_updates_kl_histogram_geometry():
     """Global KL calibration must remain valid after cache int8 -> int16 promotion."""
     graph = BaseGraph(name="dynamic_rope_calibration")
@@ -121,6 +136,206 @@ def test_rope_dynamic_cache_promotion_updates_kl_histogram_geometry():
     expected_bins = 32 * (1 << 15)
     for cache_config in config.input_quantization_config[1:3]:
         assert cache_config.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] == expected_bins
+
+
+def _make_runtime_rope():
+    graph = BaseGraph(name="dynamic_rope_export_route")
+    x = graph.create_variable("x")
+    x.shape, x.dtype = [1, 2, 3, 32], DataType.FP32
+    cos_src = graph.create_variable("cos_src")
+    cos_src.shape, cos_src.dtype = [1, 3, 16], DataType.FP32
+    sin_src = graph.create_variable("sin_src")
+    sin_src.shape, sin_src.dtype = [1, 3, 16], DataType.FP32
+    cos = graph.create_variable("cos")
+    cos.shape, cos.dtype = [1, 3, 16], DataType.FP32
+    sin = graph.create_variable("sin")
+    sin.shape, sin.dtype = [1, 3, 16], DataType.FP32
+    y = graph.create_variable("y")
+    y.shape, y.dtype = [1, 2, 3, 32], DataType.FP32
+    graph.create_operation(
+        op_type="Relu",
+        name="cos_runtime",
+        platform=TargetPlatform.ESPDL_INT8,
+        inputs=[cos_src],
+        outputs=[cos],
+    )
+    graph.create_operation(
+        op_type="Relu",
+        name="sin_runtime",
+        platform=TargetPlatform.ESPDL_INT8,
+        inputs=[sin_src],
+        outputs=[sin],
+    )
+    rope = graph.create_operation(
+        op_type="RotaryEmbedding",
+        name="rope",
+        attributes={},
+        platform=TargetPlatform.ESPDL_INT8,
+        inputs=[x, cos, sin],
+        outputs=[y],
+    )
+    return graph, rope
+
+
+def test_rope_runtime_cache_promotion_keeps_s8_quant_type():
+    graph, rope = _make_runtime_rope()
+    config = EspdlQuantizer(graph).init_quantize_config(rope)
+    assert [item.num_of_bits for item in config.input_quantization_config] == [8, 16, 16]
+    quantized = QuantableOperation(convert_from=rope, quantize_config=config, platform=TargetPlatform.ESPDL_INT8)
+    _replace_operation(graph, quantized)
+
+    InsertQuantTypePattern().export(quantized, graph)
+    assert quantized.attributes["quant_type"] == EspQuantType.S8
+
+
+def test_rope_constant_cache_width_may_differ_from_activation_width():
+    graph, rope = _make_quantized_rope(x_bits=8, cache_bits=16, y_bits=8)
+
+    InsertQuantTypePattern().export(rope, graph)
+
+    assert rope.attributes["quant_type"] == EspQuantType.S8
+
+
+@pytest.mark.parametrize("reason", ["fp32_state", "internal_visibility"])
+def test_rope_constant_cache_dtypes_must_match(reason):
+    graph, rope = _make_quantized_rope(x_bits=8, cache_bits=16, y_bits=8)
+    if reason == "fp32_state":
+        rope.input_quant_config[1].state = QuantizationStates.FP32
+    else:
+        rope.input_quant_config[1].visibility = QuantizationVisibility.INTERNAL
+
+    with pytest.raises(ValueError, match=r"cos/sin cache inputs to share one dtype"):
+        InsertQuantTypePattern().export(rope, graph)
+
+
+def _make_runtime_rope_with_cache_configs(*, cos_visibility, sin_visibility, producer_fp32):
+    """Runtime cos/sin producers plus hand-built S16 cache configs."""
+    graph, rope = _make_runtime_rope()
+    quantizer = Quantizer(TargetPlatform.ESPDL_INT8, graph)
+    rounding = RoundingPolicy.ROUND_HALF_EVEN
+    for producer_name in ("cos_runtime", "sin_runtime"):
+        producer = quantizer.quantize_operation(producer_name, platform=TargetPlatform.ESPDL_INT8)
+        if producer_fp32:
+            producer.output_quant_config[0].state = QuantizationStates.FP32
+        else:
+            producer.output_quant_config[0] = _config(8, -7, rounding)
+        _replace_operation(graph, producer)
+
+    cache_configs = []
+    for visibility in (cos_visibility, sin_visibility):
+        cache_config = _config(16, -15, rounding)
+        cache_config.visibility = visibility
+        cache_configs.append(cache_config)
+    config = OperationQuantizationConfig(
+        input_quantization_configs=[_config(8, -7, rounding), *cache_configs],
+        output_quantization_configs=[_config(8, -7, rounding)],
+    )
+    quantized = QuantableOperation(convert_from=rope, quantize_config=config, platform=TargetPlatform.ESPDL_INT8)
+    _replace_operation(graph, quantized)
+    return graph, quantized
+
+
+def test_rope_skipped_runtime_cache_follows_its_producer_dtype():
+    """An INTERNAL runtime cache keeps the producer's INT8 output, so mixing it with S16 must fail."""
+    graph, rope = _make_runtime_rope_with_cache_configs(
+        cos_visibility=QuantizationVisibility.INTERNAL,
+        sin_visibility=QuantizationVisibility.EXPORT_WHEN_ACTIVE,
+        producer_fp32=False,
+    )
+
+    with pytest.raises(ValueError, match=r"cos/sin cache inputs to share one dtype"):
+        InsertQuantTypePattern().export(rope, graph)
+
+
+def test_rope_skipped_runtime_cache_matches_a_fp32_producer():
+    """Two skipped caches over FP32 producers stay FP32, which the device accepts."""
+    graph, rope = _make_runtime_rope_with_cache_configs(
+        cos_visibility=QuantizationVisibility.INTERNAL,
+        sin_visibility=QuantizationVisibility.INTERNAL,
+        producer_fp32=True,
+    )
+
+    InsertQuantTypePattern().export(rope, graph)
+
+    assert rope.attributes["quant_type"] == EspQuantType.S8
+
+
+def test_rope_runtime_cache_dtypes_must_match():
+    graph, rope = _make_runtime_rope()
+    config = EspdlQuantizer(graph).init_quantize_config(rope)
+    config.input_quantization_config[1].state = QuantizationStates.FP32
+    config.input_quantization_config[2] = _config(16, -15, RoundingPolicy.ROUND_HALF_EVEN)
+    quantized = QuantableOperation(convert_from=rope, quantize_config=config, platform=TargetPlatform.ESPDL_INT8)
+    _replace_operation(graph, quantized)
+
+    with pytest.raises(ValueError, match=r"cos/sin cache inputs to share one dtype"):
+        InsertQuantTypePattern().export(quantized, graph)
+
+
+def _make_runtime_rope_with_producer_bits(*, cos_bits, sin_bits, cos_state, sin_state):
+    """Runtime producers with explicit widths, plus cache configs in the given states."""
+    graph, rope = _make_runtime_rope()
+    quantizer = Quantizer(TargetPlatform.ESPDL_INT8, graph)
+    rounding = RoundingPolicy.ROUND_HALF_EVEN
+    for producer_name, bits in (("cos_runtime", cos_bits), ("sin_runtime", sin_bits)):
+        producer = quantizer.quantize_operation(producer_name, platform=TargetPlatform.ESPDL_INT8)
+        producer.output_quant_config[0] = _config(bits, -7 if bits == 8 else -15, rounding)
+        _replace_operation(graph, producer)
+
+    cache_configs = []
+    for state in (cos_state, sin_state):
+        cache_config = _config(16, -15, rounding)
+        cache_config.state = state
+        cache_configs.append(cache_config)
+    config = OperationQuantizationConfig(
+        input_quantization_configs=[_config(8, -7, rounding), *cache_configs],
+        output_quantization_configs=[_config(8, -7, rounding)],
+    )
+    quantized = QuantableOperation(convert_from=rope, quantize_config=config, platform=TargetPlatform.ESPDL_INT8)
+    _replace_operation(graph, quantized)
+    return quantized
+
+
+def _write_runtime_cache_dtypes(rope):
+    """Dtype QuantVariableToIntPattern leaves on the two cache tensors."""
+    ExporterPatternInfo().reset()
+    try:
+        for cache in rope.inputs[1:3]:
+            producer = cache.source_op
+            if isinstance(producer, QuantableOperation):
+                QuantVariableToIntPattern().export(producer, None)
+        QuantVariableToIntPattern().export(rope, None)
+        return rope.inputs[1].dtype, rope.inputs[2].dtype
+    finally:
+        ExporterPatternInfo().reset()
+
+
+def test_rope_fp32_cache_config_follows_mismatched_producer_dtypes():
+    """A FP32 cache config is skipped, so INT8 and INT16 producers must not export."""
+    rope = _make_runtime_rope_with_producer_bits(
+        cos_bits=8,
+        sin_bits=16,
+        cos_state=QuantizationStates.FP32,
+        sin_state=QuantizationStates.FP32,
+    )
+
+    with pytest.raises(ValueError, match=r"cos/sin cache inputs to share one dtype, got \['S8', 'S16'\]"):
+        InsertQuantTypePattern().export(rope, None)
+    assert _write_runtime_cache_dtypes(rope) == (DataType.INT8, DataType.INT16)
+
+
+def test_rope_fp32_cache_config_matches_an_int16_producer():
+    """A skipped FP32 config over an INT16 producer matches an exported S16 cache."""
+    rope = _make_runtime_rope_with_producer_bits(
+        cos_bits=16,
+        sin_bits=16,
+        cos_state=QuantizationStates.FP32,
+        sin_state=QuantizationStates.ACTIVATED,
+    )
+
+    InsertQuantTypePattern().export(rope, None)
+    assert rope.attributes["quant_type"] == EspQuantType.S8
+    assert _write_runtime_cache_dtypes(rope) == (DataType.INT16, DataType.INT16)
 
 
 def test_rope_reference_rejects_zero_head_dimension():
@@ -163,6 +378,52 @@ def test_four_input_native_rope_reaches_explicit_backend_validation():
                 position_ids.value,
             ],
         )
+
+
+def test_p4_rope_forward_keeps_device_values_and_float_backward():
+    _, rope = _make_quantized_rope()
+    x = torch.randn(1, 2, 3, 32, requires_grad=True)
+    cos = torch.randn(1, 3, 16, requires_grad=True)
+    sin = torch.randn(1, 3, 16, requires_grad=True)
+    values = [x, cos, sin]
+    with torch.no_grad():
+        device_value = espdl_rotary_embedding_forward(rope, [tensor.detach() for tensor in values])
+    out = espdl_rotary_embedding_forward(rope, values)
+    assert torch.equal(out, device_value)
+    out.sum().backward()
+    references = [tensor.detach().requires_grad_(True) for tensor in values]
+    rotary_embedding_reference(rope, references).sum().backward()
+    for tensor, reference in zip(values, references):
+        assert tensor.grad is not None
+        assert torch.isfinite(tensor.grad).all()
+        assert torch.allclose(tensor.grad, reference.grad)
+
+
+def test_p4_rope_ste_masks_nonfinite_reference_forward():
+    _, rope = _make_quantized_rope()
+    x = torch.randn(1, 2, 3, 32, dtype=torch.float32, requires_grad=True)
+    cos = torch.randn(1, 3, 16, dtype=torch.float32)
+    cos[..., 0] = float("inf")
+    cos.requires_grad_(True)
+    sin = torch.randn(1, 3, 16, dtype=torch.float32, requires_grad=True)
+    values = [x, cos, sin]
+
+    with torch.no_grad():
+        device_value = espdl_rotary_embedding_forward(rope, [tensor.detach() for tensor in values])
+        reference = rotary_embedding_reference(rope, [tensor.detach() for tensor in values])
+    assert not torch.isfinite(reference).all(), "test setup must produce non-finite fp32 reference"
+
+    out = espdl_rotary_embedding_forward(rope, values)
+    assert torch.equal(out.detach(), device_value)
+    assert torch.isfinite(out).all()
+
+    out.sum().backward()
+    references = [tensor.detach().clone().requires_grad_(True) for tensor in values]
+    rotary_embedding_reference(rope, references).sum().backward()
+    for tensor, reference in zip(values, references):
+        assert tensor.grad is not None
+        assert reference.grad is not None
+        assert torch.equal(~torch.isfinite(tensor.grad), ~torch.isfinite(reference.grad))
 
 
 def test_p4_rope_emulator_models_int_min_scalar_fallback():

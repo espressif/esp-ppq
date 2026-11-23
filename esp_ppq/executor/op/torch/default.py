@@ -1,12 +1,15 @@
+import math
 import operator
+import os
 from functools import reduce
-from typing import List
+from typing import List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import _VF
 
 from esp_ppq.core import (
+    ESPDL_QUANT_PLATFORMS,
     GRU_FLATTEN_WEIGHT_ATTRIB,
     LSTM_FLATTEN_WEIGHT_ATTRIB,
     DataType,
@@ -16,11 +19,13 @@ from esp_ppq.core import (
 from esp_ppq.IR import Operation
 from esp_ppq.log import NaiveLogger
 from esp_ppq.utils import process_attribute
+from esp_ppq.utils.round import ppq_tensor_round
 
 from .base import *
 from .espdl_attention import (
     ESPDL_ATTENTION_LAYOUTS,
     _decode_layout,
+    _extract_sym_scale,
     compose_causal_into_mask,
     espdl_attention_eligible,
     espdl_attention_forward,
@@ -1659,12 +1664,18 @@ def NonZero_forward(
 
 
 def Clip_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
+    """Clip with torch.clamp.
+
+    Parsed graphs already store min and max as inputs. The passive parameter
+    pass puts those inputs on the same scale as the data input, and the
+    executor fake-quants them before this call. A graph that still carries
+    min and max as attributes clamps those attributes directly.
+    """
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
     if len(values) == 1:
         values.append(op.attributes.get('min', float('-inf')))
         values.append(op.attributes.get('max', float('+inf')))
-    output = torch.clamp(*values)
-    return output
+    return torch.clamp(*values)
 
 
 def Slice_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs) -> torch.Tensor:
@@ -2925,6 +2936,133 @@ def LeakyRelu_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBacke
     return output
 
 
+# esp-dl's quantized LayerNorm kernel is shared by P4, S3, and C. Rounding
+# comes from each platform's quant config: P4 is half-even, S3 and C are
+# half-up. int8 sums truncate to int32; int16 sums stay in int64.
+# ``op.platform`` selects ESP-DL emulation; ``config.num_of_bits`` selects the
+# 8-bit or 16-bit kernel (and matches ``InsertQuantTypePattern`` at export).
+def _layernorm_dominant_config(config):
+    parent = getattr(config, 'dominated_by', None)
+    if parent is not None and parent is not config:
+        return parent
+    return config
+
+
+def _layernorm_configs(op: Operation, has_bias: bool) -> Optional[list]:
+    """X, scale, optional bias, and Y, each followed to its dominant config."""
+    in_cfg = list(getattr(op, 'input_quant_config', ()) or ())
+    out_cfg = list(getattr(op, 'output_quant_config', ()) or ())
+    if len(in_cfg) < 2 or len(out_cfg) < 1 or (has_bias and len(in_cfg) < 3):
+        return None
+    picked = [in_cfg[0], in_cfg[1], out_cfg[0]] if not has_bias else [in_cfg[0], in_cfg[1], in_cfg[2], out_cfg[0]]
+    return [_layernorm_dominant_config(config) for config in picked]
+
+
+def _layernorm_quantization(op: Operation, has_bias: bool) -> Optional[Tuple[List[float], list, bool]]:
+    """Symmetric int8 or int16 scales for the device kernel.
+
+    Returns (scales, configs, accum_int32). int8 sums truncate to int32 and
+    int16 sums stay in int64. None keeps the float reference before calibration.
+    """
+    use_emulator = getattr(op, 'platform', None) in ESPDL_QUANT_PLATFORMS or os.environ.get(
+        'ESPDL_LAYERNORM_DEVICE_EMULATE', '0'
+    ) in ('1', 'true', 'True')
+    configs = _layernorm_configs(op, has_bias) if use_emulator else None
+    if not configs:
+        return None
+    for bits, accum_int32 in ((8, True), (16, False)):
+        scales = [_extract_sym_scale(config, bits) for config in configs]
+        if all(scale is not None for scale in scales):
+            return scales, configs, accum_int32
+    if all(_extract_sym_scale(config, int(getattr(config, 'num_of_bits', 0))) is not None for config in configs):
+        bit_widths = [int(getattr(config, 'num_of_bits', 0)) for config in configs]
+        raise ValueError(
+            f'Layernorm {op.name} on esp-dl requires all tensors to share one bit width (8 or 16), got {bit_widths}.'
+        )
+    return None
+
+
+def _layernorm_fp32_scalars(device, n: int, eps: float):
+    one = torch.tensor(1.0, dtype=torch.float32, device=device)
+    inv_n = one / torch.tensor(float(n), dtype=torch.float32, device=device)
+    eps_t = torch.tensor(float(eps), dtype=torch.float32, device=device)
+    return one, inv_n, eps_t
+
+
+def _layernorm_inv_std(arg: torch.Tensor) -> torch.Tensor:
+    """1/sqrt(arg) in fp32.
+
+    Matches ``dl::math::fast_inv_sqrt`` while ``DL_FAST_MATH`` is 0, which is
+    ``1.0f / sqrtf``. The float LayerNorm kernel still uses ``sqrt_newton``.
+    """
+    one = torch.tensor(1.0, dtype=torch.float32, device=arg.device)
+    return one / torch.sqrt(arg)
+
+
+def _layernorm_to_codes(value: torch.Tensor, scale: torch.Tensor, config) -> torch.Tensor:
+    codes = ppq_tensor_round(value / scale, config.rounding)
+    return codes.clamp(int(config.quant_min), int(config.quant_max)).to(torch.int64)
+
+
+def _layernorm_torch(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor], eps: float) -> torch.Tensor:
+    """ONNX LayerNorm, for the float path and for backward."""
+    return F.layer_norm(x, weight.shape, weight, bias, eps)
+
+
+def _layernorm_integer(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    eps: float,
+    scales: Sequence[float],
+    configs: Sequence,
+    accum_int32: bool,
+) -> torch.Tensor:
+    x32 = x.float()
+    n = int(x32.shape[-1])
+    one, inv_n, eps_t = _layernorm_fp32_scalars(x.device, n, eps)
+    if bias is None:
+        x_scale, w_scale, y_scale = scales
+        b_scale = 0.0
+        x_cfg, w_cfg, y_cfg = configs
+        b_cfg = None
+    else:
+        x_scale, w_scale, b_scale, y_scale = scales
+        x_cfg, w_cfg, b_cfg, y_cfg = configs
+
+    x_scale_t = torch.tensor(x_scale, dtype=torch.float32, device=x.device)
+    w_scale_t = torch.tensor(w_scale, dtype=torch.float32, device=x.device)
+    b_scale_t = torch.tensor(b_scale, dtype=torch.float32, device=x.device)
+    y_scale_t = torch.tensor(y_scale, dtype=torch.float32, device=x.device)
+    x_codes = _layernorm_to_codes(x32, x_scale_t, x_cfg)
+    w_codes = _layernorm_to_codes(weight.float(), w_scale_t, w_cfg)
+    if bias is None:
+        b_codes = torch.zeros(n, dtype=torch.int64, device=x.device)
+    else:
+        b_codes = _layernorm_to_codes(bias.float(), b_scale_t, b_cfg)
+
+    sum_val = x_codes.sum(dim=-1, dtype=torch.int64)
+    sumsq = x_codes.square().sum(dim=-1, dtype=torch.int64)
+    if accum_int32:
+        sum_val = sum_val.to(torch.int32).to(torch.int64)
+        sumsq = sumsq.to(torch.int32).to(torch.int64)
+    var_q = (n * sumsq - sum_val * sum_val).to(torch.float32) * (inv_n * inv_n)
+    var_scaled = torch.clamp(var_q, min=0) * (x_scale_t * x_scale_t)
+    arg = var_scaled + eps_t
+    inv_std = _layernorm_inv_std(arg)
+
+    mean_q = sum_val.to(torch.float32) * inv_n
+    gain = inv_std * x_scale_t
+    centered = (x_codes.to(torch.float32) - mean_q.unsqueeze(-1)) * gain.unsqueeze(-1)
+    y_rescale_t = one / y_scale_t
+    norm_a = w_codes.to(torch.float32).reshape(-1) * w_scale_t * y_rescale_t
+    norm_b = b_codes.to(torch.float32).reshape(-1) * b_scale_t * y_rescale_t
+    scaled = centered * norm_a
+    codes = ppq_tensor_round(scaled + norm_b, y_cfg.rounding)
+    codes = codes.clamp(int(y_cfg.quant_min), int(y_cfg.quant_max))
+    return (codes * y_scale_t).to(dtype=x.dtype)
+
+
 def LayerNorm_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBackendContext = None, **kwargs):
     """
     This is layer normalization defined in ONNX as function.
@@ -2992,20 +3130,35 @@ def LayerNorm_forward(op: Operation, values: List[torch.Tensor], ctx: TorchBacke
     values = VALUE_TO_EXECUTING_DEVICE(op=op, ctx=ctx, values=values)
 
     x, weight = values[0], values[1]
-    if len(values) == 3:
-        bias = values[-1]
-    else:
-        bias = None
-
+    bias = values[2] if len(values) == 3 else None
     eps = op.attributes.get('epsilon', 1e-5)
     axis = op.attributes.get('axis', -1)
-
     if axis != -1 and axis != x.ndim - 1:
         raise ValueError('Unsupported Layernorm axis. We will implement it soon.')
 
-    normalized_shape = weight.shape
-    output = F.layer_norm(x, normalized_shape, weight, bias, eps)
-    return output
+    quant = _layernorm_quantization(op, bias is not None)
+    if quant is None:
+        return _layernorm_torch(x, weight, bias, eps)
+    # esp-dl's kernel normalizes the last dimension only, and applies scale and
+    # bias elementwise along that dimension. A leading 1 still has a different
+    # shape, so numel() is not the constraint.
+    expected = (x.shape[-1],)
+    if tuple(weight.shape) != expected or (bias is not None and tuple(bias.shape) != expected):
+        raise ValueError(
+            f'Layernorm {op.name} on esp-dl only normalizes the last dimension; '
+            f'scale and bias must have shape {expected}.'
+        )
+    scales, configs, accum_int32 = quant
+    with torch.no_grad():
+        emulated = _layernorm_integer(x, weight, bias, eps, scales, configs, accum_int32)
+    needs_grad = torch.is_grad_enabled() and any(
+        tensor is not None and tensor.requires_grad for tensor in (x, weight, bias)
+    )
+    if not needs_grad:
+        return emulated
+    reference = _layernorm_torch(x, weight, bias, eps)
+    # Backward follows F.layer_norm. The forward value stays on the integer kernel.
+    return ste_keep_emulated_forward(emulated, reference)
 
 
 def RMSNormalization_forward(

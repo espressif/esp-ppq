@@ -483,9 +483,11 @@ class BiasCorrectionPass(TrainingBasedPass):
                 reduce_dims = [i for i in range(output.ndim) if i != 1]
                 return torch.mean(output, dim=reduce_dims).unsqueeze(0)
             elif op_type in {'Gemm'}:
-                # for convolution layer, bias always been added on axis -1
+                # Bias is added on the last axis. Rank-3 decoder Gemm is
+                # [1, tokens, C]; reducing only dim 0 leaves the token axis
+                # and cannot broadcast onto a [C] bias.
                 reduce_dims = [i for i in range(output.ndim) if i != (output.ndim - 1)]
-                return torch.mean(output, dim=(0,)).unsqueeze(0)
+                return torch.mean(output, dim=reduce_dims).unsqueeze(0)
             else:
                 raise TypeError(f'Unsupported Operation type: {op_type}')
 

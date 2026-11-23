@@ -9,41 +9,24 @@ from typing import List, Optional, Sequence, Tuple
 import torch
 
 from esp_ppq.core import (
+    ESPDL_C_PLATFORMS,
+    ESPDL_P4_PLATFORMS,
+    ESPDL_QUANT_PLATFORMS,
+    ESPDL_S3_PLATFORMS,
     QuantizationProperty,
     QuantizationStates,
     RoundingPolicy,
-    TargetPlatform,
 )
 from esp_ppq.IR import Operation
 from esp_ppq.IR.quantize import QuantableOperation
 from esp_ppq.quantization.qfunction import PPQLinearQuant_toInt
 from esp_ppq.utils.round import ppq_tensor_round
 
-from .base import ASSERT_NUM_OF_INPUT, GET_ATTRIBUTE_FROM_OPERATION
+from .base import ASSERT_NUM_OF_INPUT, GET_ATTRIBUTE_FROM_OPERATION, ste_keep_emulated_forward
 
 _ENV_DEVICE_EMULATE_KEY = "ESPDL_ROPE_DEVICE_EMULATE"
 _ESPDL_ROPE_SIMULATION_ENABLED = False
-_ROPE_P4_PLATFORMS = frozenset(
-    {
-        TargetPlatform.ESPDL_INT8,
-        TargetPlatform.ESPDL_INT16,
-        TargetPlatform.ESPDL_H_PRE_INT16,
-        TargetPlatform.ESPDL_W8A16,
-    }
-)
-_ROPE_HALF_UP_PLATFORMS = frozenset(
-    {
-        TargetPlatform.ESPDL_S3_INT8,
-        TargetPlatform.ESPDL_S3_INT16,
-        TargetPlatform.ESPDL_S3_H_PRE_INT16,
-        TargetPlatform.ESPDL_S3_W8A16,
-        TargetPlatform.ESPDL_C_INT8,
-        TargetPlatform.ESPDL_C_INT16,
-        TargetPlatform.ESPDL_C_H_PRE_INT16,
-        TargetPlatform.ESPDL_C_W8A16,
-    }
-)
-_ROPE_EMULATED_PLATFORMS = _ROPE_P4_PLATFORMS | _ROPE_HALF_UP_PLATFORMS
+_ROPE_HALF_UP_PLATFORMS = ESPDL_S3_PLATFORMS | ESPDL_C_PLATFORMS
 _READY_STATES = frozenset(
     {
         QuantizationStates.ACTIVATED,
@@ -342,7 +325,7 @@ def simulate_espdl_rotary_embedding(
     qs = qs.unsqueeze(1)
 
     qx_first, qx_second = qx[..., :D_half], qx[..., D_half:]
-    is_p4_platform = op_platform in _ROPE_P4_PLATFORMS or op_platform is None
+    is_p4_platform = op_platform in ESPDL_P4_PLATFORMS or op_platform is None
 
     typed_integer_combo = (
         x_bits == cos_bits == sin_bits == y_bits == 8
@@ -397,15 +380,26 @@ def espdl_rotary_embedding_forward(
     ctx=None,
     **kwargs,
 ) -> torch.Tensor:
-    """RoPE executor entry point: P4 integer model when eligible, fp32 otherwise."""
+    """RoPE executor entry point: P4 integer model when eligible, fp32 otherwise.
+
+    Integer forward values stay device-exact. When a tracked input requires
+    grad, backward follows ``rotary_embedding_reference``.
+    """
     if (
-        getattr(op, "platform", None) in _ROPE_EMULATED_PLATFORMS
+        getattr(op, "platform", None) in ESPDL_QUANT_PLATFORMS
         or _ESPDL_ROPE_SIMULATION_ENABLED
         or os.environ.get(_ENV_DEVICE_EMULATE_KEY, "0") in {"1", "true", "True"}
     ):
-        emulated = simulate_espdl_rotary_embedding(op, values)
+        with torch.no_grad():
+            emulated = simulate_espdl_rotary_embedding(op, values)
         if emulated is not None:
-            return emulated
+            needs_grad = torch.is_grad_enabled() and any(
+                tensor is not None and tensor.requires_grad for tensor in values[:3]
+            )
+            if not needs_grad:
+                return emulated
+            reference = rotary_embedding_reference(op, values, ctx=ctx, **kwargs)
+            return ste_keep_emulated_forward(emulated, reference)
     return rotary_embedding_reference(op, values, ctx=ctx, **kwargs)
 
 

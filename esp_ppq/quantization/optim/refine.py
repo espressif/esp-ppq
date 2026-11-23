@@ -377,6 +377,11 @@ class QuantizeFusionPass(QuantizationOptimizationPass):
                             act_op_output_config.quant_min = -int(pow(2, max_num_of_bits - 1))
                             act_op_output_config.detail[OBSERVER_KL_HIST_BINS_MANUL_OVERRIDE] = kl_bins
 
+                    if (
+                        computing_op.config.output_quantization_config[0].dominated_by.num_of_bits
+                        != act_op.config.output_quantization_config[0].dominated_by.num_of_bits
+                    ):
+                        continue
                     computing_op.config.output_quantization_config[
                         0
                     ].dominated_by = act_op.config.output_quantization_config[0]
